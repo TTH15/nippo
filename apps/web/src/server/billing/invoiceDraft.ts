@@ -348,6 +348,7 @@ export async function buildCounterpartyDraft(
     qty: line.quantity,
     price: line.unitPrice,
     priceBasis: line.priceBasis,
+    unit: line.unit,
   }));
   const deduct: DraftLine[] = snap.deductLines.map((line) => ({
     title: line.label,

@@ -17,7 +17,8 @@ import type { ReportContentUnit } from "@/lib/reportContent";
 import { hasCapability } from "@/lib/capabilities";
 import { getStoredDriver } from "@/lib/api";
 import { faPenToSquare } from "@fortawesome/free-solid-svg-icons";
-import { VehiclePlate } from "@/lib/components/VehiclePlate";
+import { ReportVehicleNumber } from "@/lib/components/ReportVehicleNumber";
+import type { ReportVehicleNumber as NumberEvidence } from "@/lib/reportVehicleNumber";
 import { reportDateDefaultJST } from "@/lib/date";
 import type { SelectOption } from "@/lib/components/CustomSelect";
 import { OtherReportsContent } from "../misc-reports/others/OtherReportsContent";
@@ -100,6 +101,8 @@ type DaySummaryReport = {
   vehicle_id: string | null;
   meter_value: number | null;
   vehicle_plate: VehiclePlatePayload | null;
+  vehicle_number_evidence?: NumberEvidence | null;
+  vehicle_number_unavailable?: boolean;
   amazon_am_mochidashi?: number;
   amazon_am_completed?: number;
   amazon_pm_mochidashi?: number;
@@ -732,13 +735,7 @@ export default function AdminDailyPage() {
                                     <td className="py-2 px-2 align-middle text-center">
                                       {reps.length === 0 ? dash : (
                                         <div className={stackCls}>
-                                          {reps.map((r) =>
-                                            r.vehicle_plate && (r.vehicle_plate.number_prefix || r.vehicle_plate.number_hiragana || r.vehicle_plate.number_numeric) ? (
-                                              <VehiclePlate key={r.id} vehicle={r.vehicle_plate} compact className="max-w-[150px] mx-auto" />
-                                            ) : (
-                                              <span key={r.id} className="text-xs text-slate-400">—</span>
-                                            ),
-                                          )}
+                                          {reps.map((r) => <ReportVehicleNumber key={r.id} report={r} className="mx-auto" />)}
                                         </div>
                                       )}
                                     </td>

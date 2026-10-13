@@ -49,3 +49,9 @@ describe("シフトメモの端末間受け渡し", () => {
     expect(visible).toContain('"2026-10-01","第一区域","第二区域","甲","3","確認中"');
   });
 });
+
+it("候補の非表示をJSONで復元し、利用できないIDと不正値は除外する", () => {
+ const hidden = { ...board, hiddenPeople: { "driver:driver-1": true, "custom:乙": true } as Record<string,true> };
+ expect(parseShiftMemoTransfer(exportShiftMemo(hidden),context).board.hiddenPeople).toEqual(hidden.hiddenPeople);
+ expect(parseShiftMemoTransfer(exportShiftMemo(hidden),{...context,driverIds:[]}).board.hiddenPeople).toEqual({"custom:乙":true});
+});

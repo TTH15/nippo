@@ -8,6 +8,8 @@ import { loadReportContents } from "@/server/aggregation/reportContent";
 import { fetchAllRows, IN_CLAUSE_BATCH_SIZE } from "@/server/aggregation/pagination";
 import { loadPendingDates } from "@/server/daily/pendingDates";
 
+import { loadVehicleNumberEvidence } from "@/server/daily/vehicleNumberEvidence";
+
 export const dynamic = "force-dynamic";
 
 // 2026-08 監査での構造変更:
@@ -201,6 +203,8 @@ export async function GET(req: NextRequest) {
       (reportRows ?? []).map((r: any) => r.id).filter(Boolean),
     );
 
+    const numberEvidence = await loadVehicleNumberEvidence(supabase, orgId, reportRows);
+
     const reportsByDateDriver = new Map<string, Map<string, any>>();
     (reportRows ?? []).forEach((r: any) => {
       const date = r.report_date;
@@ -234,6 +238,8 @@ export async function GET(req: NextRequest) {
         vehicle_id: r.vehicle_id ?? null,
         meter_value: r.meter_value != null ? Number(r.meter_value) : null,
         vehicle_plate: toPlatePayload(veh),
+        vehicle_number_evidence: numberEvidence.values.get(r.id) ?? null,
+        vehicle_number_unavailable: numberEvidence.unavailable && !veh?.number_numeric,
       });
       reportsByDateDriver.get(date)!.set(driverId, arr);
     });

@@ -5,6 +5,8 @@ import InvoiceNewPage from "@/app/(admin)/admin/(accounting)/invoices/new/page";
 import { invoicePreviewFixture, invoiceEditFixture, invoiceListFixture, invoiceNewFixture, individualInvoicePreviewFixture, individualInvoiceEditFixture } from "./invoices";
 import ReportKindsPage from "@/app/(admin)/admin/report-kinds/page";
 import ReportImageTemplatesPage from "@/app/(admin)/admin/(settings)/report-image-templates/page";
+import AdminDailyPage from "@/app/(admin)/admin/(ops)/daily/page";
+import { dailyFixture } from "./daily";
 import ReportImagesPage from "@/app/(admin)/admin/(ops)/report-images/page";
 import { reportImagesFixture } from "./reportImages";
 import { reportImageTemplatesFixture } from "./reportImageTemplates";
@@ -67,6 +69,7 @@ export const PREVIEW_PAGES: PreviewPageEntry[] = [
   entry("shifts", shiftsFixture, ShiftsPage),
   entry("report-kinds", reportKindsFixture, ReportKindsPage),
   entry("report-image-templates", reportImageTemplatesFixture, ReportImageTemplatesPage),
+  entry("daily", dailyFixture, AdminDailyPage),
   entry("report-images", reportImagesFixture, ReportImagesPage),
   entry("invoice-preview", invoicePreviewFixture, InvoicePreviewPage),
   entry("invoice-edit", invoiceEditFixture, InvoiceEditPage),

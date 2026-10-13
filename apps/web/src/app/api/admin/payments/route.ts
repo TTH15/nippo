@@ -5,7 +5,8 @@ import { supabase } from "@/server/db/client";
 import { loadAggregationData } from "@/server/aggregation/load";
 import { buildContext, buildContributions, sumBy, isCountableReport } from "@/server/aggregation/compute";
 import { loadDriverLeases, loadCourseDailyLease, computeLeaseDeduction } from "@/server/billing/driverLease";
-import { isActiveInMonth } from "@/lib/drivers/activePeriod";
+import { isMemberInPeriod } from "@/lib/drivers/activePeriod";
+import { fetchAllRows, IN_CLAUSE_BATCH_SIZE } from "@/server/aggregation/pagination";
 
 export const dynamic = "force-dynamic";
 
@@ -65,7 +66,7 @@ export async function GET(req: NextRequest) {
   // 名簿・シフトと並び順を揃える（list_no 昇順）。稼働期間は下の絞り込みに使う。
   const { data: drivers, error: driversError } = await supabase
     .from("drivers")
-    .select("id, name, display_name, status, list_no, active_from_month, active_until_month")
+    .select("id, name, display_name, status, list_no, active_from_month, active_until_month, created_at")
     .eq("org_id", orgId)
     .eq("works_as_driver", true)
     .order("list_no", { ascending: true, nullsFirst: false })
@@ -140,11 +141,29 @@ export async function GET(req: NextRequest) {
     if (adHocByDriver[row.driver_id] !== undefined) adHocByDriver[row.driver_id] += Number(row.amount) || 0;
   });
 
-  // その月に稼働していたか（稼働開始月〜終了月）。status は「いま」の状態しか表さないので使わない。
+  // 登録日時より前の移行実績、再稼働前の実績も消さない。自社のコースと所属IDの
+  // 両方で絞る。シフトが無い在籍者を必ず除く仕様にはしない。
+  const evidenceDriverIds = new Set(data.reports.filter(isCountableReport).map(r => r.driverId));
+  const courseIds = data.courseBillingMeta.map(c => c.courseId);
+  const ownDriverIds = new Set(driverIds);
+  for (let i = 0; i < courseIds.length; i += IN_CLAUSE_BATCH_SIZE) {
+    const slice = courseIds.slice(i, i + IN_CLAUSE_BATCH_SIZE);
+    const shiftRows = await fetchAllRows((from, to) => supabase
+      // tenant-scope-ok: slice は自社の courses、driverIds は自社の drivers から作った集合
+      .from("shifts").select("id, driver_id").in("course_id", slice)
+      .gte("shift_date", startDate).lte("shift_date", endDate).order("id").range(from, to));
+    for (const shift of shiftRows) if (ownDriverIds.has(shift.driver_id)) evidenceDriverIds.add(shift.driver_id);
+  }
+  // 相殺されて合計0でも、既存の金額行がある支払いを見落とさない。
+  const moneyDriverIds = new Set([...(fixedRows ?? []), ...(adHocRows ?? [])]
+    .filter(row => Number(row.amount) !== 0).map(row => row.driver_id));
+  for (const contribution of auto) if (contribution.payout !== 0) moneyDriverIds.add(contribution.driverId);
+
+  // 開始・終了月と登録日で表示期間を判定。active/inactiveの現在状態で過去を区別しない。
   const activeInMonth = new Map(
-    (drivers as { id: string; active_from_month: string | null; active_until_month: string | null }[]).map((d) => [
+    drivers.map((d) => [
       d.id,
-      isActiveInMonth(d, month),
+      isMemberInPeriod(d, startDate, endDate),
     ]),
   );
 
@@ -177,9 +196,9 @@ export async function GET(req: NextRequest) {
     // ただし稼働期間の外でも報酬・控除が残っている人は消さずに出し、印を付ける。
     // 稼働期間の入力漏れ（実在する）で支払いを見落とさないため。
     .filter((r) => {
-      if (activeInMonth.get(r.driverId)) return true;
+      if (activeInMonth.get(r.driverId) || evidenceDriverIds.has(r.driverId)) return true;
       const hasMoney =
-        r.incomeLog !== 0 || r.fixedDeductions !== 0 || r.adHocDeductions !== 0 || r.leaseDeductions !== 0;
+        moneyDriverIds.has(r.driverId) || r.incomeLog !== 0 || r.fixedDeductions !== 0 || r.adHocDeductions !== 0 || r.leaseDeductions !== 0;
       if (hasMoney) r.outsideActivePeriod = true;
       return hasMoney;
     });

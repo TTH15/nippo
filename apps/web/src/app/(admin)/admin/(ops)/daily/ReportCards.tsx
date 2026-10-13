@@ -5,7 +5,8 @@
 
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCircleCheck, faPenToSquare } from "@fortawesome/free-solid-svg-icons";
-import { VehiclePlate } from "@/lib/components/VehiclePlate";
+import { ReportVehicleNumber } from "@/lib/components/ReportVehicleNumber";
+import type { ReportVehicleNumber as NumberEvidence } from "@/lib/reportVehicleNumber";
 import { getDisplayName } from "@/lib/displayName";
 import { carrierBadgeLabel, carrierBadgeTone } from "@/lib/carrierBadge";
 import { ReportContentView } from "@/lib/components/ReportContentView";
@@ -38,6 +39,8 @@ type ReportLike = {
   submitted_at?: string;
   meter_value?: number | null;
   vehicle_plate?: VehiclePlatePayload | null;
+  vehicle_number_evidence?: NumberEvidence | null;
+  vehicle_number_unavailable?: boolean;
 };
 
 const fmtTime = (s?: string) =>
@@ -76,9 +79,6 @@ export function ReportContent({ r, muted }: { r: ReportLike; muted?: boolean }) 
   return <ReportContentView units={r.content} muted={muted} />;
 }
 
-function hasPlate(p?: VehiclePlatePayload | null): p is VehiclePlatePayload {
-  return !!p && !!(p.number_prefix || p.number_hiragana || p.number_numeric);
-}
 
 function CardShell({ muted, children }: { muted?: boolean; children: React.ReactNode }) {
   return (
@@ -165,11 +165,7 @@ export function PendingDriverCard({
                 <span className="text-[11px] text-slate-400 tabular-nums shrink-0">{fmtTime(r.submitted_at)} 送信</span>
               </div>
               <div className="mt-1.5 flex items-center gap-2">
-                {hasPlate(r.vehicle_plate) ? (
-                  <VehiclePlate vehicle={r.vehicle_plate} compact className="max-w-[150px]" />
-                ) : (
-                  <span className="text-xs text-slate-400">車両 —</span>
-                )}
+                <ReportVehicleNumber report={r} />
                 {r.meter_value != null && (
                   <span className="text-xs tabular-nums text-slate-600">
                     {r.meter_value.toLocaleString()}
