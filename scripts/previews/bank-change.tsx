@@ -1,4 +1,4 @@
-import { BankChangePageContent } from "@/app/account/bank-change/page";
+import BankChangePageContent from "@/app/account/bank-change/page";
 import { ScenarioBar } from "./kernel/AdminLayout";
 import { usePreviewRuntime, useStoreRevision } from "./kernel/runtime";
 export default function BankChangePreview() {

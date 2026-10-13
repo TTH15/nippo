@@ -5,7 +5,7 @@ import { Nav } from "@/lib/components/Nav";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronLeft } from "@fortawesome/free-solid-svg-icons";
 
-export function BankChangePageContent() {
+export default function BankChangePageContent() {
   return <div className="min-h-screen bg-[var(--color-bg)]"><Nav variant="user" />
     <main className="mx-auto w-full max-w-lg px-4 py-6">
       <Link href="/me" className="mb-4 inline-flex min-h-11 items-center gap-2 text-sm text-slate-600"><FontAwesomeIcon icon={faChevronLeft} className="w-3" />マイページ</Link>
@@ -14,4 +14,3 @@ export function BankChangePageContent() {
     </main>
   </div>;
 }
-export default BankChangePageContent;
