@@ -23,7 +23,7 @@ export const meFixture: PreviewFixture<ReturnType<typeof accountFixture.createSt
     lastkey: { label: "最後の鍵", description: "最後の鍵の削除を防ぐ" },
   },
   createState: (context) => ({ ...accountFixture.createState({ ...context, scenario: context.scenario === "bank-no-passkey" ? "empty" : "normal" }),
-    phoneVerified: !["both-missing", "phone-missing", "no-phone"].includes(context.scenario), phoneSent: false, readAttempts: 0, writeAttempts: 0, phone: context.scenario === "no-phone" ? "" : "09000000000", pendingPhone: "", bankProof: null, proofAttempts: 0,
+    phoneVerified: !["both-missing", "phone-missing", "no-phone"].includes(context.scenario), phoneSent: false, readAttempts: 0, writeAttempts: 0, phone: ["both-missing", "phone-missing", "no-phone"].includes(context.scenario) ? "" : "09000000000", pendingPhone: "", bankProof: null, proofAttempts: 0,
     bank: ["normal", "registered", "phone-missing", "long-name", "bank-no-passkey", "bank-passkey-error", "bank-passkey-cancel", "bank-expired", "bank-conflict", "bank-change-error"].includes(context.scenario)
       ? { bankName: context.scenario === "long-name" ? "見本銀行 配送事業者共同営業センター支店" : "見本銀行 中央支店", bankNo: "1234567", bankHolder: context.scenario === "long-name" ? "カブシキガイシャ ミホンハイソウサービス ダイヒョウトリシマリヤク ミホン タロウ" : "ミホン タロウ" }
       : { bankName: "", bankNo: "", bankHolder: "" },

@@ -428,3 +428,5 @@ mobile previewの `board=ribbon&state=closeout&revision=closeout` で日報/駐�
 同じ3241 runnerで `/preview/admin/driver-setup-designs` を開く。A下線・コンパクト（外枠480px/入力56px/文字24px）、B淡い背景（480px/56px/24px）、Cコード入力に集中（448px/60px/コード32px）を並べる。各案は実DriverSetupGateとNav/MePageContentの隔離iframe。電話入力→送信→コード123456→口座まで操作でき、3案を初期化で戻せる。design=a/b/cのCSS変更はpreviewだけ。本番API/認証/DB/SMSには接続しない。比較用の3URLだけ同一origin iframeを許可し、他のrunnerページはframe-ancestors noneのまま。PCは3列、1000px以下は縦並び。
 
 - 2026/10/13最終仕様: `/preview/admin/driver-setup?scenario=both-missing` で電話→単一input/6マスOTP→チェック→口座を試す。`no-phone` で初回番号入力、`phone-missing` で電話だけ、`bank-missing` で口座だけ。外枠/タイトル/主操作位置は固定、進捗は1 / 2・2 / 2（省略時1 / 1）。SMSの架空コード123456、誤コード000000、変更/再送に対応。3案比較の装飾はOTPの透明inputを上書きしないよう適用対象を制限した。本番サービス未接続。実SMSの自動補完とOSキーボードは未検証。
+
+- 2026/10/13修正: both-missing / phone-missing / no-phoneは電話番号を空から入力する。未登録モックの仮番号による入力拒否を解消。OTPの端のフォーカス枠を内側へ収め、数字のあるマスをクリックしても最後の1桁まで削除可能にした。6桁の貼り付けは途中の入力を全置換し、各マスに1字表示する。変更後の表示はページを再読み込みする。
