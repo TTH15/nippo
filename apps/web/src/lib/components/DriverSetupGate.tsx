@@ -17,7 +17,7 @@ export type SetupBank = BankAccount;
 type SetupState = { profile: Profile; bank: SetupBank; hasPasskey: boolean };
 type Step = "phone" | "bank";
 export const hasSetupBank = (bank: SetupBank) => bankFields.every(key => !!bank[key]?.trim());
-const inputClass = "block h-12 w-full appearance-none rounded-none border-0 border-b-2 border-slate-300 bg-transparent px-0 py-3 text-base text-slate-900 shadow-none outline-none placeholder:text-slate-400 focus:border-slate-900 focus:outline-none focus:ring-0 disabled:text-slate-500";
+const inputClass = "block h-14 w-full appearance-none rounded-none border-0 border-b-2 border-slate-300 bg-transparent px-0 py-2 text-2xl leading-8 text-slate-900 shadow-none outline-none placeholder:text-slate-400 focus:border-slate-900 focus:outline-none focus:ring-0 disabled:text-slate-500";
 const buttonClass = "min-h-11 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50";
 
 export function DriverSetupGate({ children }: { children: ReactNode }) {
@@ -144,7 +144,7 @@ export function DriverSetupPanel({ required = false, children, onDirtyChange }: 
   const phoneSection = state && <section className={setupSectionClass}>
     <div className="mb-4 flex items-center justify-between gap-3"><h2 className="text-sm font-semibold text-slate-800">電話番号の確認</h2><SetupBadge complete={state.profile.phoneVerified} /></div>
     {state.profile.phoneVerified ? <p className="text-base font-semibold text-slate-900">{formatJPPhoneDisplay(state.profile.phone || phone)}</p> : <>
-      <label className="block space-y-2 text-sm text-slate-600"><span>電話番号 <span className="text-xs text-red-700">必須</span></span><input aria-label="電話番号" type="tel" autoComplete="tel" inputMode="tel" value={phone} disabled={!!busy || codeSent} onChange={event => setPhone(event.target.value)} className={inputClass} placeholder="090-1234-5678" /></label>
+      <label className="block space-y-2 text-sm text-slate-600"><span>電話番号 <span className="text-xs text-red-700">必須</span></span><input aria-label="電話番号" type="tel" autoComplete="tel" inputMode="tel" value={phone} disabled={!!busy || codeSent} onChange={event => setPhone(event.target.value)} className={inputClass} placeholder="09012345678" /></label>
       {codeSent && <div className="mt-4 space-y-3">
         <p className="text-xs text-slate-500">{formatJPPhoneDisplay(phone)} に送ったSMSの6桁の数字</p>
         <label className="block space-y-2 text-sm text-slate-600"><span>認証コード</span><input autoFocus aria-label="認証コード" autoComplete="one-time-code" inputMode="numeric" maxLength={6} value={code} onChange={event => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} className={inputClass} /></label>

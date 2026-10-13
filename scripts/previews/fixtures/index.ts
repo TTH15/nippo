@@ -26,6 +26,7 @@ import LoginPreview from "../login";
 import OnboardingPreview from "../onboarding";
 import RecoverPreview from "../recover";
 import DriverSetupPreview from "../driver-setup";
+import DriverSetupDesigns from "../driver-setup-designs";
 import MePreview from "../me";
 import ReportPreview from "../report";
 import { reportFixture } from "./report";
@@ -83,6 +84,7 @@ export const PREVIEW_PAGES: PreviewPageEntry[] = [
   entry("onboarding", onboardingFixture, OnboardingPreview),
   entry("recover", recoverFixture, RecoverPreview),
   entry("me", meFixture, MePreview),
+  entry("driver-setup-designs", { ...meFixture, id: "driver-setup-designs", title: "利用開始準備の3案比較", pathname: "/driver-setup-designs" }, DriverSetupDesigns),
   entry("driver-setup", { ...meFixture, id: "driver-setup", title: "利用開始の準備", pathname: "/driver-setup" }, DriverSetupPreview),
   // 地図は Mapbox の公開キーが要る: npm run preview:admin -- admin --mapbox
   entry("map", mapFixture, MapPage),
