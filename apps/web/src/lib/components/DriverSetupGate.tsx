@@ -2,6 +2,10 @@
 
 import { useEffect, useId, useState, type ReactNode } from "react";
 import { startAuthentication } from "@simplewebauthn/browser";
+import { motion, useReducedMotion } from "motion/react";
+import { SmoothCollapse } from "@/lib/components/SmoothCollapse";
+import { OtpCodeInput } from "@/lib/components/OtpCodeInput";
+import { disclosureTransition, instantTransition, setupConfirmationDelayMs } from "@/lib/ui/motion";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCircleCheck, faLock } from "@fortawesome/free-solid-svg-icons";
 import { apiFetch } from "@/lib/api";
@@ -26,6 +30,7 @@ export function DriverSetupGate({ children }: { children: ReactNode }) {
 
 export function DriverSetupPanel({ required = false, children, onDirtyChange }: { required?: boolean; children?: ReactNode; onDirtyChange?: (dirty: boolean) => void }) {
   const id = useId();
+  const reduceMotion = useReducedMotion();
   const supported = useIsWebAuthnHost();
   const [state, setState] = useState<SetupState | null>(null);
   const [loadError, setLoadError] = useState(false);
@@ -40,6 +45,7 @@ export function DriverSetupPanel({ required = false, children, onDirtyChange }: 
   const [phone, setPhone] = useState("");
   const [codeSent, setCodeSent] = useState(false);
   const [code, setCode] = useState("");
+  const [phoneSuccess, setPhoneSuccess] = useState(false);
   const [busy, setBusy] = useState<"bank" | "send" | "verify" | null>(null);
   const [bankError, setBankError] = useState("");
   const [phoneError, setPhoneError] = useState("");
@@ -48,6 +54,18 @@ export function DriverSetupPanel({ required = false, children, onDirtyChange }: 
   const changingBank = !!state && hasSetupBank(state.bank);
   useUnsavedChanges(dirty);
   useEffect(() => { onDirtyChange?.(dirty); return () => onDirtyChange?.(false); }, [dirty, onDirtyChange]);
+
+  useEffect(() => {
+    if (!phoneSuccess) return;
+    const timer = window.setTimeout(() => {
+      setCode(""); setCodeSent(false); setPhoneSuccess(false);
+      if (required) {
+        if (steps[stepIndex + 1]) setStepIndex(stepIndex + 1);
+        else if (state?.profile.phoneVerified && hasSetupBank(state.bank)) setEntered(true);
+      }
+    }, setupConfirmationDelayMs);
+    return () => window.clearTimeout(timer);
+  }, [phoneSuccess, required, steps, stepIndex, state]);
 
   async function readStatus() {
     const [profile, registration] = await Promise.all([
@@ -107,15 +125,14 @@ export function DriverSetupPanel({ required = false, children, onDirtyChange }: 
     } finally { setBusy(null); }
   }
   async function phoneAction(verify: boolean) {
-    if (!phone.trim() || busy) return;
+    if (!phone.trim() || busy || phoneSuccess) return;
     setPhoneError(""); setBusy(verify ? "verify" : "send");
     try {
       await apiFetch(`/api/me/phone/${verify ? "verify" : "send"}`, { method: "POST", body: JSON.stringify({ phone: phone.trim(), ...(verify ? { code } : {}) }) });
       if (verify) {
         const next = await refresh();
         if (!next.profile.phoneVerified) throw new Error("電話番号の確認状況を再読み込みしてください");
-        setCode(""); setCodeSent(false);
-        if (required && steps[stepIndex + 1]) setStepIndex(stepIndex + 1);
+        setPhoneSuccess(true);
       } else { setCodeSent(true); setCode(""); }
     } catch (error) { setPhoneError(error instanceof Error ? (error.message.startsWith("登録状況を確認できませんでした") ? "" : error.message) : "確認できませんでした。もう一度お試しください"); }
     finally { setBusy(null); }
@@ -142,15 +159,18 @@ export function DriverSetupPanel({ required = false, children, onDirtyChange }: 
   </form>;
   const setupSectionClass = required ? "w-full py-3" : "rounded-lg border border-slate-200 bg-white p-4";
   const phoneSection = state && <section className={setupSectionClass}>
-    <div className="mb-4 flex items-center justify-between gap-3"><h2 className="text-sm font-semibold text-slate-800">電話番号の確認</h2><SetupBadge complete={state.profile.phoneVerified} /></div>
-    {state.profile.phoneVerified ? <p className="text-base font-semibold text-slate-900">{formatJPPhoneDisplay(state.profile.phone || phone)}</p> : <>
-      <label className="block space-y-2 text-sm text-slate-600"><span>電話番号 <span className="text-xs text-red-700">必須</span></span><input aria-label="電話番号" type="tel" autoComplete="tel" inputMode="tel" value={phone} disabled={!!busy || codeSent} onChange={event => setPhone(event.target.value)} className={inputClass} placeholder="09012345678" /></label>
-      {codeSent && <div className="mt-4 space-y-3">
-        <p className="text-xs text-slate-500">{formatJPPhoneDisplay(phone)} に送ったSMSの6桁の数字</p>
-        <label className="block space-y-2 text-sm text-slate-600"><span>認証コード</span><input autoFocus aria-label="認証コード" autoComplete="one-time-code" inputMode="numeric" maxLength={6} value={code} onChange={event => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} className={inputClass} /></label>
-        <div className="flex flex-wrap gap-x-4"><button type="button" disabled={!!busy} onClick={() => void phoneAction(false)} className="min-h-11 text-sm text-slate-600 underline">コードを再送する</button><button type="button" disabled={!!busy} onClick={() => { setCodeSent(false); setCode(""); setPhoneError(""); }} className="min-h-11 text-sm text-slate-600 underline">番号を入力し直す</button></div>
-      </div>}
-      {!required && <button type="button" disabled={!!busy || !phone.trim() || (codeSent && code.length !== 6)} onClick={() => void phoneAction(codeSent)} className={`${buttonClass} mt-4 w-full`}>{busy ? "確認中…" : codeSent ? "電話番号を確認" : "認証コードを送信"}</button>}
+    <div className="mb-4 flex items-center justify-between gap-3"><h2 className="text-sm font-semibold text-slate-800">{codeSent || phoneSuccess ? "SMS認証コードを入力" : "電話番号の確認"}</h2><SetupBadge complete={state.profile.phoneVerified} /></div>
+    {state.profile.phoneVerified && !phoneSuccess ? <p className="text-base font-semibold text-slate-900">{formatJPPhoneDisplay(state.profile.phone || phone)}</p> : <>
+      {!codeSent && !phoneSuccess ? <label className="block space-y-2 text-sm text-slate-600"><span>電話番号 <span className="text-xs text-red-700">必須</span></span><input aria-label="電話番号" type="tel" autoComplete="tel" inputMode="tel" value={phone} disabled={!!busy} onChange={event => setPhone(event.target.value)} className={inputClass} placeholder="09012345678" /></label>
+        : <motion.div layout transition={reduceMotion ? instantTransition : disclosureTransition} className="mb-5 flex min-h-14 items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2">
+          <div className="min-w-0"><p className="text-xs text-slate-500">送信先</p><p className="whitespace-nowrap text-base font-medium text-slate-900">{formatJPPhoneDisplay(phone)}</p></div>
+          {!phoneSuccess && <button type="button" aria-label="番号を入力し直す" disabled={!!busy} onClick={() => { setCodeSent(false); setCode(""); setPhoneError(""); }} className="min-h-11 min-w-11 shrink-0 px-2 text-sm font-semibold text-slate-600 underline">変更</button>}
+        </motion.div>}
+      <SmoothCollapse open={codeSent || phoneSuccess}>
+        <OtpCodeInput value={code} onChange={value => { setCode(value); setPhoneError(""); }} disabled={!!busy} confirmed={phoneSuccess} invalid={!!phoneError} />
+        {!phoneSuccess && <button type="button" disabled={!!busy} onClick={() => void phoneAction(false)} className="mt-2 min-h-11 text-sm text-slate-600 underline">コードを再送する</button>}
+      </SmoothCollapse>
+      {!required && <button type="button" disabled={!!busy || phoneSuccess || !phone.trim() || (codeSent && code.length !== 6)} onClick={() => void phoneAction(codeSent)} className={`${buttonClass} mt-4 w-full`}>{phoneSuccess ? "確認しました" : busy ? "確認中…" : codeSent ? "電話番号を確認" : "認証コードを送信"}</button>}
     </>}
     {phoneError && <p role="alert" className="mt-3 text-sm text-red-700">{phoneError}</p>}
   </section>;
@@ -185,15 +205,16 @@ export function DriverSetupPanel({ required = false, children, onDirtyChange }: 
   const complete = !!state && state.profile.phoneVerified && hasSetupBank(state.bank) && !loadError;
   const blocked = !(entered && complete);
   const active = steps[stepIndex];
-  const action = state && (complete ? <button key="complete" type="button" disabled={!!busy || loading || dirty} onClick={() => setEntered(true)} className={`${buttonClass} w-full`}>利用を開始する</button>
-      : active === "phone" ? <button key="phone" type="button" disabled={!!busy || loading || !phone.trim() || (codeSent && code.length !== 6)} onClick={() => state.profile.phoneVerified ? setStepIndex(stepIndex + 1) : void phoneAction(codeSent)} className={`${buttonClass} w-full`}>{busy ? "確認中…" : state.profile.phoneVerified ? "次へ" : codeSent ? "電話番号を確認" : "認証コードを送信"}</button>
-      : !changingBank ? <button key="bank" type="submit" form={`${id}-bank-form`} disabled={!!busy || loading || loadError} className={`${buttonClass} w-full`}>{busy === "bank" ? "保存中…" : "口座を登録して利用を開始"}</button> : null);
-  const footer = <>
-    {steps.length > 0 && <div className="relative flex min-h-11 items-center justify-center">{stepIndex > 0 && <button type="button" disabled={!!busy} onClick={() => setStepIndex(stepIndex - 1)} className="absolute left-0 min-h-11 px-2 text-xs text-slate-600">戻る</button>}<ol aria-label="登録の進み具合" className="flex items-center gap-2">{steps.map((step, index) => <li key={step} aria-current={index === stepIndex ? "step" : undefined} aria-label={`${step === "phone" ? "電話番号" : "振込口座"} ${index + 1}/${steps.length}`}><span className={`block h-2.5 w-2.5 rounded-full ${index === stepIndex ? "bg-slate-800" : "border border-slate-400 bg-white"}`} /></li>)}</ol></div>}
+  const action = state && (phoneSuccess ? <button type="button" disabled className={`${buttonClass} w-full`}>確認しました</button>
+    : complete ? <button key="complete" type="button" disabled={!!busy || loading || dirty} onClick={() => setEntered(true)} className={`${buttonClass} w-full`}>利用を開始する</button>
+    : active === "phone" ? <button key="phone" type="button" disabled={!!busy || loading || !phone.trim() || (codeSent && code.length !== 6)} onClick={() => state.profile.phoneVerified ? setStepIndex(stepIndex + 1) : void phoneAction(codeSent)} className={`${buttonClass} w-full`}>{busy ? "確認中…" : state.profile.phoneVerified ? "次へ" : codeSent ? "電話番号を確認" : "認証コードを送信"}</button>
+    : !changingBank ? <button key="bank" type="submit" form={`${id}-bank-form`} disabled={!!busy || loading || loadError} className={`${buttonClass} w-full`}>{busy === "bank" ? "保存中…" : "口座を登録して利用を開始"}</button> : null);
+  const footer = <>{action}
+    {steps.length > 0 && <div className="relative mt-3 flex min-h-11 items-center justify-center">{stepIndex > 0 && <button type="button" disabled={!!busy} onClick={() => setStepIndex(stepIndex - 1)} className="absolute left-0 min-h-11 px-2 text-xs text-slate-600">戻る</button>}<p aria-label="登録の進み具合" aria-live="polite" className="text-sm font-medium tabular-nums text-slate-600">{stepIndex + 1} / {steps.length}</p></div>}
   </>;
   return <>
     <div key={entered ? "ready" : "setup"} data-driver-setup-background inert={blocked || undefined} aria-hidden={blocked || undefined}>{children}</div>
-    {blocked && typeof document !== "undefined" && <EditorModal title="利用開始の準備" fixedHeight centerContent dismissible={false} onClose={() => {}} footer={footer}><div className="flex flex-col">{status}{active === "phone" ? phoneSection : active === "bank" ? bankSection : null}{action && <div className="mt-4">{action}</div>}</div>{bankEditor}</EditorModal>}
+    {blocked && typeof document !== "undefined" && <EditorModal title="利用開始の準備" variant="setup" fixedHeight dismissible={false} onClose={() => {}} footer={footer}><div className="flex min-h-full flex-col justify-center">{status}<motion.div key={active} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={reduceMotion ? instantTransition : disclosureTransition}>{active === "phone" ? phoneSection : active === "bank" ? bankSection : null}</motion.div></div>{bankEditor}</EditorModal>}
   </>;
 }
 function BankSummary({ bank, reveal = false }: { bank: BankAccount; reveal?: boolean }) {

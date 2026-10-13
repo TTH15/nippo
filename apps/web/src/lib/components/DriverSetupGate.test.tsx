@@ -37,7 +37,8 @@ async function fillBank(scope: Pick<typeof screen, "findByLabelText" | "getByLab
 it("両方未完了なら電話入力の1ページ目だけを表示し、進捗2点と背景を残す", async () => {
   gate(); await screen.findByLabelText("電話番号");
   expect(screen.queryByLabelText("口座番号")).toBeNull();
-  expect(screen.getByRole("list", { name: "登録の進み具合" }).children).toHaveLength(2);
+  expect(screen.getByLabelText("登録の進み具合")).toHaveTextContent("1 / 2");
+  expect(screen.queryByLabelText("認証コード")).toBeNull();
   expect(screen.getByText("通常の業務画面").closest("[data-driver-setup-background]")).toHaveAttribute("inert");
   expect(screen.queryByRole("button", { name: "ログアウト" })).toBeNull();
   const dialog = screen.getByRole("dialog"); fireEvent.keyDown(document, { key: "Escape" }); fireEvent.click(dialog.parentElement!);
@@ -46,7 +47,7 @@ it("両方未完了なら電話入力の1ページ目だけを表示し、進捗
 it.each(["phone", "bank"])("%sだけ未完了なら1ページ・進捗1点", async step => {
   if (step === "phone") m.bank = readyBank; else m.verified = true;
   gate(); await screen.findByLabelText(step === "phone" ? "電話番号" : "口座番号");
-  expect(screen.getByRole("list", { name: "登録の進み具合" }).children).toHaveLength(1);
+  expect(screen.getByLabelText("登録の進み具合")).toHaveTextContent("1 / 1");
 });
 it("両方登録済みならモーダルを省略する", async () => {
   m.verified = true; m.bank = readyBank; gate();
@@ -67,8 +68,11 @@ it("新しい電話を入力し、SMS誤コードから復帰して口座ペー�
   await screen.findByText("認証コードが正しくありません");
   fireEvent.change(screen.getByLabelText("認証コード"), { target: { value: "123456" } });
   fireEvent.click(screen.getByRole("button", { name: "電話番号を確認" }));
+  await screen.findByRole("status");
+  expect(screen.getByRole("button", { name: "確認しました" })).toBeDisabled();
+  expect(screen.queryByLabelText("口座番号")).toBeNull();
   await fillBank(); expect(screen.queryByLabelText("電話番号")).toBeNull();
-  expect(screen.getByLabelText("振込口座 2/2")).toHaveAttribute("aria-current", "step");
+  expect(screen.getByLabelText("登録の進み具合")).toHaveTextContent("2 / 2");
   fireEvent.click(screen.getByRole("button", { name: "口座を登録して利用を開始" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   expect(m.bank.bankNo).toBe("01234567"); expect(m.passkey).not.toHaveBeenCalled();
@@ -117,4 +121,23 @@ it("パスキー未登録の口座は変更フォームを開かない", async (
   m.hasKey = false; await openChange();
   await screen.findByText("口座を変更するには、パスキーの設定が必要です。");
   expect(screen.queryByRole("button", { name: "変更内容を確認" })).toBeNull();
+});
+
+it("口座登録済みなら電話の確認済み表示後に自動で利用を開始する", async () => {
+  m.bank = readyBank; gate();
+  fireEvent.click(await screen.findByRole("button", { name: "認証コードを送信" }));
+  fireEvent.change(await screen.findByLabelText("認証コード"), { target: { value: "123456" } });
+  fireEvent.click(screen.getByRole("button", { name: "電話番号を確認" }));
+  await screen.findByRole("button", { name: "確認しました" });
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+});
+it("番号を入力し直すとコード欄を閉じて番号編集に戻る", async () => {
+  gate(); fireEvent.click(await screen.findByRole("button", { name: "認証コードを送信" }));
+  fireEvent.change(await screen.findByLabelText("認証コード"), { target: { value: "12" } });
+  expect(screen.queryByLabelText("電話番号")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "番号を入力し直す" }));
+  expect(screen.getByLabelText("電話番号")).toBeEnabled();
+  await waitFor(() => expect(screen.queryByLabelText("認証コード")).toBeNull());
+  fireEvent.click(screen.getByRole("button", { name: "認証コードを送信" }));
+  expect(await screen.findByLabelText("認証コード")).toHaveValue("");
 });
