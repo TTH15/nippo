@@ -9,6 +9,8 @@ export const meFixture: PreviewFixture<ReturnType<typeof accountFixture.createSt
     "both-missing": { label: "両方未完了", description: "SMSと振込口座の両方が必要" },
     "phone-missing": { label: "電話未確認", description: "口座のみ登録済み" },
     "no-phone": { label: "電話番号なし", description: "番号を入力してSMSで初回確認" },
+    "legacy-bank-complete": { label: "旧形式・登録済み", description: "支店・種別の独立項目がなくても再登録しない" },
+    "legacy-bank-incomplete": { label: "旧形式・名義なし", description: "種別つき番号を分離して不足項目を補完" },
     "bank-missing": { label: "口座未登録", description: "電話番号のみ確認済み" },
     "long-name": { label: "長い名前", description: "長い名義・支店名" },
     "save-error": { label: "保存失敗", description: "最初の口座保存だけ失敗し、再保存で復帰" },
@@ -24,11 +26,13 @@ export const meFixture: PreviewFixture<ReturnType<typeof accountFixture.createSt
     legacy: { label: "旧PINユーザー", description: "PIN変更を表示しない" },
     lastkey: { label: "最後の鍵", description: "最後の鍵の削除を防ぐ" },
   },
-  createState: (context) => ({ ...accountFixture.createState({ ...context, scenario: context.scenario === "bank-no-passkey" ? "empty" : "normal" }),
+  createState: (context) => ({ ...accountFixture.createState({ ...context, scenario: ["bank-no-passkey", "legacy-bank-incomplete"].includes(context.scenario) ? "empty" : "normal" }),
     phoneVerified: !["both-missing", "phone-missing", "no-phone"].includes(context.scenario), phoneSent: false, readAttempts: 0, writeAttempts: 0, phone: ["both-missing", "phone-missing", "no-phone"].includes(context.scenario) ? "" : "09000000000", pendingPhone: "", bankProof: null, proofAttempts: 0,
-    bank: (savedBanks.get(bankKey(context)) ?? (["normal", "registered", "phone-missing", "long-name", "bank-no-passkey", "bank-passkey-error", "bank-passkey-cancel", "bank-expired", "bank-conflict", "bank-change-error"].includes(context.scenario)
+    bank: (savedBanks.get(bankKey(context)) ?? (context.scenario.startsWith("legacy-bank-")
+      ? { bankName: "見本銀行 中央支店", bankNo: "普通 01234567", bankHolder: context.scenario === "legacy-bank-complete" ? "ミホン タロウ" : "" }
+      : (["normal", "registered", "phone-missing", "long-name", "bank-no-passkey", "bank-passkey-error", "bank-passkey-cancel", "bank-expired", "bank-conflict", "bank-change-error"].includes(context.scenario)
       ? { bankName: "見本銀行", bankBranch: context.scenario === "long-name" ? "配送事業者共同営業センター支店" : "中央支店", bankType: "ordinary", bankNo: "1234567", bankHolder: context.scenario === "long-name" ? "カブシキガイシャ ミホンハイソウサービス ダイヒョウトリシマリヤク ミホン タロウ" : "ミホン タロウ" }
-      : { bankName: "", bankNo: "", bankHolder: "" })) as BankAccount,
+      : { bankName: "", bankNo: "", bankHolder: "" }))) as BankAccount,
   }),
   onReset: context => { savedBanks.delete(bankKey(context)); },
   read: (state, request, context) => {

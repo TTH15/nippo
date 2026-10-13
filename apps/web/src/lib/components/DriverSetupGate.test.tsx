@@ -196,3 +196,21 @@ it("口座変更専用ページの未登録状態は初回モーダルを開か�
   expect(screen.getByRole("link", { name: "マイページで登録する" })).toHaveAttribute("href", "/me");
   expect(screen.queryByRole("dialog")).toBeNull(); expect(screen.queryByLabelText("口座番号")).toBeNull();
 });
+
+it("従来3項目が揃う口座は種別つき番号・新項目欠落でも再登録させない", async () => {
+  m.verified = true; m.bank = { bankName: "見本銀行 中央支店", bankNo: "普通 01234567", bankHolder: "ミホン", bankBranch: "", bankType: "" };
+  gate(); await waitFor(() => expect(screen.getByText("通常の業務画面").closest("[data-driver-setup-background]")).not.toHaveAttribute("inert"));
+  expect(screen.queryByRole("dialog")).toBeNull(); expect(m.api.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+});
+it("旧形式の一部登録口座は番号と種別を分離し、未保存扱いにせず不足を補完できる", async () => {
+  m.verified = true; m.hasKey = false; m.bank = { bankName: "見本銀行 中央支店", bankNo: "普通 01234567", bankHolder: "", bankBranch: "", bankType: "" };
+  gate(); expect(await screen.findByLabelText("口座番号")).toHaveValue("01234567");
+  expect(screen.getByLabelText("口座種別")).toHaveTextContent("普通");
+  fireEvent.click(screen.getByRole("button", { name: "口座を登録して利用を開始" }));
+  await screen.findByText("支店名を入力してください"); expect(screen.getByLabelText("支店名")).toHaveAttribute("aria-invalid", "true");
+  fireEvent.change(screen.getByLabelText("支店名"), { target: { value: "中央支店" } });
+  fireEvent.change(screen.getByLabelText("口座名義（カナ）"), { target: { value: "ミホン" } });
+  fireEvent.click(screen.getByRole("button", { name: "口座を登録して利用を開始" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(m.bank.bankNo).toBe("01234567"); expect(m.bank.bankName).toBe("見本銀行"); expect(m.passkey).not.toHaveBeenCalled();
+});
