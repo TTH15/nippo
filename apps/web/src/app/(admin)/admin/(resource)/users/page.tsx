@@ -1,5 +1,6 @@
 "use client";
 import { bankAccountFromStorage, bankAccountFormValues, bankAccountTypeLabels, bankAccountTypes, type BankStorage } from "@/lib/bankAccount";
+import Link from "next/link";
 import { adminBankAccountUpdates } from "@/lib/adminBankAccount";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -187,6 +188,7 @@ const EMPTY_LEASE: LeaseForm = { enabled: false, mode: "MONTHLY", amount: "", va
 
 export default function UsersPage() {
   const [canWrite, setCanWrite] = useState(false);
+  const [canViewBanks, setCanViewBanks] = useState(false);
   const [canReadLease, setCanReadLease] = useState(false);
   const [canManageLease, setCanManageLease] = useState(false);
   const leaseRevisionRef = useRef<string | null>(null);
@@ -318,6 +320,7 @@ export default function UsersPage() {
   useEffect(() => {
     const stored = getStoredDriver();
     setCanWrite(hasCapability("can_manage_members"));
+    setCanViewBanks(hasCapability("can_view_bank_accounts"));
     setCanReadLease(hasCapability("can_view_rewards") || hasCapability("can_manage_rewards"));
     setCanManageLease(hasCapability("can_manage_rewards"));
     if (stored?.companyCode) {
@@ -1066,6 +1069,7 @@ export default function UsersPage() {
               <span className="hidden md:inline text-slate-400"> · 並び順: No.（昇順）、同値時は名前順</span>
             </p>
           </div>
+          {canWrite && canViewBanks && <Link href="/admin/users/bank-cleanup" className="inline-flex min-h-11 items-center rounded border border-slate-300 bg-white px-3 text-sm text-slate-800">口座情報を整える</Link>}
           {canWrite && (
             <Button variant="default" size="default" onClick={openNew}>
               <FontAwesomeIcon icon={faPlus} className="w-3.5 h-3.5" />

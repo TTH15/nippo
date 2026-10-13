@@ -470,3 +470,8 @@ mobile previewの `board=ribbon&state=closeout&revision=closeout` で日報/駐�
 `npm run preview:admin -- admin --port 3245`。管理は `/preview/admin/users?scenario=bank-legacy-other&role=admin`（見本 太郎→契約）、本人は `/preview/admin/bank-change?scenario=bank-other&role=admin`、初回は `/preview/admin/driver-setup?scenario=bank-missing&role=admin` で種別のその他を選ぶ。
 
 bank-canonical / bank-other / bank-legacy / bank-legacy-otherでは、上部の管理画面・マイページ・口座変更ボタンを同じタブで切替すると架空の保存値を共有する。フル再読込や初期化ではリセット。実UsersPage/DriverSetupPanel/MePageContentを再利用し、旧結合値→管理保存→本人確認→本人保存→管理再表示、具体名不足、普通への変更で具体名クリアを操作できる。保存失敗は共通の「次の保存を失敗させる」を使用。全値は架空で本番API/DB/SMS/OS Passkeyへ接続しない。新migrationは本番未適用。
+
+### 口座情報の整理（2026/10/14）
+
+`npm run preview:admin -- admin --port 3249` → `/preview/admin/bank-cleanup?scenario=normal&role=admin`。
+本番の `/admin/users/bank-cleanup` ページを再利用し、架空の半角・全角区切り、旧口座種別つき番号、その他、曖昧な口座を比較する。行の「確認済み」を選び「確認したN件を保存」で独立6項目に保存。`save-error` は部分失敗後の再試行、`conflict` は他端末変更、`large` は100件の追加読込、`empty` は対象なし。管理者は保存、経理は閲覧のみ、閲覧のみの役割は口座情報を開示しない。本番DB・SMS・認証へ接続せず、実在データは使わない。
