@@ -23,6 +23,7 @@ import SubmitPage from "../submit";
 import MyShiftsPage from "../my-shifts";
 import AccountPage from "@/app/(admin)/admin/account/page";
 import LoginPreview from "../login";
+import BankChangePreview from "../bank-change";
 import OnboardingPreview from "../onboarding";
 import RecoverPreview from "../recover";
 import DriverSetupPreview from "../driver-setup";
@@ -84,6 +85,7 @@ export const PREVIEW_PAGES: PreviewPageEntry[] = [
   entry("onboarding", onboardingFixture, OnboardingPreview),
   entry("recover", recoverFixture, RecoverPreview),
   entry("me", meFixture, MePreview),
+  entry("bank-change", { ...meFixture, id: "bank-change", title: "振込口座の変更", pathname: "/account/bank-change" }, BankChangePreview),
   entry("driver-setup-designs", { ...meFixture, id: "driver-setup-designs", title: "利用開始準備の3案比較", pathname: "/driver-setup-designs" }, DriverSetupDesigns),
   entry("driver-setup", { ...meFixture, id: "driver-setup", title: "利用開始の準備", pathname: "/driver-setup" }, DriverSetupPreview),
   // 地図は Mapbox の公開キーが要る: npm run preview:admin -- admin --mapbox

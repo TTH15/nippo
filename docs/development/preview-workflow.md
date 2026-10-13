@@ -440,3 +440,10 @@ mobile previewの `board=ribbon&state=closeout&revision=closeout` で日報/駐�
 ### SMS認証の共通UI（2026/10/13）
 
 `npm run preview:admin -- admin --port 3241` → `/preview/admin/onboarding?scenario=normal`。本番OnboardingWizardを再利用し、OtpCodeInputとuseSmsResendCooldownを初回準備・My-pageと共用。架空の氏名/生年月日/携帯番号を入力してSMS画面へ進む。コード123456で確認、000000は誤コード。`sms-error`で誤コード復帰、`sms-send-error`で初回送信失敗を確認できる。送信先表示・番号変更・6桁貼付・最終桁削除・再送60秒待機を試す。本番adapter/招待/KYC手順は維持し、モックSMS/Passkey/保存だけを使う。レビュー結果と未適用DB・mobile条件は `docs/design/driver-start-setup-2026-10-review.md`。
+
+### アプリからWebへの口座変更（2026/10/14）
+
+- Web専用ページ: `npm run preview:admin -- admin --port 3241` → `/preview/admin/bank-change?scenario=normal`。本番 `/account/bank-change` と共通DriverSetupPanelの口座編集を再利用し、初回ゲート/電話入力/準備モーダルを表示しない。`bank-passkey-cancel`、`bank-no-passkey`、`bank-expired`、`bank-change-error`、`bank-missing`で中止/未設定/期限/保存失敗/未登録を確認。
+- アプリ側: `node scripts/serve-mobile-preview.mjs --port 3242` → `/preview/admin/mobile?screen=account`。本番MeScreenをHTMLアダプターで表示し、振込口座→Webで口座を変更から3241の隔離ページを開く。画面確認の口座未登録で初回入力/保存を試せる。
+- Web内の口座fixtureは同じシナリオ/役割で遷移しても保存値を保持し、初期化で戻す。Web・nativeプレビューは別の架空データで、両サーバー間の保存値は同期しない。本番のアプリ復帰時の再取得はコードへ実装したが、OS復帰そのものは実機確認が必要。
+- Expoの画面確認モードはWeb案内をAlertに隔離し、本番URLへ移動しない。配布向けMetro設定には影響させない。

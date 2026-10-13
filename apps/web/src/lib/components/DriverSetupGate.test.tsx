@@ -100,16 +100,16 @@ it("初回口座の保存失敗は入力を保持し、再保存で完了する"
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 });
 async function openChange() {
-  m.verified = true; m.bank = { ...readyBank }; render(<DriverSetupPanel />);
+  m.verified = true; m.bank = { ...readyBank }; render(<DriverSetupPanel bankChangePage />);
   fireEvent.click(await screen.findByRole("button", { name: "振込口座を変更" }));
-  const modal = within(await screen.findByRole("dialog", { name: "振込口座を変更" }));
+  const modal = within(await screen.findByRole("region", { name: "振込口座を変更" }));
   return modal;
 }
 it("口座変更は独立モーダルで内容を確認し、毎回パスキーを検証して専用確認情報を添える", async () => {
   const modal = await openChange(); await fillBank(modal);
   expect(m.passkey).toHaveBeenCalledOnce();
   fireEvent.click(modal.getByRole("button", { name: "変更内容を確認" }));
-  const review = within(await screen.findByRole("dialog", { name: "変更内容の確認" }));
+  const review = within(await screen.findByRole("region", { name: "変更内容の確認" }));
   expect(review.getByText("01234567")).toBeInTheDocument();
   fireEvent.click(review.getByRole("button", { name: "変更を保存" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull()); expect(m.passkey).toHaveBeenCalledOnce();
@@ -119,14 +119,14 @@ it("口座変更は独立モーダルで内容を確認し、毎回パスキー�
   expect(screen.queryByRole("dialog")).toBeNull();
 });
 it("パスキー中止では編集を開かず、変更ボタンから再確認できる", async () => {
-  m.verified = true; m.bank = { ...readyBank }; render(<DriverSetupPanel />);
+  m.verified = true; m.bank = { ...readyBank }; render(<DriverSetupPanel bankChangePage />);
   m.passkey.mockRejectedValueOnce(Object.assign(new Error("cancel"), { name: "NotAllowedError" }));
   fireEvent.click(await screen.findByRole("button", { name: "振込口座を変更" }));
   await screen.findByText("パスキーの確認を中止しました。");
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(m.api.mock.calls.some(([path, init]) => path === "/api/me/registration" && init?.method === "POST")).toBe(false);
   fireEvent.click(screen.getByRole("button", { name: "振込口座を変更" }));
-  await screen.findByRole("dialog", { name: "振込口座を変更" }); expect(m.passkey).toHaveBeenCalledTimes(2);
+  await screen.findByRole("region", { name: "振込口座を変更" }); expect(m.passkey).toHaveBeenCalledTimes(2);
 });
 it("保存失敗では入力を残し、専用確認情報を取り直して再保存する", async () => {
   const modal = await openChange(); await fillBank(modal); m.failSave = true;
@@ -183,4 +183,16 @@ it("SMS確認の保存後に応答が失敗しても、同じ番号の最新確�
   fireEvent.click(screen.getByRole("button", { name: "電話番号を確認" }));
   await screen.findByRole("button", { name: "確認しました" });
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+});
+
+it("マイページの登録済み口座は専用ページへのリンクを表示する", async () => {
+  m.verified = true; m.bank = { ...readyBank }; render(<DriverSetupPanel />);
+  expect(await screen.findByRole("link", { name: "振込口座を変更" })).toHaveAttribute("href", "/account/bank-change");
+  expect(m.passkey).not.toHaveBeenCalled();
+});
+it("口座変更専用ページの未登録状態は初回モーダルを開かず登録先を案内する", async () => {
+  render(<DriverSetupPanel bankChangePage />);
+  await screen.findByText("振込口座がまだ登録されていません。");
+  expect(screen.getByRole("link", { name: "マイページで登録する" })).toHaveAttribute("href", "/me");
+  expect(screen.queryByRole("dialog")).toBeNull(); expect(screen.queryByLabelText("口座番号")).toBeNull();
 });

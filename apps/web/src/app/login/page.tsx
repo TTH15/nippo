@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState, type CSSProperties } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { bankChangeReturnPath } from "@repo/core/logic/bankChange";
 import { startAuthentication } from "@simplewebauthn/browser";
 import { apiFetch, setLoginSession, getStoredDriver } from "@/lib/api";
 import { canEnterAdmin } from "@/lib/capabilities";
@@ -52,6 +53,7 @@ function LoginPageContent() {
   const searchParams = useSearchParams();
   const canUsePasskey = useIsWebAuthnHost();
   const next = searchParams.get("next");
+  const returnTo = bankChangeReturnPath(searchParams.get("returnTo"));
   const [entry, setEntry] = useState<Entry>(next === "admin" || next === "driver" ? next : null);
   const [passkeyLoading, setPasskeyLoading] = useState(false);
   const [passkeyError, setPasskeyError] = useState("");
@@ -64,7 +66,7 @@ function LoginPageContent() {
     if (passkeyLoading) return;
     setEntry(selected);
     setPasskeyError("");
-    router.replace(selected ? `/login?next=${selected}` : "/login");
+    router.replace((selected ? `/login?next=${selected}` : "/login") + (returnTo ? `${selected ? "&" : "?"}returnTo=${encodeURIComponent(returnTo)}` : ""));
   };
 
   const handlePasskeyLogin = async (target: "driver" | "admin") => {
@@ -87,7 +89,7 @@ function LoginPageContent() {
         setPasskeyError("運営画面の権限がありません");
         return;
       }
-      router.push(target === "admin" ? "/admin" : "/submit");
+      router.push(target === "admin" ? "/admin" : returnTo ?? "/submit");
     } catch (err: unknown) {
       if (err instanceof Error && err.name !== "NotAllowedError") {
         setPasskeyError(err.message || "パスキーでログインできませんでした");
@@ -110,7 +112,7 @@ function LoginPageContent() {
     </button> : <p className={styles.hostHint}>パスキーはSafariかChromeでお使いください。</p>}
     {passkeyError && <p role="alert" className={styles.error}>{passkeyError}</p>}
     {mobile && target === "driver" && <div className={styles.mobileOr}>または</div>}
-    <Link className={styles.recover} href={`/login/recover?next=${target}`}>
+    <Link className={styles.recover} href={`/login/recover?next=${target}${returnTo ? `&returnTo=${encodeURIComponent(returnTo)}` : ""}`}>
       {target === "admin" ? "パスキーを設定・復旧する" : <><FontAwesomeIcon icon={faCommentSms} aria-hidden="true" /> 電話番号でログイン</>}
     </Link>
   </>;

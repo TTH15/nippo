@@ -30,3 +30,12 @@ export const Image = ({ source, style, accessible }: Props) => {
   if (style?.tintColor) { const { tintColor, ...rest } = style; return <span aria-hidden="true" style={{ ...rest, backgroundColor: tintColor, maskImage: `url("${src}")`, maskSize: "100% 100%", maskRepeat: "no-repeat" }} />; }
   return <img src={src} style={{ ...style, objectFit: "contain" }} alt={accessible === false ? "" : "ハコ虎"} />;
 };
+
+export const AppState = {
+  get currentState() { return document.hidden ? "background" : "active"; },
+  addEventListener(_type: string, listener: (state: string) => void) {
+    const onVisibility = () => listener(document.hidden ? "background" : "active");
+    document.addEventListener("visibilitychange", onVisibility);
+    return { remove: () => document.removeEventListener("visibilitychange", onVisibility) };
+  },
+};

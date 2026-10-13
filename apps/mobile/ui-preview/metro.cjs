@@ -20,6 +20,7 @@ module.exports = function withUiPreview(config, root) {
     if (name.startsWith("@platform/") || name.startsWith("@repo/core/api/")) throw new Error(`本番サービスの読み込みを遮断: ${name}`);
     const result = previous ? previous(context, name, platform) : context.resolveRequest(context, name, platform);
     if (result.type === "sourceFile") {
+      if (result.filePath === path.join(root, "src/bankChangeWeb.ts")) return replacement(mock("bank-change-web.ts"));
       if (result.filePath === path.join(root, "src/bootstrap.ts")) return replacement(mock("services.ts"));
       if (result.filePath === path.join(root, "App.tsx") && context.originModulePath === path.join(root, "index.ts")) return replacement(mock("App.tsx"));
       if (result.filePath.startsWith(path.join(root, "ui-preview") + path.sep)) return replacement(result.filePath);

@@ -36,6 +36,7 @@ const result = await require("esbuild").build({
   define: { "process.env.NODE_ENV": '"development"', "process.env.EXPO_PUBLIC_PASSKEY_ENABLED": '"true"' },
   plugins: [{ name: "isolate-native", setup(build) {
     build.onResolve({ filter: /.*/ }, args => {
+      if (args.path === "../bankChangeWeb" && args.importer.endsWith("/screens/MeScreen.tsx")) return { path: path.join(preview, "bank-change-web.ts") };
       if (args.importer.endsWith("/screens/ShiftsScreen.tsx") && /components\/(MonthPager|BottomSheet)$/.test(args.path)) return { path: path.join(preview, "ShiftNativeAdapters.tsx") };
       if (args.path === "./ReportSourceImagePicker" && args.importer.endsWith("/DailyReportForm.tsx")) return { path: path.join(preview, "ReportSourceImagePreview.tsx") };
       if (aliases[args.path]) return { path: path.join(preview, aliases[args.path]) };

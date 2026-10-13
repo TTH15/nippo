@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
+import { MyPageReview } from "./MyPageReview";
 import { LoginScreen } from "../../apps/mobile/src/screens/LoginScreen";
 import { PasskeySettings } from "../../apps/mobile/src/components/PasskeySettings";
 import { ParkingChoice, type ParkingChoiceValue } from "../../apps/mobile/src/components/ParkingChoice";
@@ -15,6 +16,7 @@ function Preview() {
   const [gps, setGps] = useState(true);
   const [sameVehicle, setSameVehicle] = useState(true);
   const [sent, setSent] = useState("");
+  if (screen === "account") return <><a href="?screen=login">一覧へ</a><main className="mx-auto max-w-md p-4"><MyPageReview onAppSettings={() => setScreen("settings")} onDirtyChange={() => {}} /></main></>;
   if (screen === "rest-playground") return <RestPlaygroundStudy />;
   return <><nav className="flex flex-wrap gap-3 p-3 border-b border-brand-200 text-xs">
     <span>隔離プレビュー</span>{["qr-test", "vehicle-photo-test", "meter-guides", "login", "settings", "parking", "home-design"].map((key, i) => <button key={key} onClick={() => setScreen(key)}>{["QR読取テスト", "車体撮影テスト", "メーターガイド比較", "ログイン", "設定", "退勤時の駐車", "ホームの画面案"][i]}</button>)}<a href="?screen=rest-playground">休みの遊び案</a>

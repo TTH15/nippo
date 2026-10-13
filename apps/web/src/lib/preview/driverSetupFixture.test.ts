@@ -30,3 +30,17 @@ it("編集開始のパスキー証明で初めて入力する口座を保存で�
   await store.fetch("/api/me/registration", init);
   await expect(store.fetch("/api/me/registration", { ...init, body: JSON.stringify({ ...bank, bankNo: "9999999" }) })).rejects.toThrow("パスキー");
 });
+
+it("口座変更ページからマイページへ移っても保存した架空口座を保持し、初期化で戻す", async () => {
+  const context = { scenario: "normal", role: "admin" } as const;
+  const store = createFixtureStore(meFixture, context); store.reset();
+  const previousBank = await store.fetch("/api/me/registration");
+  const intent = { method: "passkey", action: "bank_edit", previousBank };
+  await store.fetch("/api/auth/reauth/options", { method: "POST", body: JSON.stringify(intent) });
+  const proof = await store.fetch("/api/auth/reauth/verify", { method: "POST", body: JSON.stringify(intent) }) as { bankChangeToken: string };
+  const target = { bankName: "見本銀行", bankBranch: "配送支店", bankType: "ordinary", bankNo: "7654321", bankHolder: "ミホン タロウ" };
+  await store.fetch("/api/me/registration", { method: "POST", headers: { "x-bank-change-token": proof.bankChangeToken }, body: JSON.stringify(target) });
+  const returned = createFixtureStore({ ...meFixture, id: "bank-change", pathname: "/account/bank-change" }, context);
+  expect(await returned.fetch("/api/me/registration")).toMatchObject(target);
+  returned.reset(); expect(await returned.fetch("/api/me/registration")).toMatchObject({ bankNo: "1234567" });
+});

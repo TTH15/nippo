@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { bankChangeReturnPath } from "@repo/core/logic/bankChange";
 import { PasskeySetup } from "@/lib/components/PasskeySetup";
 import { registerPasskey } from "@/lib/registerPasskey";
 import { useIsWebAuthnHost } from "@/lib/webauthnHost";
@@ -57,7 +58,7 @@ export default function RecoverPage() {
   const goToNext = async (driver: { role: string; companyCode?: string }) => {
     const stored = getStoredDriver() ?? driver;
     const hasAdmin = canEnterAdmin(stored);
-    const nextPath = hasAdmin ? "/submit" : resolveHomePath({ hasAdminAccess: false, lastMode: getLastAppMode(), isMobile: isMobileWidth() });
+    const nextPath = bankChangeReturnPath(new URLSearchParams(window.location.search).get("returnTo")) ?? (hasAdmin ? "/submit" : resolveHomePath({ hasAdminAccess: false, lastMode: getLastAppMode(), isMobile: isMobileWidth() }));
     if (adminRecovery || !hasAdmin) {
       try {
         const reg = await apiFetch<{ complete: boolean; kycVerified: boolean; hasPasskey: boolean }>("/api/me/registration");

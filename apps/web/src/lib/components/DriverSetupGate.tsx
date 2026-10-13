@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import { BANK_CHANGE_PATH } from "@repo/core/logic/bankChange";
 import { useEffect, useId, useState, type ReactNode } from "react";
 import { startAuthentication } from "@simplewebauthn/browser";
 import { motion, useReducedMotion } from "motion/react";
@@ -30,7 +32,7 @@ export function DriverSetupGate({ children }: { children: ReactNode }) {
   return <DriverSetupPanel required>{children}</DriverSetupPanel>;
 }
 
-export function DriverSetupPanel({ required = false, children, onDirtyChange }: { required?: boolean; children?: ReactNode; onDirtyChange?: (dirty: boolean) => void }) {
+export function DriverSetupPanel({ required = false, bankChangePage = false, children, onDirtyChange }: { required?: boolean; bankChangePage?: boolean; children?: ReactNode; onDirtyChange?: (dirty: boolean) => void }) {
   const id = useId();
   const reduceMotion = useReducedMotion();
   const resendCooldown = useSmsResendCooldown();
@@ -168,7 +170,7 @@ export function DriverSetupPanel({ required = false, children, onDirtyChange }: 
   const bankInputClass = "block h-12 w-full appearance-none rounded-none border-0 border-b-2 border-slate-300 bg-transparent px-0 py-2 text-base leading-6 text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-900 focus:ring-0";
   const bankInput = (key: "bankName" | "bankBranch" | "bankNo" | "bankHolder", label: string, placeholder: string) => <label className="block space-y-1 text-xs text-slate-600">
     <span>{label} <span className="text-red-700">必須</span></span>
-    <input autoFocus={required && key === "bankName"} aria-label={label} inputMode={key === "bankNo" ? "numeric" : undefined} value={bank[key] ?? ""}
+    <input autoFocus={(required || bankChangePage) && key === "bankName"} aria-label={label} inputMode={key === "bankNo" ? "numeric" : undefined} value={bank[key] ?? ""}
       onChange={event => setBank({ ...bank, [key]: key === "bankNo" ? event.target.value.replace(/[^0-9]/g, "").slice(0, 8) : event.target.value })}
       className={bankInputClass} placeholder={placeholder} required disabled={!!busy} />
   </label>;
@@ -203,7 +205,7 @@ export function DriverSetupPanel({ required = false, children, onDirtyChange }: 
     {!required && <div className="mb-4 flex items-center justify-between gap-3"><h2 className="text-sm font-semibold text-slate-800">振込口座</h2><SetupBadge complete={hasSetupBank(state.bank)} completeLabel="登録済み" /></div>}
     {changingBank ? <>
       <BankSummary bank={state.bank} />
-      <div className="mt-4 border-t border-slate-100 pt-3"><button type="button" disabled={!!busy || loading} onClick={() => void openBankChange()} className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 disabled:opacity-50"><FontAwesomeIcon icon={faLock} className="w-3" />{busy === "bank" ? "本人確認中…" : "振込口座を変更"}</button></div>
+      <div className="mt-4 border-t border-slate-100 pt-3">{!required && !bankChangePage ? <Link href={BANK_CHANGE_PATH} className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800"><FontAwesomeIcon icon={faLock} className="w-3" />振込口座を変更</Link> : <button type="button" disabled={!!busy || loading} onClick={() => void openBankChange()} className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 disabled:opacity-50"><FontAwesomeIcon icon={faLock} className="w-3" />{busy === "bank" ? "本人確認中…" : "振込口座を変更"}</button>}</div>
     </> : editingBank ? null : bankForm}
     {bankError && !editingBank && <p role="alert" className="mt-3 text-sm text-red-700">{bankError}</p>}
   </section>;
@@ -211,20 +213,22 @@ export function DriverSetupPanel({ required = false, children, onDirtyChange }: 
     {loadError && <div role="alert" className="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700"><p>登録状況を確認できませんでした。</p><button type="button" onClick={() => void retry()} disabled={loading || !!busy} className="mt-2 min-h-11 font-semibold underline">再読み込み</button></div>}
     {loading && !state && <p role="status" className="py-6 text-sm text-slate-500">登録状況を確認中…</p>}
   </>;
-  const bankEditor = editingBank && state && typeof document !== "undefined" && <EditorModal title={bankReview ? "変更内容の確認" : "振込口座を変更"} variant="setup" fixedHeight onClose={cancelBank} dismissible={!busy} trapFocus footer={<div className="space-y-2">
+  const BankEditor = bankChangePage ? InlineBankEditor : EditorModal;
+  const bankEditor = editingBank && state && typeof document !== "undefined" && <BankEditor title={bankReview ? "変更内容の確認" : "振込口座を変更"} variant="setup" fixedHeight onClose={cancelBank} dismissible={!busy} trapFocus footer={<div className="space-y-2">
     {state.hasPasskey && supported && <button type={bankReview ? "button" : "submit"} form={bankReview ? undefined : `${id}-bank-form`} disabled={!!busy || loading || loadError || !dirty} onClick={bankReview ? () => void saveBank() : undefined} className={`${buttonClass} w-full`}>{busy ? "保存中…" : bankReview ? bankEditToken ? "変更を保存" : "パスキーで再確認して保存" : "変更内容を確認"}</button>}
     {bankReview && <button type="button" disabled={!!busy} onClick={() => { setBankReview(false); setBankError(""); }} className="min-h-11 w-full text-sm text-slate-600">入力に戻る</button>}
     <button type="button" disabled={!!busy} onClick={cancelBank} className="min-h-11 w-full text-sm text-slate-600">変更を取り消す</button>
   </div>}>
-    {!state.hasPasskey ? <div className="space-y-4"><p className="text-sm text-slate-700">口座を変更するには、パスキーの設定が必要です。</p>{required ? <p className="text-sm text-slate-600">運営にお問い合わせください。</p> : <button type="button" onClick={() => { setEditingBank(false); document.getElementById("passkey-settings")?.scrollIntoView({ behavior: "smooth" }); }} className="min-h-11 text-sm font-semibold underline">パスキーの設定へ</button>}</div>
+    {!state.hasPasskey ? <div className="space-y-4"><p className="text-sm text-slate-700">口座を変更するには、パスキーの設定が必要です。</p>{required ? <p className="text-sm text-slate-600">運営にお問い合わせください。</p> : bankChangePage ? <Link href="/me#passkey-settings" className="inline-flex min-h-11 items-center text-sm font-semibold underline">パスキーの設定へ</Link> : <button type="button" onClick={() => { setEditingBank(false); document.getElementById("passkey-settings")?.scrollIntoView({ behavior: "smooth" }); }} className="min-h-11 text-sm font-semibold underline">パスキーの設定へ</button>}</div>
       : !supported ? <p className="text-sm text-slate-700">パスキーを使えるSafariやChromeで開いてください。</p>
       : bankReview ? <div className="space-y-3"><BankSummary bank={bank} reveal compact /><p className="text-xs text-slate-600">今後の振込先をこの口座に変更します。</p></div>
       : <div className="space-y-3"><div className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600"><p className="mb-1 font-semibold">登録中の口座</p><p className="truncate" title={`${state.bank.bankName} ${state.bank.bankBranch ?? ""} / 末尾 ${state.bank.bankNo.slice(-4)}`}>{state.bank.bankName} {state.bank.bankBranch} / 末尾 {state.bank.bankNo.slice(-4)}</p></div>{bankForm}</div>}
-    {status}
+    {!bankChangePage && status}
     {bankError && <p role="alert" className="mt-3 text-sm text-red-700">{bankError}</p>}
     {bankError.includes("読み込み直") && <button type="button" disabled={!!busy || loading} onClick={async () => { await retry(); setBankReview(false); }} className="min-h-11 text-sm font-semibold underline">登録内容を再読み込み</button>}
     <ConfirmDialog open={discarding} title="変更を取り消す" message="入力した変更内容を破棄しますか？" confirmLabel="変更を破棄" cancelLabel="入力に戻る" tone="neutral" onClose={() => setDiscarding(false)} onConfirm={() => { setBank(state.bank); setEditingBank(false); setBankReview(false); setBankEditToken(""); setBankError(""); }} />
-  </EditorModal>;
+  </BankEditor>;
+  if (bankChangePage) return <>{status}{state && (changingBank ? editingBank ? bankEditor : bankSection : <div className="rounded-lg border border-slate-200 bg-white p-4"><p className="text-sm text-slate-700">振込口座がまだ登録されていません。</p><Link href="/me" className="mt-3 inline-flex min-h-11 items-center text-sm font-semibold underline">マイページで登録する</Link></div>)}</>;
   if (!required) return <section className="mb-8" aria-label="登録情報"><h2 className="mb-3 text-base font-bold text-slate-900">登録情報</h2>{status}<div className="space-y-4">{phoneSection}{bankSection}</div>{bankEditor}</section>;
   const complete = !!state && state.profile.phoneVerified && hasSetupBank(state.bank) && !loadError;
   const blocked = !(entered && complete);
@@ -252,4 +256,11 @@ function BankSummary({ bank, reveal = false, compact = false }: { bank: BankAcco
 }
 function SetupBadge({ complete, completeLabel = "完了" }: { complete: boolean; completeLabel?: string }) {
   return <span className={`flex shrink-0 items-center gap-1.5 text-xs font-medium ${complete ? "text-green-700" : "text-amber-800"}`}>{complete && <FontAwesomeIcon icon={faCircleCheck} className="w-3.5" />}{complete ? completeLabel : "未完了"}</span>;
+}
+
+function InlineBankEditor({ title, children, footer }: React.ComponentProps<typeof EditorModal>) {
+  return <section aria-label={title} className="rounded-lg border border-slate-200 bg-white p-5">
+    <h2 className="mb-4 text-base font-semibold text-slate-900">{title === "振込口座を変更" ? "変更後の口座" : title}</h2>
+    {children}<div className="mt-5">{footer}</div>
+  </section>;
 }

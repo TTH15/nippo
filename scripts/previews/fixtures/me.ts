@@ -1,6 +1,8 @@
 import { normalizeBankAccount, requiresBankChangePasskey, bankFields, type BankAccount } from "@/lib/bankAccount";
 import { accountFixture } from "./account";
 import type { PreviewFixture } from "@/lib/preview/fixtureStore";
+const savedBanks = new Map<string, BankAccount>();
+const bankKey = (context: { scenario: string; role: string }) => `${context.scenario}:${context.role}`;
 export const meFixture: PreviewFixture<ReturnType<typeof accountFixture.createState> & { phoneVerified: boolean; phoneSent: boolean; bank: BankAccount; readAttempts: number; writeAttempts: number; phone: string; pendingPhone: string; bankProof: string | null; proofAttempts: number }> = {
   id: "me", title: "マイページ・ログイン設定", pathname: "/me",
   scenarios: {
@@ -24,10 +26,11 @@ export const meFixture: PreviewFixture<ReturnType<typeof accountFixture.createSt
   },
   createState: (context) => ({ ...accountFixture.createState({ ...context, scenario: context.scenario === "bank-no-passkey" ? "empty" : "normal" }),
     phoneVerified: !["both-missing", "phone-missing", "no-phone"].includes(context.scenario), phoneSent: false, readAttempts: 0, writeAttempts: 0, phone: ["both-missing", "phone-missing", "no-phone"].includes(context.scenario) ? "" : "09000000000", pendingPhone: "", bankProof: null, proofAttempts: 0,
-    bank: (["normal", "registered", "phone-missing", "long-name", "bank-no-passkey", "bank-passkey-error", "bank-passkey-cancel", "bank-expired", "bank-conflict", "bank-change-error"].includes(context.scenario)
+    bank: (savedBanks.get(bankKey(context)) ?? (["normal", "registered", "phone-missing", "long-name", "bank-no-passkey", "bank-passkey-error", "bank-passkey-cancel", "bank-expired", "bank-conflict", "bank-change-error"].includes(context.scenario)
       ? { bankName: "見本銀行", bankBranch: context.scenario === "long-name" ? "配送事業者共同営業センター支店" : "中央支店", bankType: "ordinary", bankNo: "1234567", bankHolder: context.scenario === "long-name" ? "カブシキガイシャ ミホンハイソウサービス ダイヒョウトリシマリヤク ミホン タロウ" : "ミホン タロウ" }
-      : { bankName: "", bankNo: "", bankHolder: "" }) as BankAccount,
+      : { bankName: "", bankNo: "", bankHolder: "" })) as BankAccount,
   }),
+  onReset: context => { savedBanks.delete(bankKey(context)); },
   read: (state, request, context) => {
     const { path } = request; const { scenario } = context;
     const shared = accountFixture.read(state, request, context);
@@ -78,7 +81,7 @@ export const meFixture: PreviewFixture<ReturnType<typeof accountFixture.createSt
         if (context.scenario === "bank-expired" && state.writeAttempts++ === 0) throw new Error("本人確認の期限が切れました。パスキーでもう一度確認してください");
         if (context.scenario === "bank-change-error" && state.writeAttempts++ === 0) throw new Error("変更できませんでした。入力を残したまま再度お試しください");
       }
-      state.bank = target; return { ok: true };
+      state.bank = target; savedBanks.set(bankKey(context), { ...target }); return { ok: true };
     }
     return accountFixture.write?.(state, request, context);
   },
