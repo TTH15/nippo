@@ -185,15 +185,15 @@ export function DriverSetupPanel({ required = false, children, onDirtyChange }: 
   const complete = !!state && state.profile.phoneVerified && hasSetupBank(state.bank) && !loadError;
   const blocked = !(entered && complete);
   const active = steps[stepIndex];
-  const footer = <>
-    {state && (complete ? <button key="complete" type="button" disabled={!!busy || loading || dirty} onClick={() => setEntered(true)} className={`${buttonClass} w-full`}>利用を開始する</button>
+  const action = state && (complete ? <button key="complete" type="button" disabled={!!busy || loading || dirty} onClick={() => setEntered(true)} className={`${buttonClass} w-full`}>利用を開始する</button>
       : active === "phone" ? <button key="phone" type="button" disabled={!!busy || loading || !phone.trim() || (codeSent && code.length !== 6)} onClick={() => state.profile.phoneVerified ? setStepIndex(stepIndex + 1) : void phoneAction(codeSent)} className={`${buttonClass} w-full`}>{busy ? "確認中…" : state.profile.phoneVerified ? "次へ" : codeSent ? "電話番号を確認" : "認証コードを送信"}</button>
-      : !changingBank ? <button key="bank" type="submit" form={`${id}-bank-form`} disabled={!!busy || loading || loadError} className={`${buttonClass} w-full`}>{busy === "bank" ? "保存中…" : "口座を登録して利用を開始"}</button> : null)}
-    {steps.length > 0 && <div className="relative mt-3 flex min-h-11 items-center justify-center">{stepIndex > 0 && <button type="button" disabled={!!busy} onClick={() => setStepIndex(stepIndex - 1)} className="absolute left-0 min-h-11 px-2 text-xs text-slate-600">戻る</button>}<ol aria-label="登録の進み具合" className="flex items-center gap-2">{steps.map((step, index) => <li key={step} aria-current={index === stepIndex ? "step" : undefined} aria-label={`${step === "phone" ? "電話番号" : "振込口座"} ${index + 1}/${steps.length}`}><span className={`block h-2.5 w-2.5 rounded-full ${index === stepIndex ? "bg-slate-800" : "border border-slate-400 bg-white"}`} /></li>)}</ol></div>}
+      : !changingBank ? <button key="bank" type="submit" form={`${id}-bank-form`} disabled={!!busy || loading || loadError} className={`${buttonClass} w-full`}>{busy === "bank" ? "保存中…" : "口座を登録して利用を開始"}</button> : null);
+  const footer = <>
+    {steps.length > 0 && <div className="relative flex min-h-11 items-center justify-center">{stepIndex > 0 && <button type="button" disabled={!!busy} onClick={() => setStepIndex(stepIndex - 1)} className="absolute left-0 min-h-11 px-2 text-xs text-slate-600">戻る</button>}<ol aria-label="登録の進み具合" className="flex items-center gap-2">{steps.map((step, index) => <li key={step} aria-current={index === stepIndex ? "step" : undefined} aria-label={`${step === "phone" ? "電話番号" : "振込口座"} ${index + 1}/${steps.length}`}><span className={`block h-2.5 w-2.5 rounded-full ${index === stepIndex ? "bg-slate-800" : "border border-slate-400 bg-white"}`} /></li>)}</ol></div>}
   </>;
   return <>
     <div key={entered ? "ready" : "setup"} data-driver-setup-background inert={blocked || undefined} aria-hidden={blocked || undefined}>{children}</div>
-    {blocked && typeof document !== "undefined" && <EditorModal title="利用開始の準備" fixedHeight dismissible={false} onClose={() => {}} footer={footer}><div className="flex min-h-full flex-col justify-center">{status}{active === "phone" ? phoneSection : active === "bank" ? bankSection : null}</div>{bankEditor}</EditorModal>}
+    {blocked && typeof document !== "undefined" && <EditorModal title="利用開始の準備" fixedHeight centerContent dismissible={false} onClose={() => {}} footer={footer}><div className="flex flex-col">{status}{active === "phone" ? phoneSection : active === "bank" ? bankSection : null}{action && <div className="mt-4">{action}</div>}</div>{bankEditor}</EditorModal>}
   </>;
 }
 function BankSummary({ bank, reveal = false }: { bank: BankAccount; reveal?: boolean }) {
