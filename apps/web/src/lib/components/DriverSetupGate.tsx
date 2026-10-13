@@ -17,7 +17,7 @@ export type SetupBank = BankAccount;
 type SetupState = { profile: Profile; bank: SetupBank; hasPasskey: boolean };
 type Step = "phone" | "bank";
 export const hasSetupBank = (bank: SetupBank) => bankFields.every(key => !!bank[key]?.trim());
-const inputClass = "w-full min-h-11 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-slate-400";
+const inputClass = "block h-12 w-full appearance-none rounded-none border-0 border-b-2 border-slate-300 bg-transparent px-0 py-3 text-base text-slate-900 shadow-none outline-none placeholder:text-slate-400 focus:border-slate-900 focus:outline-none focus:ring-0 disabled:text-slate-500";
 const buttonClass = "min-h-11 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50";
 
 export function DriverSetupGate({ children }: { children: ReactNode }) {
