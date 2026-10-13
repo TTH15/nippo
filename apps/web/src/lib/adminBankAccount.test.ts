@@ -11,7 +11,7 @@ it("管理画面とユーザー画面は同じ独立項目で保存し、その�
 });
 it("空口座・一部入力は許可し、具体名欠落と不正番号はDB更新前に拒否する", () => {
  expect(adminBankAccountUpdates(Object.fromEntries(Object.keys(bank).map(k => [k, ""])))) .toEqual({ bank_name: null, bank_branch_name: null, bank_no: null, bank_holder: null, bank_account_type: null, bank_account_type_other: null });
- expect(() => adminBankAccountUpdates({ ...bank, bankTypeOther: "" })).toThrow("具体的");
+ expect(() => adminBankAccountUpdates({ ...bank, bankTypeOther: "" })).toThrow("種別名");
  expect(() => adminBankAccountUpdates({ ...bank, bankNo: "普通 1234567" })).toThrow("数字");
  expect(() => adminBankAccountUpdates({ ...bank, bankTypeOther: "あ".repeat(41) })).toThrow("40文字");
  expect(adminBankAccountUpdates({ ...bank, bankType: "ordinary", bankTypeOther: "" })).toMatchObject({ bank_account_type: "ordinary", bank_account_type_other: null });

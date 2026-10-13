@@ -177,23 +177,21 @@ export function DriverSetupPanel({ required = false, bankChangePage = false, chi
     else { setEditingBank(false); setBankReview(false); setBankEditToken(""); setBankError(""); }
   };
   const bankInputClass = "block h-12 w-full appearance-none rounded-none border-0 border-b-2 border-slate-300 bg-transparent px-0 py-2 text-base leading-6 text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-900 focus:ring-0";
-  const bankInput = (key: "bankName" | "bankBranch" | "bankNo" | "bankHolder" | "bankTypeOther", label: string, placeholder: string) => <label data-bank-field={key} className="block space-y-1 text-xs text-slate-600">
+  const bankInput = (key: "bankName" | "bankBranch" | "bankNo" | "bankHolder" | "bankTypeOther", label: string, placeholder: string) => <label data-bank-field={key} className="block text-xs text-slate-600">
     <span>{label} <span className="text-red-700">必須</span></span>
     <input autoFocus={(required || bankChangePage) && key === "bankName"} aria-label={label} aria-invalid={bankInvalidField === key || undefined} inputMode={key === "bankNo" ? "numeric" : undefined} value={bank[key] ?? ""}
       onChange={event => { if (bankInvalidField === key) { setBankInvalidField(null); setBankError(""); } setBank({ ...bank, [key]: key === "bankNo" ? event.target.value.normalize("NFKC").replace(/[^0-9]/g, "").slice(0, 8) : event.target.value }); }}
       className={`${bankInputClass} ${bankInvalidField === key ? "!border-red-700" : ""}`} placeholder={placeholder} maxLength={key === "bankTypeOther" ? 40 : undefined} required disabled={!!busy} />
   </label>;
-  const bankForm = <form noValidate id={`${id}-bank-form`} onSubmit={saveBank} className="space-y-2">
+  const bankForm = <form noValidate id={`${id}-bank-form`} onSubmit={saveBank} className="space-y-1">
     <div className="grid grid-cols-2 gap-3">{bankInput("bankName", "銀行名", "〇〇銀行")}{bankInput("bankBranch", "支店名", "〇〇支店")}</div>
     <div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-3">
-      <div data-bank-field="bankType" className={`space-y-1 ${bankInvalidField === "bankType" ? "[&_button]:!border-red-700" : ""}`}><label htmlFor={`${id}-bank-type`} className="block text-xs text-slate-600">口座種別 <span className="text-red-700">必須</span></label>
+      <div data-bank-field="bankType" className={`${bankInvalidField === "bankType" ? "[&_button]:!border-red-700" : ""}`}><label htmlFor={`${id}-bank-type`} className="block text-xs text-slate-600">口座種別 <span className="text-red-700">必須</span></label>
         <CustomSelect id={`${id}-bank-type`} ariaLabel="口座種別" size="md" variant="underline" value={bank.bankType ?? ""} options={bankAccountTypes.map(value => ({ value, label: bankAccountTypeLabels[value] }))} placeholder="選択" clearable={false} disabled={!!busy} onChange={value => { if (bankInvalidField === "bankType" || bankInvalidField === "bankTypeOther") { setBankInvalidField(null); setBankError(""); } setBank({ ...bank, bankType: value as BankAccountType, bankTypeOther: value === "other" ? bank.bankTypeOther ?? "" : "" }); }} />
-      </div>{bankInput("bankNo", "口座番号", "1234567")}
+      </div>{bank.bankType === "other" ? bankInput("bankTypeOther", "種別名", "例：別段") : bankInput("bankNo", "口座番号", "1234567")}
     </div>
-    <div className={bank.bankType === "other" ? "grid grid-cols-2 gap-3" : ""}>
-      {bankInput("bankHolder", "口座名義（カナ）", "ミホン タロウ")}
-      {bank.bankType === "other" && bankInput("bankTypeOther", "具体的な口座種別", "種別名")}
-    </div>
+    {bank.bankType === "other" && bankInput("bankNo", "口座番号", "1234567")}
+    {bankInput("bankHolder", "口座名義（カナ）", "ミホン タロウ")}
     {!required && !editingBank && <button type="submit" disabled={!!busy} className={`${buttonClass} w-full`}>{busy === "bank" ? "保存中…" : "振込口座を登録"}</button>}
   </form>;
   const setupSectionClass = required ? "w-full py-1" : "rounded-lg border border-slate-200 bg-white p-4";

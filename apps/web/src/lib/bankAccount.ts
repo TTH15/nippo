@@ -37,7 +37,7 @@ export function bankAccountInputError(bank: BankAccount): { field: typeof bankFi
     ["bankHolder", "口座名義（カナ）を入力してください"],
   ] as const) if (!bank[field]?.trim()) return { field, message };
   if (!bankAccountTypes.includes(bank.bankType as BankAccountType)) return { field: "bankType", message: "口座種別を選んでください" };
-  if (bank.bankType === "other" && (!bank.bankTypeOther?.trim() || bank.bankTypeOther.trim() === "その他")) return { field: "bankTypeOther", message: "具体的な口座種別を入力してください" };
+  if (bank.bankType === "other" && (!bank.bankTypeOther?.trim() || bank.bankTypeOther.trim() === "その他")) return { field: "bankTypeOther", message: "種別名を入力してください" };
   if (bank.bankType === "other" && bank.bankTypeOther!.trim().length > 40) return { field: "bankTypeOther", message: "口座種別は40文字以内で入力してください" };
   if (!/^\d{1,8}$/.test(bank.bankNo.trim())) return { field: "bankNo", message: "口座番号は8桁以内の数字だけで入力してください" };
   return null;

@@ -2001,7 +2001,7 @@ export default function UsersPage() {
                         type="text"
                         value={form.bankTypeOther}
                         onChange={(e) => setForm((f) => ({ ...f, bankTypeOther: e.target.value }))}
-                        aria-label="具体的な口座種別" maxLength={40} placeholder="具体的な口座種別"
+                        aria-label="種別名" maxLength={40} placeholder="種別名"
                         className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400"
                       />
                     )}

@@ -16,6 +16,6 @@ export function adminBankAccountUpdates(body: Record<string, unknown>): Record<s
   const bank = Object.fromEntries(bankFields.map(key => [key, typeof body[key] === "string" ? body[key].trim() : ""])) as BankAccount;
   if (bank.bankNo && !/^\d{1,8}$/.test(bank.bankNo)) throw new Error("口座番号は8桁以内の数字だけで入力してください");
   if (bank.bankType && !bankAccountTypes.includes(bank.bankType)) throw new Error("口座種別を選び直してください");
-  if (bank.bankType === "other" && (!bank.bankTypeOther || bank.bankTypeOther === "その他" || bank.bankTypeOther.length > 40)) throw new Error("具体的な口座種別を40文字以内で入力してください");
+  if (bank.bankType === "other" && (!bank.bankTypeOther || bank.bankTypeOther === "その他" || bank.bankTypeOther.length > 40)) throw new Error("種別名を40文字以内で入力してください");
   return bankAccountToStorage(bank);
 }
