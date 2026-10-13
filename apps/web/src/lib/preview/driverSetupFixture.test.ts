@@ -12,3 +12,9 @@ it("確認済み番号のシナリオは初回登録として上書きしない"
   const store = createFixtureStore(meFixture, { scenario: "normal", role: "admin" });
   await expect(store.fetch("/api/me/phone/send", { method: "POST", body: JSON.stringify({ phone: "09012345678" }) })).rejects.toThrow("登録済み");
 });
+it("初回口座保存は銀行・支店・種別を別項目で保持する", async () => {
+  const store = createFixtureStore(meFixture, { scenario: "bank-missing", role: "admin" });
+  const bank = { bankName: "見本銀行", bankBranch: "中央支店", bankType: "savings", bankNo: "01234567", bankHolder: "ミホン タロウ" };
+  await store.fetch("/api/me/registration", { method: "POST", body: JSON.stringify(bank) });
+  expect(await store.fetch("/api/me/registration", { fresh: true })).toMatchObject(bank);
+});

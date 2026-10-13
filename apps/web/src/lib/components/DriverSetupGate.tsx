@@ -10,18 +10,19 @@ import { useSmsResendCooldown } from "@/lib/hooks/useSmsResendCooldown";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCircleCheck, faLock } from "@fortawesome/free-solid-svg-icons";
 import { apiFetch } from "@/lib/api";
+import { CustomSelect } from "@/lib/components/CustomSelect";
 import { EditorModal } from "@/lib/components/EditorModal";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { useUnsavedChanges } from "@/lib/recordForms/useUnsavedChanges";
 import { useIsWebAuthnHost } from "@/lib/webauthnHost";
-import { normalizeBankAccount, requiresBankChangePasskey, bankFields, type BankAccount } from "@/lib/bankAccount";
+import { normalizeBankAccount, requiresBankChangePasskey, bankFields, legacyBankFields, bankAccountTypeLabels, bankAccountTypes, type BankAccountType, type BankAccount } from "@/lib/bankAccount";
 import { formatJPPhoneDisplay } from "@repo/core/logic/profile";
 import type { Profile } from "@repo/core/types";
 
 export type SetupBank = BankAccount;
 type SetupState = { profile: Profile; bank: SetupBank; hasPasskey: boolean };
 type Step = "phone" | "bank";
-export const hasSetupBank = (bank: SetupBank) => bankFields.every(key => !!bank[key]?.trim());
+export const hasSetupBank = (bank: SetupBank) => legacyBankFields.every(key => !!bank[key]?.trim());
 const inputClass = "block h-14 w-full appearance-none rounded-none border-0 border-b-2 border-slate-300 bg-transparent px-0 py-2 text-2xl leading-8 text-slate-900 shadow-none outline-none placeholder:text-slate-400 focus:border-slate-900 focus:outline-none focus:ring-0 disabled:text-slate-500";
 const buttonClass = "min-h-11 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50";
 
@@ -52,7 +53,7 @@ export function DriverSetupPanel({ required = false, children, onDirtyChange }: 
   const [bankError, setBankError] = useState("");
   const [phoneError, setPhoneError] = useState("");
   const [bankSaved, setBankSaved] = useState("");
-  const dirty = !!state && bankFields.some(key => bank[key].trim() !== state.bank[key].trim());
+  const dirty = !!state && bankFields.some(key => (bank[key] ?? "").trim() !== (state.bank[key] ?? "").trim());
   const changingBank = !!state && hasSetupBank(state.bank);
   useUnsavedChanges(dirty);
   useEffect(() => { onDirtyChange?.(dirty); return () => onDirtyChange?.(false); }, [dirty, onDirtyChange]);
@@ -74,8 +75,8 @@ export function DriverSetupPanel({ required = false, children, onDirtyChange }: 
       apiFetch<Profile>("/api/reports/profile", { cache: "no-store" }),
       apiFetch<SetupBank & { hasPasskey?: boolean }>("/api/me/registration", { cache: "no-store" }),
     ]);
-    if (typeof profile.phoneVerified !== "boolean" || !bankFields.every(key => typeof registration[key] === "string")) throw new Error("登録状況を確認できませんでした。再読み込みしてください");
-    return { profile, bank: { bankName: registration.bankName, bankNo: registration.bankNo, bankHolder: registration.bankHolder }, hasPasskey: registration.hasPasskey === true };
+    if (typeof profile.phoneVerified !== "boolean" || !legacyBankFields.every(key => typeof registration[key] === "string")) throw new Error("登録状況を確認できませんでした。再読み込みしてください");
+    return { profile, bank: { bankName: registration.bankName, bankNo: registration.bankNo, bankHolder: registration.bankHolder, bankBranch: registration.bankBranch ?? "", bankType: registration.bankType ?? "" }, hasPasskey: registration.hasPasskey === true };
   }
   function initialize(next: SetupState) {
     setState(next); setBank(next.bank); setPhone(next.profile.phone || "");
@@ -102,7 +103,7 @@ export function DriverSetupPanel({ required = false, children, onDirtyChange }: 
     event?.preventDefault(); if (busy) return;
     setBankError(""); setBankSaved("");
     const values = normalizeBankAccount(bank);
-    if (!values) { setBankError("銀行名・支店、8桁以内の口座番号、口座名義を入力してください"); return; }
+    if (!values || !values.bankBranch || !values.bankType) { setBankError("銀行名、支店名、口座種別、口座番号、名義を入力してください"); return; }
     const requiresPasskey = !!state && requiresBankChangePasskey(state.bank, values);
     if (requiresPasskey && !bankReview) { setEditingBank(true); setBankReview(true); return; }
     setBusy("bank");
@@ -119,7 +120,7 @@ export function DriverSetupPanel({ required = false, children, onDirtyChange }: 
       }
       await apiFetch("/api/me/registration", { method: "POST", headers: bankChangeToken ? { "x-bank-change-token": bankChangeToken } : undefined, body: JSON.stringify(values) });
       const next = await refresh();
-      if (!hasSetupBank(next.bank) || bankFields.some(key => next.bank[key].trim() !== values[key])) throw new Error("振込口座の保存を確認できませんでした。入力を残したまま再度保存してください");
+      if (!hasSetupBank(next.bank) || bankFields.some(key => (next.bank[key] ?? "").trim() !== (values[key] ?? ""))) throw new Error("振込口座の保存を確認できませんでした。入力を残したまま再度保存してください");
       setBank(next.bank); setEditingBank(false); setBankReview(false); setBankSaved(requiresPasskey ? "振込口座を変更しました" : "振込口座を登録しました");
       if (required && !editingBank && next.profile.phoneVerified) setEntered(true);
     } catch (error) {
@@ -150,16 +151,24 @@ export function DriverSetupPanel({ required = false, children, onDirtyChange }: 
     if (dirty) setDiscarding(true);
     else { setEditingBank(false); setBankReview(false); setBankError(""); }
   };
-  const bankForm = <form id={`${id}-bank-form`} onSubmit={saveBank} className="space-y-4">
-    {bankFields.map(key => <label key={key} className="block space-y-2 text-sm text-slate-600">
-      <span>{key === "bankName" ? "銀行名・支店" : key === "bankNo" ? "口座番号" : "口座名義（カナ）"} <span className="text-xs text-red-700">必須</span></span>
-      <input autoFocus={required && key === "bankName"} aria-label={key === "bankName" ? "銀行名・支店" : key === "bankNo" ? "口座番号" : "口座名義（カナ）"} inputMode={key === "bankNo" ? "numeric" : undefined} value={bank[key]}
-        onChange={event => setBank({ ...bank, [key]: key === "bankNo" ? event.target.value.replace(/[^0-9]/g, "").slice(0, 8) : event.target.value })}
-        className={inputClass} placeholder={key === "bankName" ? "〇〇銀行 〇〇支店" : key === "bankNo" ? "1234567" : "ミホン タロウ"} required disabled={!!busy} />
-    </label>)}
+  const bankInputClass = "block h-12 w-full appearance-none rounded-none border-0 border-b-2 border-slate-300 bg-transparent px-0 py-2 text-base leading-6 text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-900 focus:ring-0";
+  const bankInput = (key: "bankName" | "bankBranch" | "bankNo" | "bankHolder", label: string, placeholder: string) => <label className="block space-y-1 text-xs text-slate-600">
+    <span>{label} <span className="text-red-700">必須</span></span>
+    <input autoFocus={required && key === "bankName"} aria-label={label} inputMode={key === "bankNo" ? "numeric" : undefined} value={bank[key] ?? ""}
+      onChange={event => setBank({ ...bank, [key]: key === "bankNo" ? event.target.value.replace(/[^0-9]/g, "").slice(0, 8) : event.target.value })}
+      className={bankInputClass} placeholder={placeholder} required disabled={!!busy} />
+  </label>;
+  const bankForm = <form id={`${id}-bank-form`} onSubmit={saveBank} className="space-y-2">
+    <div className="grid grid-cols-2 gap-3">{bankInput("bankName", "銀行名", "〇〇銀行")}{bankInput("bankBranch", "支店名", "〇〇支店")}</div>
+    <div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-3">
+      <div className="space-y-1"><label htmlFor={`${id}-bank-type`} className="block text-xs text-slate-600">口座種別 <span className="text-red-700">必須</span></label>
+        <CustomSelect id={`${id}-bank-type`} ariaLabel="口座種別" size="md" variant="underline" value={bank.bankType ?? ""} options={bankAccountTypes.map(value => ({ value, label: bankAccountTypeLabels[value] }))} placeholder="選択" clearable={false} disabled={!!busy} onChange={value => setBank({ ...bank, bankType: value as BankAccountType })} />
+      </div>{bankInput("bankNo", "口座番号", "1234567")}
+    </div>
+    {bankInput("bankHolder", "口座名義（カナ）", "ミホン タロウ")}
     {!required && !editingBank && <button type="submit" disabled={!!busy} className={`${buttonClass} w-full`}>{busy === "bank" ? "保存中…" : "振込口座を登録"}</button>}
   </form>;
-  const setupSectionClass = required ? "w-full py-3" : "rounded-lg border border-slate-200 bg-white p-4";
+  const setupSectionClass = required ? "w-full py-1" : "rounded-lg border border-slate-200 bg-white p-4";
   const phoneSection = state && <section className={setupSectionClass}>
     <div className="mb-4 flex items-center justify-between gap-3"><h2 className="text-sm font-semibold text-slate-800">{codeSent || phoneSuccess ? "SMS認証コードを入力" : "電話番号の確認"}</h2><SetupBadge complete={state.profile.phoneVerified} /></div>
     {state.profile.phoneVerified && !phoneSuccess ? <p className="text-base font-semibold text-slate-900">{formatJPPhoneDisplay(state.profile.phone || phone)}</p> : <>
@@ -189,15 +198,15 @@ export function DriverSetupPanel({ required = false, children, onDirtyChange }: 
     {loadError && <div role="alert" className="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700"><p>登録状況を確認できませんでした。</p><button type="button" onClick={() => void retry()} disabled={loading || !!busy} className="mt-2 min-h-11 font-semibold underline">再読み込み</button></div>}
     {loading && !state && <p role="status" className="py-6 text-sm text-slate-500">登録状況を確認中…</p>}
   </>;
-  const bankEditor = editingBank && state && typeof document !== "undefined" && <EditorModal title={bankReview ? "変更内容の確認" : "振込口座を変更"} onClose={cancelBank} dismissible={!busy} trapFocus footer={<div className="space-y-2">
+  const bankEditor = editingBank && state && typeof document !== "undefined" && <EditorModal title={bankReview ? "変更内容の確認" : "振込口座を変更"} variant="setup" fixedHeight onClose={cancelBank} dismissible={!busy} trapFocus footer={<div className="space-y-2">
     {state.hasPasskey && supported && <button type={bankReview ? "button" : "submit"} form={bankReview ? undefined : `${id}-bank-form`} disabled={!!busy || loading || loadError || !dirty} onClick={bankReview ? () => void saveBank() : undefined} className={`${buttonClass} w-full`}>{busy ? "本人確認・変更中…" : bankReview ? "パスキーで確認して変更" : "変更内容を確認"}</button>}
     {bankReview && <button type="button" disabled={!!busy} onClick={() => { setBankReview(false); setBankError(""); }} className="min-h-11 w-full text-sm text-slate-600">入力に戻る</button>}
     <button type="button" disabled={!!busy} onClick={cancelBank} className="min-h-11 w-full text-sm text-slate-600">変更を取り消す</button>
   </div>}>
     {!state.hasPasskey ? <div className="space-y-4"><p className="text-sm text-slate-700">口座を変更するには、パスキーの設定が必要です。</p>{required ? <p className="text-sm text-slate-600">運営にお問い合わせください。</p> : <button type="button" onClick={() => { setEditingBank(false); document.getElementById("passkey-settings")?.scrollIntoView({ behavior: "smooth" }); }} className="min-h-11 text-sm font-semibold underline">パスキーの設定へ</button>}</div>
       : !supported ? <p className="text-sm text-slate-700">パスキーを使えるSafariやChromeで開いてください。</p>
-      : bankReview ? <div className="space-y-5"><BankSummary bank={bank} reveal /><p className="text-sm text-slate-600">今後の振込先をこの口座に変更します。</p></div>
-      : <div className="space-y-5"><div className="rounded-lg bg-slate-50 p-4"><h3 className="mb-3 text-sm font-semibold text-slate-700">登録中の口座</h3><BankSummary bank={state.bank} /></div><h3 className="text-sm font-semibold text-slate-700">変更後の口座</h3>{bankForm}</div>}
+      : bankReview ? <div className="space-y-3"><BankSummary bank={bank} reveal compact /><p className="text-xs text-slate-600">今後の振込先をこの口座に変更します。</p></div>
+      : <div className="space-y-3"><div className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600"><p className="mb-1 font-semibold">登録中の口座</p><p className="truncate" title={`${state.bank.bankName} ${state.bank.bankBranch ?? ""} / 末尾 ${state.bank.bankNo.slice(-4)}`}>{state.bank.bankName} {state.bank.bankBranch} / 末尾 {state.bank.bankNo.slice(-4)}</p></div>{bankForm}</div>}
     {status}
     {bankError && <p role="alert" className="mt-3 text-sm text-red-700">{bankError}</p>}
     {bankError.includes("読み込み直") && <button type="button" disabled={!!busy || loading} onClick={async () => { await retry(); setBankReview(false); }} className="min-h-11 text-sm font-semibold underline">登録内容を再読み込み</button>}
@@ -219,8 +228,8 @@ export function DriverSetupPanel({ required = false, children, onDirtyChange }: 
     {blocked && typeof document !== "undefined" && <EditorModal title="利用開始の準備" variant="setup" fixedHeight dismissible={false} onClose={() => {}} footer={footer}><div className="flex min-h-full flex-col justify-center">{status}<motion.div key={active} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={reduceMotion ? instantTransition : disclosureTransition}>{active === "phone" ? phoneSection : active === "bank" ? bankSection : null}</motion.div></div>{bankEditor}</EditorModal>}
   </>;
 }
-function BankSummary({ bank, reveal = false }: { bank: BankAccount; reveal?: boolean }) {
-  return <dl className="space-y-3 text-sm">{[["銀行・支店", bank.bankName], ["口座番号", reveal ? bank.bankNo : bank.bankNo ? `末尾 ${bank.bankNo.slice(-4)}` : ""], ["口座名義", bank.bankHolder]].map(([label, value]) => <div key={label} className="grid grid-cols-[5rem_minmax(0,1fr)] gap-3"><dt className="text-slate-500">{label}</dt><dd className="break-words font-medium text-slate-900">{value || "未入力"}</dd></div>)}</dl>;
+function BankSummary({ bank, reveal = false, compact = false }: { bank: BankAccount; reveal?: boolean; compact?: boolean }) {
+  return <dl className={compact ? "space-y-2 text-xs" : "space-y-3 text-sm"}>{[[bank.bankBranch ? "銀行名" : "銀行・支店", bank.bankName], ...(bank.bankBranch ? [["支店名", bank.bankBranch]] : []), ...(bank.bankType ? [["口座種別", bankAccountTypeLabels[bank.bankType]]] : []), ["口座番号", reveal ? bank.bankNo : bank.bankNo ? `末尾 ${bank.bankNo.slice(-4)}` : ""], ["口座名義", bank.bankHolder]].map(([label, value]) => <div key={label} className={compact ? "grid grid-cols-[4rem_minmax(0,1fr)] gap-2" : "grid grid-cols-[5rem_minmax(0,1fr)] gap-3"}><dt className="text-slate-500">{label}</dt><dd className="break-words font-medium text-slate-900">{value || "未入力"}</dd></div>)}</dl>;
 }
 function SetupBadge({ complete, completeLabel = "完了" }: { complete: boolean; completeLabel?: string }) {
   return <span className={`flex shrink-0 items-center gap-1.5 text-xs font-medium ${complete ? "text-green-700" : "text-amber-800"}`}>{complete && <FontAwesomeIcon icon={faCircleCheck} className="w-3.5" />}{complete ? completeLabel : "未完了"}</span>;

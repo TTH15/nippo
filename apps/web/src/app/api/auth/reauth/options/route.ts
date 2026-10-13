@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
     if (before && bank) {
       const visible = body.previousBank;
       const current = bankSnapshotValues(before);
-      if (!visible || !bankFields.every(key => typeof visible[key] === "string" && visible[key].trim() === current[key].trim())) return NextResponse.json({ error: "振込口座が変更されています。登録内容を読み込み直してください", code: "BANK_ACCOUNT_CHANGED" }, { status: 409 });
+      if (!visible || !bankFields.every(key => (visible[key] === undefined || typeof visible[key] === "string") && (visible[key] ?? "").trim() === (current[key] ?? "").trim())) return NextResponse.json({ error: "振込口座が変更されています。登録内容を読み込み直してください", code: "BANK_ACCOUNT_CHANGED" }, { status: 409 });
     }
     if (body.method === "sms") {
       const { phone, phoneMasked } = await reauthIdentity(user.identityId);

@@ -1,7 +1,7 @@
-import { normalizeBankAccount, requiresBankChangePasskey, bankFields } from "@/lib/bankAccount";
+import { normalizeBankAccount, requiresBankChangePasskey, bankFields, type BankAccount } from "@/lib/bankAccount";
 import { accountFixture } from "./account";
 import type { PreviewFixture } from "@/lib/preview/fixtureStore";
-export const meFixture: PreviewFixture<ReturnType<typeof accountFixture.createState> & { phoneVerified: boolean; phoneSent: boolean; bank: { bankName: string; bankNo: string; bankHolder: string }; readAttempts: number; writeAttempts: number; phone: string; pendingPhone: string; bankProof: string | null; proofAttempts: number }> = {
+export const meFixture: PreviewFixture<ReturnType<typeof accountFixture.createState> & { phoneVerified: boolean; phoneSent: boolean; bank: BankAccount; readAttempts: number; writeAttempts: number; phone: string; pendingPhone: string; bankProof: string | null; proofAttempts: number }> = {
   id: "me", title: "マイページ・ログイン設定", pathname: "/me",
   scenarios: {
     "both-missing": { label: "両方未完了", description: "SMSと振込口座の両方が必要" },
@@ -24,9 +24,9 @@ export const meFixture: PreviewFixture<ReturnType<typeof accountFixture.createSt
   },
   createState: (context) => ({ ...accountFixture.createState({ ...context, scenario: context.scenario === "bank-no-passkey" ? "empty" : "normal" }),
     phoneVerified: !["both-missing", "phone-missing", "no-phone"].includes(context.scenario), phoneSent: false, readAttempts: 0, writeAttempts: 0, phone: ["both-missing", "phone-missing", "no-phone"].includes(context.scenario) ? "" : "09000000000", pendingPhone: "", bankProof: null, proofAttempts: 0,
-    bank: ["normal", "registered", "phone-missing", "long-name", "bank-no-passkey", "bank-passkey-error", "bank-passkey-cancel", "bank-expired", "bank-conflict", "bank-change-error"].includes(context.scenario)
-      ? { bankName: context.scenario === "long-name" ? "見本銀行 配送事業者共同営業センター支店" : "見本銀行 中央支店", bankNo: "1234567", bankHolder: context.scenario === "long-name" ? "カブシキガイシャ ミホンハイソウサービス ダイヒョウトリシマリヤク ミホン タロウ" : "ミホン タロウ" }
-      : { bankName: "", bankNo: "", bankHolder: "" },
+    bank: (["normal", "registered", "phone-missing", "long-name", "bank-no-passkey", "bank-passkey-error", "bank-passkey-cancel", "bank-expired", "bank-conflict", "bank-change-error"].includes(context.scenario)
+      ? { bankName: "見本銀行", bankBranch: context.scenario === "long-name" ? "配送事業者共同営業センター支店" : "中央支店", bankType: "ordinary", bankNo: "1234567", bankHolder: context.scenario === "long-name" ? "カブシキガイシャ ミホンハイソウサービス ダイヒョウトリシマリヤク ミホン タロウ" : "ミホン タロウ" }
+      : { bankName: "", bankNo: "", bankHolder: "" }) as BankAccount,
   }),
   read: (state, request, context) => {
     const { path } = request; const { scenario } = context;
@@ -61,7 +61,7 @@ export const meFixture: PreviewFixture<ReturnType<typeof accountFixture.createSt
       if (request.path.endsWith("/options")) {
         if (context.scenario === "bank-conflict" && state.proofAttempts++ === 0) { state.bank.bankNo = "7777777"; throw new Error("振込口座が変更されています。登録内容を読み込み直してください"); }
         const visible = request.body.previousBank as Record<string, string> | undefined;
-        if (!visible || bankFields.some(key => visible[key] !== state.bank[key])) throw new Error("振込口座が変更されています。登録内容を読み込み直してください");
+        if (!visible || bankFields.some(key => (visible[key] ?? "") !== (state.bank[key] ?? ""))) throw new Error("振込口座が変更されています。登録内容を読み込み直してください");
         return { options: { previewCancel: context.scenario === "bank-passkey-cancel" && state.proofAttempts++ === 0 }, challengeToken: "preview-bank-challenge" };
       }
       if (context.scenario === "bank-passkey-error" && state.proofAttempts++ === 0) throw new Error("パスキーの確認を完了できませんでした。もう一度お試しください");
@@ -70,9 +70,8 @@ export const meFixture: PreviewFixture<ReturnType<typeof accountFixture.createSt
     }
     if (request.path === "/api/me/registration") {
       if (context.scenario === "save-error" && state.writeAttempts++ === 0) throw new Error("保存できませんでした。入力を残したまま再度保存してください");
-      const { bankName, bankNo, bankHolder } = request.body;
-      if (typeof bankName !== "string" || typeof bankNo !== "string" || typeof bankHolder !== "string") throw new Error("振込口座を入力してください");
-      const target = { bankName, bankNo, bankHolder };
+      const target = normalizeBankAccount(request.body);
+      if (!target) throw new Error("振込口座を入力してください");
       if (requiresBankChangePasskey(state.bank, target)) {
         if (request.headers.get("x-bank-change-token") !== "preview-bank-change-proof" || state.bankProof !== JSON.stringify(target)) throw new Error("振込口座の変更にはパスキーで本人確認が必要です");
         state.bankProof = null;

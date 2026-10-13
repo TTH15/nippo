@@ -4,7 +4,7 @@ import { NextRequest } from "next/server";
 import { decodeJwt } from "jose";
 const m = vi.hoisted(() => ({ rpc: vi.fn() }));
 vi.mock("@/server/db/client", () => ({ supabase: { rpc: m.rpc } }));
-import { bankBeforeHash, consumeBankChangeGrant, issueBankChangeGrant, bankAfterHash } from "./bankChangeAuth";
+import { bankBeforeHash, consumeBankChangeGrant, issueBankChangeGrant, bankAfterHash, bankSnapshotValues } from "./bankChangeAuth";
 import { freshStrongAuth, issueRecentAuthGrant } from "./recentAuth";
 import { SimpleJwtAuthProvider } from "./jwt";
 const user = { driverId: "self", identityId: "person", orgId: "org", role: "DRIVER", companyCode: "TEST", tokenVersion: 2 };
@@ -47,4 +47,10 @@ it("別セッション・変更前/後口座の差し替え・署名改変・期
 it("使用済み記録が保存できない場合は成功にしない", async () => {
   m.rpc.mockResolvedValue({ error: { message: "offline" } });
   await expect(consumeBankChangeGrant(req(await issue()), user, before, after)).rejects.toThrow();
+});
+
+it("支店が明示された保存値だけを分離し、従来の銀行・支店文字列を推測分割しない", () => {
+  expect(bankSnapshotValues({ bank_name: "見本銀行 中央支店", bank_no: "01234567", bank_holder: "ミホン", bank_branch_name: "中央支店", bank_account_type: "ordinary" })).toEqual({ bankName: "見本銀行", bankBranch: "中央支店", bankType: "ordinary", bankNo: "01234567", bankHolder: "ミホン" });
+  expect(bankSnapshotValues({ bank_name: "古い銀行 支店", bank_no: "1234567", bank_holder: "ミホン" })).toEqual({ bankName: "古い銀行 支店", bankNo: "1234567", bankHolder: "ミホン" });
+  expect(bankSnapshotValues({ bank_name: "変更後銀行 別支店", bank_no: "1234567", bank_holder: "ミホン", bank_branch_name: "中央支店", bank_account_type: "ordinary" })).not.toHaveProperty("bankBranch");
 });

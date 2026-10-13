@@ -2,14 +2,14 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { DriverSetupGate, DriverSetupPanel } from "./DriverSetupGate";
 const m = vi.hoisted(() => ({ api: vi.fn(), passkey: vi.fn(), verified: false, phone: "09000000000", hasKey: true,
-  bank: { bankName: "", bankNo: "", bankHolder: "" }, failRead: false, failSave: false, persistPhone: true }));
+  bank: { bankName: "", bankNo: "", bankHolder: "", bankBranch: "", bankType: "" }, failRead: false, failSave: false, persistPhone: true }));
 vi.mock("@/lib/api", () => ({ apiFetch: m.api }));
 vi.mock("@simplewebauthn/browser", () => ({ startAuthentication: m.passkey }));
 vi.mock("@/lib/webauthnHost", () => ({ useIsWebAuthnHost: () => true }));
-const readyBank = { bankName: "見本銀行 中央支店", bankNo: "1234567", bankHolder: "ミホン タロウ" };
+const readyBank = { bankName: "見本銀行", bankBranch: "中央支店", bankType: "ordinary", bankNo: "1234567", bankHolder: "ミホン タロウ" };
 beforeEach(() => {
   sessionStorage.removeItem("nippo_phone_resend_after");
-  m.verified = false; m.phone = "09000000000"; m.hasKey = true; m.bank = { bankName: "", bankNo: "", bankHolder: "" };
+  m.verified = false; m.phone = "09000000000"; m.hasKey = true; m.bank = { bankName: "", bankNo: "", bankHolder: "", bankBranch: "", bankType: "" };
   m.failRead = false; m.failSave = false; m.persistPhone = true; m.passkey.mockReset().mockResolvedValue({ id: "key" });
   m.api.mockReset().mockImplementation(async (path: string, init?: RequestInit) => {
     if (!init?.method && m.failRead) throw new Error("read failed");
@@ -31,7 +31,10 @@ beforeEach(() => {
 });
 function gate() { render(<DriverSetupGate><div>通常の業務画面</div></DriverSetupGate>); }
 async function fillBank(scope: Pick<typeof screen, "findByLabelText" | "getByLabelText"> = screen) {
-  fireEvent.change(await scope.findByLabelText("銀行名・支店"), { target: { value: readyBank.bankName } });
+  fireEvent.change(await scope.findByLabelText("銀行名"), { target: { value: readyBank.bankName } });
+  fireEvent.change(scope.getByLabelText("支店名"), { target: { value: "中央支店" } });
+  fireEvent.click(scope.getByLabelText("口座種別"));
+  fireEvent.click(screen.getByRole("button", { name: "普通" }));
   fireEvent.change(scope.getByLabelText("口座番号"), { target: { value: "01234567" } });
   fireEvent.change(scope.getByLabelText("口座名義（カナ）"), { target: { value: readyBank.bankHolder } });
 }

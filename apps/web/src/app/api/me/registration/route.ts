@@ -23,12 +23,16 @@ export async function GET(req: NextRequest) {
     .select("name, dob, license_expiry, license_photo_path, face_photo_path")
     .eq("id", identityId)
     .single();
-  const { data: driver } = await supabase
+  const { data: driver, error: driverError } = await supabase
     // tenant-scope-ok: requireAuth由来の本人user.driverIdだけを読み書きする
     .from("drivers")
-    .select("postal_code, address, address_matches_license, bank_name, bank_no, bank_holder, kyc_verified_at, onboarding_requires_passkey")
+    .select("postal_code, address, address_matches_license, bank_name, bank_no, bank_holder, bank_branch_name, bank_account_type, kyc_verified_at, onboarding_requires_passkey")
     .eq("id", user.driverId)
     .single();
+
+  if (driverError || !driver) return NextResponse.json({ error: "登録状況を確認できませんでした。もう一度お試しください" }, { status: 503 });
+
+  const bank = bankSnapshotValues({ bank_name: driver.bank_name ?? null, bank_no: driver.bank_no ?? null, bank_holder: driver.bank_holder ?? null, bank_branch_name: driver.bank_branch_name ?? null, bank_account_type: driver.bank_account_type ?? null });
 
   const hasLicensePhoto = !!identity?.license_photo_path;
   const hasFacePhoto = !!identity?.face_photo_path;
@@ -57,7 +61,9 @@ export async function GET(req: NextRequest) {
     postalCode: driver?.postal_code ?? "",
     address: driver?.address ?? "",
     addressMatchesLicense: (driver?.address_matches_license as boolean | null) ?? null,
-    bankName: driver?.bank_name ?? "",
+    bankName: bank.bankName,
+    bankBranch: bank.bankBranch ?? "",
+    bankType: bank.bankType ?? "",
     bankNo: driver?.bank_no ?? "",
     bankHolder: driver?.bank_holder ?? "",
     complete,
@@ -82,8 +88,8 @@ export async function POST(req: NextRequest) {
       catch { return NextResponse.json({ error: "振込口座を確認できませんでした。もう一度お試しください" }, { status: 503 }); }
       const previous = bankSnapshotValues(bankBefore);
       const bank = normalizeBankAccount({ ...previous, ...Object.fromEntries(bankFields.filter(key => Object.hasOwn(body, key)).map(key => [key, body[key]])) });
-      if (!bank) return NextResponse.json({ error: "銀行名・支店、8桁以内の口座番号、口座名義を入力してください" }, { status: 400 });
-      const changed = bankFields.some(key => bank[key] !== previous[key].trim());
+      if (!bank) return NextResponse.json({ error: "銀行名、支店名、口座種別、8桁以内の口座番号、口座名義を確認してください" }, { status: 400 });
+      const changed = bankFields.some(key => (bank[key] ?? "") !== (previous[key] ?? "").trim());
       if (requiresBankChangePasskey(previous, bank)) {
         let confirmed;
         try { confirmed = await consumeBankChangeGrant(req, user, bankBefore, bank); }
@@ -92,7 +98,7 @@ export async function POST(req: NextRequest) {
       }
       // 同じ口座の再送は書き換えず、確認情報の再利用を求めない。
       if (!changed) return NextResponse.json({ ok: true });
-      for (const key of bankFields) body[key] = bank[key];
+      for (const key of bankFields) if (bank[key] !== undefined) body[key] = bank[key];
     }
     const idUpdate: Record<string, unknown> = {};
     const drvUpdate: Record<string, unknown> = {};
@@ -118,7 +124,10 @@ export async function POST(req: NextRequest) {
     if (body.addressMatchesLicense !== undefined) {
       drvUpdate.address_matches_license = body.addressMatchesLicense === true;
     }
-    if (body.bankName !== undefined) drvUpdate.bank_name = str(body.bankName) || null;
+    // 既存の管理画面・請求書・mobileが使う銀行＋支店表記も維持する。
+    if (body.bankName !== undefined) drvUpdate.bank_name = [str(body.bankName), str(body.bankBranch)].filter(Boolean).join(" ") || null;
+    if (body.bankBranch !== undefined) drvUpdate.bank_branch_name = str(body.bankBranch) || null;
+    if (body.bankType !== undefined) drvUpdate.bank_account_type = str(body.bankType) || null;
     if (body.bankNo !== undefined) drvUpdate.bank_no = str(body.bankNo) || null;
     if (body.bankHolder !== undefined) drvUpdate.bank_holder = str(body.bankHolder) || null;
 
@@ -137,7 +146,7 @@ export async function POST(req: NextRequest) {
       let query = supabase.from("drivers").update(drvUpdate).eq("id", user.driverId);
       if (bankBefore) {
         // 初回登録も比較更新する。他端末が先に登録した口座を無確認で上書きしない。
-        for (const key of ["bank_name", "bank_no", "bank_holder"] as const) query = bankBefore[key] === null ? query.is(key, null) : query.eq(key, bankBefore[key]);
+        for (const key of ["bank_name", "bank_no", "bank_holder", "bank_branch_name", "bank_account_type"] as const) query = bankBefore[key] == null ? query.is(key, null) : query.eq(key, bankBefore[key]);
       }
       const { data, error } = bankBefore ? await query.select("id").maybeSingle() : await query;
       if (error) {

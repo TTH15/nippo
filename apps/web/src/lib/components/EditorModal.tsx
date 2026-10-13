@@ -30,7 +30,7 @@ export function EditorModal({ title, children, footer, onClose, variant = "drive
     <div ref={panel} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={titleId} className={cn("modal-panel-in flex max-h-[85vh] w-full flex-col bg-white text-slate-800 shadow-lg outline-none", fixedHeight && (variant === "setup" ? "h-[min(32rem,85svh)]" : "h-[min(36rem,85svh)]"), centerContent && "justify-center", variant === "shift" ? "max-w-xl rounded-xl" : variant === "setup" ? "max-w-lg rounded-lg p-5" : "max-w-2xl rounded-lg p-5")} onClick={event => event.stopPropagation()}>
       <div className={cn("flex shrink-0 items-center justify-between gap-3", variant === "shift" ? "border-b border-slate-200 px-4 py-3" : "mb-4")}><h2 id={titleId} tabIndex={dismissible && !trapFocus ? undefined : 0} className={cn("font-semibold text-slate-900 outline-none", variant === "shift" ? "text-sm" : "text-lg")}>{title}</h2>{dismissible && <button aria-label="編集を閉じる" onClick={onClose} className="flex h-11 w-11 items-center justify-center rounded text-slate-500 hover:bg-slate-100"><FontAwesomeIcon icon={faXmark}/></button>}</div>
       <div className={cn("min-h-0 overflow-y-auto", centerContent ? "flex-initial" : "flex-1", variant === "shift" ? "p-4" : "-mr-1 pr-1")}>{children}</div>
-      {footer && <div className={cn("shrink-0", centerContent ? "mt-4" : "border-t border-slate-100", variant === "shift" ? "px-4 py-3" : centerContent ? "" : "mt-4 pt-3")}>{footer}</div>}
+      {footer && <div className={cn("shrink-0", centerContent || variant === "setup" ? "mt-3" : "border-t border-slate-100", variant === "shift" ? "px-4 py-3" : centerContent || variant === "setup" ? "" : "mt-4 pt-3")}>{footer}</div>}
     </div>
   </div>, document.body);
 }
