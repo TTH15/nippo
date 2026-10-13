@@ -38,10 +38,13 @@ async function fillBank(scope: Pick<typeof screen, "findByLabelText" | "getByLab
   fireEvent.change(scope.getByLabelText("口座番号"), { target: { value: "01234567" } });
   fireEvent.change(scope.getByLabelText("口座名義（カナ）"), { target: { value: readyBank.bankHolder } });
 }
-it("両方未完了なら電話入力の1ページ目だけを表示し、進捗2点と背景を残す", async () => {
+it("両方未完了なら電話入力と操作名つきの進捗を表示し、背景を残す", async () => {
   gate(); await screen.findByLabelText("電話番号");
   expect(screen.queryByLabelText("口座番号")).toBeNull();
-  expect(screen.getByLabelText("登録の進み具合")).toHaveTextContent("1 / 2");
+  expect(screen.getByRole("heading", { name: "電話番号を入力してください" })).toBeInTheDocument();
+  expect(screen.getByLabelText("登録の進み具合")).toHaveTextContent("電話番号の認証");
+  expect(screen.getByLabelText("登録の進み具合")).toHaveTextContent("口座情報の登録");
+  expect(screen.getByText("電話番号の認証").closest("li")).toHaveAttribute("aria-current", "step");
   expect(screen.queryByLabelText("認証コード")).toBeNull();
   expect(screen.getByText("通常の業務画面").closest("[data-driver-setup-background]")).toHaveAttribute("inert");
   expect(screen.queryByRole("button", { name: "ログアウト" })).toBeNull();
@@ -51,7 +54,8 @@ it("両方未完了なら電話入力の1ページ目だけを表示し、進捗
 it.each(["phone", "bank"])("%sだけ未完了なら1ページ・進捗1点", async step => {
   if (step === "phone") m.bank = readyBank; else m.verified = true;
   gate(); await screen.findByLabelText(step === "phone" ? "電話番号" : "口座番号");
-  expect(screen.getByLabelText("登録の進み具合")).toHaveTextContent("1 / 1");
+  expect(screen.getByLabelText("登録の進み具合").querySelectorAll("li")).toHaveLength(1);
+  expect(screen.getByLabelText("登録の進み具合")).toHaveTextContent(step === "phone" ? "電話番号の認証" : "口座情報の登録");
 });
 it("両方登録済みならモーダルを省略する", async () => {
   m.verified = true; m.bank = readyBank; gate();
@@ -76,7 +80,7 @@ it("新しい電話を入力し、SMS誤コードから復帰して口座ペー�
   expect(screen.getByRole("button", { name: "確認しました" })).toBeDisabled();
   expect(screen.queryByLabelText("口座番号")).toBeNull();
   await fillBank(); expect(screen.queryByLabelText("電話番号")).toBeNull();
-  expect(screen.getByLabelText("登録の進み具合")).toHaveTextContent("2 / 2");
+  expect(screen.getByText("口座情報の登録").closest("li")).toHaveAttribute("aria-current", "step");
   fireEvent.click(screen.getByRole("button", { name: "口座を登録して利用を開始" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   expect(m.bank.bankNo).toBe("01234567"); expect(m.passkey).not.toHaveBeenCalled();

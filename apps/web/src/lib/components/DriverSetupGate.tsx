@@ -170,7 +170,7 @@ export function DriverSetupPanel({ required = false, children, onDirtyChange }: 
   </form>;
   const setupSectionClass = required ? "w-full py-1" : "rounded-lg border border-slate-200 bg-white p-4";
   const phoneSection = state && <section className={setupSectionClass}>
-    <div className="mb-4 flex items-center justify-between gap-3"><h2 className="text-sm font-semibold text-slate-800">{codeSent || phoneSuccess ? "SMS認証コードを入力" : "電話番号の確認"}</h2><SetupBadge complete={state.profile.phoneVerified} /></div>
+    {!required && <div className="mb-4 flex items-center justify-between gap-3"><h2 className="text-sm font-semibold text-slate-800">{codeSent || phoneSuccess ? "SMS認証コードを入力" : "電話番号の確認"}</h2><SetupBadge complete={state.profile.phoneVerified} /></div>}
     {state.profile.phoneVerified && !phoneSuccess ? <p className="text-base font-semibold text-slate-900">{formatJPPhoneDisplay(state.profile.phone || phone)}</p> : <>
       {!codeSent && !phoneSuccess ? <label className="block space-y-2 text-sm text-slate-600"><span>電話番号 <span className="text-xs text-red-700">必須</span></span><input aria-label="電話番号" type="tel" autoComplete="tel" inputMode="tel" value={phone} disabled={!!busy} onChange={event => setPhone(event.target.value)} className={inputClass} placeholder="09012345678" /></label>
         : <motion.div layout transition={reduceMotion ? instantTransition : disclosureTransition} className="mb-5 flex min-h-14 items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2">
@@ -186,7 +186,7 @@ export function DriverSetupPanel({ required = false, children, onDirtyChange }: 
     {phoneError && <p role="alert" className="mt-3 text-sm text-red-700">{phoneError}</p>}
   </section>;
   const bankSection = state && <section className={setupSectionClass}>
-    <div className="mb-4 flex items-center justify-between gap-3"><h2 className="text-sm font-semibold text-slate-800">振込口座</h2><SetupBadge complete={hasSetupBank(state.bank)} completeLabel="登録済み" /></div>
+    {!required && <div className="mb-4 flex items-center justify-between gap-3"><h2 className="text-sm font-semibold text-slate-800">振込口座</h2><SetupBadge complete={hasSetupBank(state.bank)} completeLabel="登録済み" /></div>}
     {changingBank ? <>
       <BankSummary bank={state.bank} />
       <div className="mt-4 border-t border-slate-100 pt-3"><button type="button" disabled={!!busy || loading} onClick={() => void openBankChange()} className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 disabled:opacity-50"><FontAwesomeIcon icon={faLock} className="w-3" />振込口座を変更</button><p className="mt-2 text-xs text-slate-500">変更時にパスキーで本人確認</p></div>
@@ -220,12 +220,18 @@ export function DriverSetupPanel({ required = false, children, onDirtyChange }: 
     : complete ? <button key="complete" type="button" disabled={!!busy || loading || dirty} onClick={() => setEntered(true)} className={`${buttonClass} w-full`}>利用を開始する</button>
     : active === "phone" ? <button key="phone" type="button" disabled={!!busy || loading || !phone.trim() || (!state.profile.phoneVerified && (codeSent ? code.length !== 6 : resendCooldown.seconds > 0))} onClick={() => state.profile.phoneVerified ? setStepIndex(stepIndex + 1) : void phoneAction(codeSent)} className={`${buttonClass} w-full`}>{busy ? "確認中…" : state.profile.phoneVerified ? "次へ" : codeSent ? "電話番号を確認" : resendCooldown.seconds > 0 ? `送信まであと${resendCooldown.seconds}秒` : "認証コードを送信"}</button>
     : !changingBank ? <button key="bank" type="submit" form={`${id}-bank-form`} disabled={!!busy || loading || loadError} className={`${buttonClass} w-full`}>{busy === "bank" ? "保存中…" : "口座を登録して利用を開始"}</button> : null);
-  const footer = <>{action}
-    {steps.length > 0 && <div className="relative mt-3 flex min-h-11 items-center justify-center">{stepIndex > 0 && <button type="button" disabled={!!busy} onClick={() => setStepIndex(stepIndex - 1)} className="absolute left-0 min-h-11 px-2 text-xs text-slate-600">戻る</button>}<p aria-label="登録の進み具合" aria-live="polite" className="text-sm font-medium tabular-nums text-slate-600">{stepIndex + 1} / {steps.length}</p></div>}
-  </>;
+  const setupTitle = !state ? "登録状況を確認" : active === "phone" ? phoneSuccess ? "電話番号を認証しました" : codeSent ? "認証コードを入力してください" : "電話番号を入力してください" : "振込口座を登録してください";
+  const progress = steps.length > 0 && <ol aria-label="登録の進み具合" className="flex items-center gap-2 text-xs">
+    {steps.map((step, index) => <li key={step} aria-current={index === stepIndex ? "step" : undefined} className={`flex items-center gap-1 ${index === stepIndex ? "font-semibold text-slate-900" : "text-slate-500"}`}>
+      {index > 0 && <span aria-hidden="true" className="h-px w-2 bg-slate-300" />}
+      <span aria-hidden="true" className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full font-semibold ${index <= stepIndex ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-500"}`}>{index + 1}</span>
+      <span>{step === "phone" ? "電話番号の認証" : "口座情報の登録"}</span>
+    </li>)}
+  </ol>;
+  const footer = <>{action}<div className="mt-3 flex min-h-11 items-center">{stepIndex > 0 && <button type="button" disabled={!!busy} onClick={() => setStepIndex(stepIndex - 1)} className="min-h-11 px-2 text-xs text-slate-600">戻る</button>}</div></>;
   return <>
     <div key={entered ? "ready" : "setup"} data-driver-setup-background inert={blocked || undefined} aria-hidden={blocked || undefined}>{children}</div>
-    {blocked && typeof document !== "undefined" && <EditorModal title="利用開始の準備" variant="setup" fixedHeight dismissible={false} onClose={() => {}} footer={footer}><div className="flex min-h-full flex-col justify-center">{status}<motion.div key={active} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={reduceMotion ? instantTransition : disclosureTransition}>{active === "phone" ? phoneSection : active === "bank" ? bankSection : null}</motion.div></div>{bankEditor}</EditorModal>}
+    {blocked && typeof document !== "undefined" && <EditorModal title={setupTitle} header={progress} variant="setup" fixedHeight dismissible={false} onClose={() => {}} footer={footer}><div className="flex min-h-full flex-col justify-center">{status}<motion.div key={active} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={reduceMotion ? instantTransition : disclosureTransition}>{active === "phone" ? phoneSection : active === "bank" ? bankSection : null}</motion.div></div>{bankEditor}</EditorModal>}
   </>;
 }
 function BankSummary({ bank, reveal = false, compact = false }: { bank: BankAccount; reveal?: boolean; compact?: boolean }) {
