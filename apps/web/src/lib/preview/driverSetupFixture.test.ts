@@ -18,3 +18,15 @@ it("初回口座保存は銀行・支店・種別を別項目で保持する", a
   await store.fetch("/api/me/registration", { method: "POST", body: JSON.stringify(bank) });
   expect(await store.fetch("/api/me/registration", { fresh: true })).toMatchObject(bank);
 });
+
+it("編集開始のパスキー証明で初めて入力する口座を保存でき、同じ証明は再利用できない", async () => {
+  const store = createFixtureStore(meFixture, { scenario: "normal", role: "admin" });
+  const previousBank = await store.fetch("/api/me/registration") as Record<string, unknown>;
+  const intent = { method: "passkey", action: "bank_edit", previousBank };
+  await store.fetch("/api/auth/reauth/options", { method: "POST", body: JSON.stringify(intent) });
+  const proof = await store.fetch("/api/auth/reauth/verify", { method: "POST", body: JSON.stringify(intent) }) as { bankChangeToken: string };
+  const bank = { bankName: "別の銀行", bankBranch: "別の支店", bankType: "current", bankNo: "7654321", bankHolder: "ミホン タロウ" };
+  const init = { method: "POST", headers: { "x-bank-change-token": proof.bankChangeToken }, body: JSON.stringify(bank) };
+  await store.fetch("/api/me/registration", init);
+  await expect(store.fetch("/api/me/registration", { ...init, body: JSON.stringify({ ...bank, bankNo: "9999999" }) })).rejects.toThrow("パスキー");
+});

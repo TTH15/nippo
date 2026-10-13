@@ -54,9 +54,9 @@ export const meFixture: PreviewFixture<ReturnType<typeof accountFixture.createSt
       if (!state.phoneSent || request.body.code !== "123456" || String(request.body.phone).replace(/-/g, "") !== state.pendingPhone) throw new Error("認証コードが正しくありません");
       state.phone = state.pendingPhone; state.phoneVerified = true; state.phoneSent = false; return { ok: true };
     }
-    if (request.path.startsWith("/api/auth/reauth/") && request.body.action === "bank_change") {
+    if (request.path.startsWith("/api/auth/reauth/") && (request.body.action === "bank_change" || request.body.action === "bank_edit")) {
       if (!state.hasPasskey || request.body.method !== "passkey") throw new Error("パスキーの設定が必要です");
-      const target = normalizeBankAccount(request.body.bank);
+      const target = request.body.action === "bank_edit" ? state.bank : normalizeBankAccount(request.body.bank);
       if (!target) throw new Error("振込口座を入力してください");
       if (request.path.endsWith("/options")) {
         if (context.scenario === "bank-conflict" && state.proofAttempts++ === 0) { state.bank.bankNo = "7777777"; throw new Error("振込口座が変更されています。登録内容を読み込み直してください"); }
@@ -65,7 +65,7 @@ export const meFixture: PreviewFixture<ReturnType<typeof accountFixture.createSt
         return { options: { previewCancel: context.scenario === "bank-passkey-cancel" && state.proofAttempts++ === 0 }, challengeToken: "preview-bank-challenge" };
       }
       if (context.scenario === "bank-passkey-error" && state.proofAttempts++ === 0) throw new Error("パスキーの確認を完了できませんでした。もう一度お試しください");
-      state.bankProof = JSON.stringify(target);
+      state.bankProof = request.body.action === "bank_edit" ? `edit:${JSON.stringify(state.bank)}` : JSON.stringify(target);
       return { bankChangeToken: "preview-bank-change-proof" };
     }
     if (request.path === "/api/me/registration") {
@@ -73,7 +73,7 @@ export const meFixture: PreviewFixture<ReturnType<typeof accountFixture.createSt
       const target = normalizeBankAccount(request.body);
       if (!target) throw new Error("振込口座を入力してください");
       if (requiresBankChangePasskey(state.bank, target)) {
-        if (request.headers.get("x-bank-change-token") !== "preview-bank-change-proof" || state.bankProof !== JSON.stringify(target)) throw new Error("振込口座の変更にはパスキーで本人確認が必要です");
+        if (request.headers.get("x-bank-change-token") !== "preview-bank-change-proof" || (state.bankProof !== JSON.stringify(target) && state.bankProof !== `edit:${JSON.stringify(state.bank)}`)) throw new Error("振込口座の変更にはパスキーで本人確認が必要です");
         state.bankProof = null;
         if (context.scenario === "bank-expired" && state.writeAttempts++ === 0) throw new Error("本人確認の期限が切れました。パスキーでもう一度確認してください");
         if (context.scenario === "bank-change-error" && state.writeAttempts++ === 0) throw new Error("変更できませんでした。入力を残したまま再度お試しください");

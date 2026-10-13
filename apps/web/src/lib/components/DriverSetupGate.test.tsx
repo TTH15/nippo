@@ -107,23 +107,35 @@ async function openChange() {
 }
 it("口座変更は独立モーダルで内容を確認し、毎回パスキーを検証して専用確認情報を添える", async () => {
   const modal = await openChange(); await fillBank(modal);
-  expect(m.passkey).not.toHaveBeenCalled();
+  expect(m.passkey).toHaveBeenCalledOnce();
   fireEvent.click(modal.getByRole("button", { name: "変更内容を確認" }));
   const review = within(await screen.findByRole("dialog", { name: "変更内容の確認" }));
   expect(review.getByText("01234567")).toBeInTheDocument();
-  fireEvent.click(review.getByRole("button", { name: "パスキーで確認して変更" }));
-  await screen.findByText("振込口座を変更しました"); expect(m.passkey).toHaveBeenCalledOnce();
+  fireEvent.click(review.getByRole("button", { name: "変更を保存" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull()); expect(m.passkey).toHaveBeenCalledOnce();
+  expect(screen.queryByText("変更時にパスキーで本人確認")).toBeNull();
+  expect(screen.queryByText("振込口座を変更しました")).toBeNull();
   expect(m.api).toHaveBeenCalledWith("/api/me/registration", expect.objectContaining({ method: "POST", headers: { "x-bank-change-token": "bank-proof" } }));
   expect(screen.queryByRole("dialog")).toBeNull();
 });
-it("パスキー中止では保存しない。内容を保持し再確認できる", async () => {
+it("パスキー中止では編集を開かず、変更ボタンから再確認できる", async () => {
+  m.verified = true; m.bank = { ...readyBank }; render(<DriverSetupPanel />);
   m.passkey.mockRejectedValueOnce(Object.assign(new Error("cancel"), { name: "NotAllowedError" }));
-  const modal = await openChange(); await fillBank(modal); fireEvent.click(modal.getByRole("button", { name: "変更内容を確認" }));
-  fireEvent.click(screen.getByRole("button", { name: "パスキーで確認して変更" }));
-  await screen.findByText("パスキーの確認を中止しました。変更内容は残っています。");
+  fireEvent.click(await screen.findByRole("button", { name: "振込口座を変更" }));
+  await screen.findByText("パスキーの確認を中止しました。");
+  expect(screen.queryByRole("dialog")).toBeNull();
   expect(m.api.mock.calls.some(([path, init]) => path === "/api/me/registration" && init?.method === "POST")).toBe(false);
-  fireEvent.click(screen.getByRole("button", { name: "パスキーで確認して変更" }));
-  await screen.findByText("振込口座を変更しました"); expect(m.passkey).toHaveBeenCalledTimes(2);
+  fireEvent.click(screen.getByRole("button", { name: "振込口座を変更" }));
+  await screen.findByRole("dialog", { name: "振込口座を変更" }); expect(m.passkey).toHaveBeenCalledTimes(2);
+});
+it("保存失敗では入力を残し、専用確認情報を取り直して再保存する", async () => {
+  const modal = await openChange(); await fillBank(modal); m.failSave = true;
+  fireEvent.click(modal.getByRole("button", { name: "変更内容を確認" }));
+  fireEvent.click(await screen.findByRole("button", { name: "変更を保存" }));
+  await screen.findByText("保存できませんでした");
+  expect(m.passkey).toHaveBeenCalledOnce(); m.failSave = false;
+  fireEvent.click(screen.getByRole("button", { name: "パスキーで再確認して保存" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull()); expect(m.passkey).toHaveBeenCalledTimes(2);
 });
 it("パスキー未登録の口座は変更フォームを開かない", async () => {
   m.hasKey = false; await openChange();

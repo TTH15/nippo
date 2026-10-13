@@ -52,7 +52,7 @@ export function DriverSetupPanel({ required = false, children, onDirtyChange }: 
   const [busy, setBusy] = useState<"bank" | "send" | "verify" | null>(null);
   const [bankError, setBankError] = useState("");
   const [phoneError, setPhoneError] = useState("");
-  const [bankSaved, setBankSaved] = useState("");
+  const [bankEditToken, setBankEditToken] = useState("");
   const dirty = !!state && bankFields.some(key => (bank[key] ?? "").trim() !== (state.bank[key] ?? "").trim());
   const changingBank = !!state && hasSetupBank(state.bank);
   useUnsavedChanges(dirty);
@@ -101,29 +101,21 @@ export function DriverSetupPanel({ required = false, children, onDirtyChange }: 
   }
   async function saveBank(event?: React.FormEvent) {
     event?.preventDefault(); if (busy) return;
-    setBankError(""); setBankSaved("");
+    setBankError("");
     const values = normalizeBankAccount(bank);
     if (!values || !values.bankBranch || !values.bankType) { setBankError("銀行名、支店名、口座種別、口座番号、名義を入力してください"); return; }
     const requiresPasskey = !!state && requiresBankChangePasskey(state.bank, values);
     if (requiresPasskey && !bankReview) { setEditingBank(true); setBankReview(true); return; }
     setBusy("bank");
     try {
-      let bankChangeToken: string | undefined;
-      if (requiresPasskey) {
-        // 毎回新しくパスキーを検証し、この変更だけの短命・一回限りの確認情報を使う。
-        const intent = { method: "passkey", action: "bank_change", bank: values, previousBank: state?.bank };
-        const options = await apiFetch<{ options: Parameters<typeof startAuthentication>[0]["optionsJSON"]; challengeToken: string }>("/api/auth/reauth/options", { method: "POST", body: JSON.stringify(intent) });
-        const response = await startAuthentication({ optionsJSON: options.options });
-        const verified = await apiFetch<{ bankChangeToken: string }>("/api/auth/reauth/verify", { method: "POST", body: JSON.stringify({ ...intent, challengeToken: options.challengeToken, response }) });
-        if (!verified.bankChangeToken) throw new Error("パスキーの確認を完了できませんでした。もう一度お試しください");
-        bankChangeToken = verified.bankChangeToken;
-      }
+      const bankChangeToken = requiresPasskey ? bankEditToken || await confirmBankEdit(state!.bank) : undefined;
       await apiFetch("/api/me/registration", { method: "POST", headers: bankChangeToken ? { "x-bank-change-token": bankChangeToken } : undefined, body: JSON.stringify(values) });
       const next = await refresh();
       if (!hasSetupBank(next.bank) || bankFields.some(key => (next.bank[key] ?? "").trim() !== (values[key] ?? ""))) throw new Error("振込口座の保存を確認できませんでした。入力を残したまま再度保存してください");
-      setBank(next.bank); setEditingBank(false); setBankReview(false); setBankSaved(requiresPasskey ? "振込口座を変更しました" : "振込口座を登録しました");
+      setBank(next.bank); setEditingBank(false); setBankReview(false); setBankEditToken("");
       if (required && !editingBank && next.profile.phoneVerified) setEntered(true);
     } catch (error) {
+      setBankEditToken("");
       setBankError(error instanceof Error && error.name === "NotAllowedError" ? "パスキーの確認を中止しました。変更内容は残っています。" : error instanceof Error ? (error.message.startsWith("登録状況を確認できませんでした") ? "" : error.message) : "変更できませんでした。もう一度お試しください");
     } finally { setBusy(null); }
   }
@@ -140,16 +132,30 @@ export function DriverSetupPanel({ required = false, children, onDirtyChange }: 
     } catch (error) { setPhoneError(error instanceof Error ? (error.message.startsWith("登録状況を確認できませんでした") ? "" : error.message) : "確認できませんでした。もう一度お試しください"); }
     finally { setBusy(null); }
   }
+  async function confirmBankEdit(previousBank: SetupBank) {
+    const intent = { method: "passkey", action: "bank_edit", previousBank };
+    const options = await apiFetch<{ options: Parameters<typeof startAuthentication>[0]["optionsJSON"]; challengeToken: string }>("/api/auth/reauth/options", { method: "POST", body: JSON.stringify(intent) });
+    const response = await startAuthentication({ optionsJSON: options.options });
+    const verified = await apiFetch<{ bankChangeToken: string }>("/api/auth/reauth/verify", { method: "POST", body: JSON.stringify({ ...intent, challengeToken: options.challengeToken, response }) });
+    if (!verified.bankChangeToken) throw new Error("パスキーの確認を完了できませんでした。もう一度お試しください");
+    return verified.bankChangeToken;
+  }
   async function openBankChange() {
-    setBankError(""); setBankSaved(""); setLoading(true);
-    try { const next = await refresh(); setBank(next.bank); setBankReview(false); setEditingBank(true); }
-    catch { /* 取得失敗なら編集を開かない */ }
-    finally { setLoading(false); }
+    if (busy || loading) return;
+    setBankError(""); setBankEditToken(""); setBusy("bank");
+    try {
+      const next = await refresh();
+      if (!next.hasPasskey || !supported) { setEditingBank(true); return; }
+      const token = await confirmBankEdit(next.bank);
+      setBank(next.bank); setBankEditToken(token); setBankReview(false); setEditingBank(true);
+    } catch (error) {
+      setBankError(error instanceof Error && error.name === "NotAllowedError" ? "パスキーの確認を中止しました。" : error instanceof Error ? (error.message.startsWith("登録状況を確認できませんでした") ? "" : error.message) : "本人確認できませんでした。もう一度お試しください");
+    } finally { setBusy(null); }
   }
   const cancelBank = () => {
     if (busy) return;
     if (dirty) setDiscarding(true);
-    else { setEditingBank(false); setBankReview(false); setBankError(""); }
+    else { setEditingBank(false); setBankReview(false); setBankEditToken(""); setBankError(""); }
   };
   const bankInputClass = "block h-12 w-full appearance-none rounded-none border-0 border-b-2 border-slate-300 bg-transparent px-0 py-2 text-base leading-6 text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-900 focus:ring-0";
   const bankInput = (key: "bankName" | "bankBranch" | "bankNo" | "bankHolder", label: string, placeholder: string) => <label className="block space-y-1 text-xs text-slate-600">
@@ -189,17 +195,16 @@ export function DriverSetupPanel({ required = false, children, onDirtyChange }: 
     {!required && <div className="mb-4 flex items-center justify-between gap-3"><h2 className="text-sm font-semibold text-slate-800">振込口座</h2><SetupBadge complete={hasSetupBank(state.bank)} completeLabel="登録済み" /></div>}
     {changingBank ? <>
       <BankSummary bank={state.bank} />
-      <div className="mt-4 border-t border-slate-100 pt-3"><button type="button" disabled={!!busy || loading} onClick={() => void openBankChange()} className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 disabled:opacity-50"><FontAwesomeIcon icon={faLock} className="w-3" />振込口座を変更</button><p className="mt-2 text-xs text-slate-500">変更時にパスキーで本人確認</p></div>
+      <div className="mt-4 border-t border-slate-100 pt-3"><button type="button" disabled={!!busy || loading} onClick={() => void openBankChange()} className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 disabled:opacity-50"><FontAwesomeIcon icon={faLock} className="w-3" />{busy === "bank" ? "本人確認中…" : "振込口座を変更"}</button></div>
     </> : editingBank ? null : bankForm}
     {bankError && !editingBank && <p role="alert" className="mt-3 text-sm text-red-700">{bankError}</p>}
-    {bankSaved && <p role="status" className="mt-3 text-sm text-green-700">{bankSaved}</p>}
   </section>;
   const status = <>
     {loadError && <div role="alert" className="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700"><p>登録状況を確認できませんでした。</p><button type="button" onClick={() => void retry()} disabled={loading || !!busy} className="mt-2 min-h-11 font-semibold underline">再読み込み</button></div>}
     {loading && !state && <p role="status" className="py-6 text-sm text-slate-500">登録状況を確認中…</p>}
   </>;
   const bankEditor = editingBank && state && typeof document !== "undefined" && <EditorModal title={bankReview ? "変更内容の確認" : "振込口座を変更"} variant="setup" fixedHeight onClose={cancelBank} dismissible={!busy} trapFocus footer={<div className="space-y-2">
-    {state.hasPasskey && supported && <button type={bankReview ? "button" : "submit"} form={bankReview ? undefined : `${id}-bank-form`} disabled={!!busy || loading || loadError || !dirty} onClick={bankReview ? () => void saveBank() : undefined} className={`${buttonClass} w-full`}>{busy ? "本人確認・変更中…" : bankReview ? "パスキーで確認して変更" : "変更内容を確認"}</button>}
+    {state.hasPasskey && supported && <button type={bankReview ? "button" : "submit"} form={bankReview ? undefined : `${id}-bank-form`} disabled={!!busy || loading || loadError || !dirty} onClick={bankReview ? () => void saveBank() : undefined} className={`${buttonClass} w-full`}>{busy ? "保存中…" : bankReview ? bankEditToken ? "変更を保存" : "パスキーで再確認して保存" : "変更内容を確認"}</button>}
     {bankReview && <button type="button" disabled={!!busy} onClick={() => { setBankReview(false); setBankError(""); }} className="min-h-11 w-full text-sm text-slate-600">入力に戻る</button>}
     <button type="button" disabled={!!busy} onClick={cancelBank} className="min-h-11 w-full text-sm text-slate-600">変更を取り消す</button>
   </div>}>
@@ -210,7 +215,7 @@ export function DriverSetupPanel({ required = false, children, onDirtyChange }: 
     {status}
     {bankError && <p role="alert" className="mt-3 text-sm text-red-700">{bankError}</p>}
     {bankError.includes("読み込み直") && <button type="button" disabled={!!busy || loading} onClick={async () => { await retry(); setBankReview(false); }} className="min-h-11 text-sm font-semibold underline">登録内容を再読み込み</button>}
-    <ConfirmDialog open={discarding} title="変更を取り消す" message="入力した変更内容を破棄しますか？" confirmLabel="変更を破棄" cancelLabel="入力に戻る" tone="neutral" onClose={() => setDiscarding(false)} onConfirm={() => { setBank(state.bank); setEditingBank(false); setBankReview(false); setBankError(""); }} />
+    <ConfirmDialog open={discarding} title="変更を取り消す" message="入力した変更内容を破棄しますか？" confirmLabel="変更を破棄" cancelLabel="入力に戻る" tone="neutral" onClose={() => setDiscarding(false)} onConfirm={() => { setBank(state.bank); setEditingBank(false); setBankReview(false); setBankEditToken(""); setBankError(""); }} />
   </EditorModal>;
   if (!required) return <section className="mb-8" aria-label="登録情報"><h2 className="mb-3 text-base font-bold text-slate-900">登録情報</h2>{status}<div className="space-y-4">{phoneSection}{bankSection}</div>{bankEditor}</section>;
   const complete = !!state && state.profile.phoneVerified && hasSetupBank(state.bank) && !loadError;

@@ -36,7 +36,7 @@ export function rpConfig() {
 // 検証成功後、consumeChallengeToken でDBへ使用済みを原子的に記録する。
 // -------------------------------------------------------
 
-type ChallengePurpose = "register" | "login" | "reauth" | "bank_change";
+type ChallengePurpose = "register" | "login" | "reauth" | "bank_change" | "bank_edit";
 
 export async function createChallengeToken(payload: {
   challenge: string;
@@ -79,7 +79,8 @@ export async function verifyChallengeToken(
   const identityId = payload.identity_id ?? null;
   if ((identityId !== null && typeof identityId !== "string") ||
       (expectedPurpose !== "login" && !identityId) ||
-      (["reauth", "bank_change"].includes(expectedPurpose) && (typeof payload.session_hash !== "string" || !/^[a-f0-9]{64}$/.test(payload.session_hash))) ||
+      (["reauth", "bank_change", "bank_edit"].includes(expectedPurpose) && (typeof payload.session_hash !== "string" || !/^[a-f0-9]{64}$/.test(payload.session_hash))) ||
+      (expectedPurpose === "bank_edit" && (typeof payload.bank_before_hash !== "string" || !/^[a-f0-9]{64}$/.test(payload.bank_before_hash))) ||
       (expectedPurpose === "bank_change" && (![payload.bank_before_hash, payload.bank_after_hash].every(value => typeof value === "string" && /^[a-f0-9]{64}$/.test(value)))) ||
       (expectedPurpose === "login" && identityId !== null)) {
     throw new Error("Invalid challenge token");
@@ -88,7 +89,8 @@ export async function verifyChallengeToken(
     challenge,
     identityId,
     expiresAt: payload.exp,
-    ...(["reauth", "bank_change"].includes(expectedPurpose) ? { sessionHash: payload.session_hash as string } : {}),
+    ...(["reauth", "bank_change", "bank_edit"].includes(expectedPurpose) ? { sessionHash: payload.session_hash as string } : {}),
+    ...(expectedPurpose === "bank_edit" ? { bankBeforeHash: payload.bank_before_hash as string } : {}),
     ...(expectedPurpose === "bank_change" ? { bankBeforeHash: payload.bank_before_hash as string, bankAfterHash: payload.bank_after_hash as string } : {}),
   };
 }

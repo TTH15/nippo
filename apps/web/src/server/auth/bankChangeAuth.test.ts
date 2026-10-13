@@ -54,3 +54,18 @@ it("支店が明示された保存値だけを分離し、従来の銀行・支�
   expect(bankSnapshotValues({ bank_name: "古い銀行 支店", bank_no: "1234567", bank_holder: "ミホン" })).toEqual({ bankName: "古い銀行 支店", bankNo: "1234567", bankHolder: "ミホン" });
   expect(bankSnapshotValues({ bank_name: "変更後銀行 別支店", bank_no: "1234567", bank_holder: "ミホン", bank_branch_name: "中央支店", bank_account_type: "ordinary" })).not.toHaveProperty("bankBranch");
 });
+
+it("編集開始の確認は変更前の口座とセッションに限定し、保存時に1回だけ使う", async () => {
+  const proof = await issueBankChangeGrant(req(), user, bankBeforeHash(before), null);
+  expect(decodeJwt(proof).kind).toBe("bank_account_edit");
+  expect(decodeJwt(proof)).not.toHaveProperty("bank_after_hash");
+  expect(await consumeBankChangeGrant(req(proof, "other"), user, before, after)).toBe(false);
+  expect(await consumeBankChangeGrant(req(proof), user, { ...before, bank_no: "9999999" }, after)).toBe(false);
+  for (const change of [{ identityId: "other" }, { driverId: "other" }, { orgId: "other" }, { tokenVersion: 3 }]) expect(await consumeBankChangeGrant(req(proof), { ...user, ...change }, before, after)).toBe(false);
+  await expect(new SimpleJwtAuthProvider().verify(`Bearer ${proof}`)).rejects.toThrow();
+  m.rpc.mockResolvedValueOnce({ data: true }).mockResolvedValueOnce({ data: false });
+  expect(await consumeBankChangeGrant(req(proof), user, before, after)).toBe(true);
+  expect(await consumeBankChangeGrant(req(proof), user, before, after)).toBe(false);
+  vi.advanceTimersByTime(300000);
+  expect(await consumeBankChangeGrant(req(proof), user, before, after)).toBe(false);
+});

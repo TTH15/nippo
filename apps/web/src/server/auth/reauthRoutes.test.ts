@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { beforeEach, afterEach, it, expect, vi } from "vitest";
+import { decodeJwt } from "jose";
 import { NextRequest, NextResponse } from "next/server";
 const mock = vi.hoisted(() => ({ auth: vi.fn(), identity: vi.fn(), otp: vi.fn(), send: vi.fn(), from: vi.fn(), rpc: vi.fn(), verify: vi.fn(), generate: vi.fn() }));
 vi.mock("@/server/auth", () => ({ requireAuth: mock.auth, isAuthError: (value: unknown) => value instanceof NextResponse }));
@@ -12,7 +13,7 @@ vi.mock("@/server/notifications/dispatch", () => ({ deliverStoredNotifications: 
 import { POST as verify } from "@/app/api/auth/reauth/verify/route";
 import { POST as options } from "@/app/api/auth/reauth/options/route";
 import { DELETE as remove } from "@/app/api/me/passkeys/route";
-import { createChallengeToken } from "./webauthn";
+import { createChallengeToken, verifyChallengeToken } from "./webauthn";
 import { bankAfterHash, bankBeforeHash } from "./bankChangeAuth";
 import { hasRecentAuth, sessionFingerprint } from "./recentAuth";
 const user = { driverId: "self", identityId: "person", orgId: "org", role: "DRIVER", companyCode: "TEST" };
@@ -94,4 +95,31 @@ it("表示した登録口座が既に変わっていれば、パスキー確認�
   mock.from.mockReturnValue(query);
   const response = await options(req({ method: "passkey", action: "bank_change", bank: bankAfter, previousBank: { bankName: "さらに古い銀行", bankNo: "1234567", bankHolder: "ミホン タロウ" } }));
   expect(response.status).toBe(409); expect(mock.generate).not.toHaveBeenCalled();
+});
+
+it("編集開始は変更先が未入力でも本人の登録口座に結び付いたチャレンジを発行する", async () => {
+  const query = { select: () => query, eq: () => query, maybeSingle: async () => ({ data: bankBefore }), then: (resolve: (value: unknown) => void) => resolve({ data: [{ credential_id: "key" }] }) };
+  mock.from.mockReturnValue(query); mock.generate.mockResolvedValue({ challenge: "edit" });
+  const response = await options(req({ action: "bank_edit", method: "passkey", previousBank: { bankName: bankBefore.bank_name, bankNo: bankBefore.bank_no, bankHolder: bankBefore.bank_holder } }));
+  expect(response.status).toBe(200);
+  const token = (await response.json()).challengeToken;
+  expect(await verifyChallengeToken(token, "bank_edit")).toMatchObject({ bankBeforeHash: bankBeforeHash(bankBefore), sessionHash: sessionFingerprint(req({})) });
+  await expect(verifyChallengeToken(token, "reauth")).rejects.toThrow();
+});
+it("編集開始はSMSや汎用確認で代用できず、専用パスキー確認後だけ保存権限を発行する", async () => {
+  expect((await options(req({ action: "bank_edit", method: "sms" }))).status).toBe(400);
+  expect((await verify(req({ action: "bank_edit", method: "sms", code: "123456" }))).status).toBe(400);
+  const generic = await createChallengeToken({ purpose: "reauth", challenge: "generic", identityId: "person", sessionHash: sessionFingerprint(req({})) });
+  expect((await verify(req({ action: "bank_edit", method: "passkey", challengeToken: generic, response: { id: "key" } }))).status).toBe(400);
+  expect(mock.from).not.toHaveBeenCalled();
+  const token = await createChallengeToken({ purpose: "bank_edit", challenge: "edit-once", identityId: "person", sessionHash: sessionFingerprint(req({})), bankBeforeHash: bankBeforeHash(bankBefore) });
+  const query = { select: () => query, eq: () => query, update: () => query, maybeSingle: async () => ({ data: { id: "key-row", credential_id: "key", public_key: "\\x01", counter: 0 } }) };
+  mock.from.mockReturnValue(query); mock.rpc.mockResolvedValueOnce({ data: true }).mockResolvedValueOnce({ data: false });
+  mock.verify.mockResolvedValue({ verified: true, authenticationInfo: { newCounter: 0 } });
+  const payload = { action: "bank_edit", method: "passkey", challengeToken: token, response: { id: "key" } };
+  const response = await verify(req(payload)); expect(response.status).toBe(200);
+  const body = await response.json(); expect(body).not.toHaveProperty("reauthToken");
+  expect(decodeJwt(body.bankChangeToken)).toMatchObject({ kind: "bank_account_edit", bank_before_hash: bankBeforeHash(bankBefore) });
+  expect((await verify(req(payload))).status).toBe(400);
+  expect(mock.verify).toHaveBeenCalledWith(expect.objectContaining({ requireUserVerification: true }));
 });

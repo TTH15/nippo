@@ -15,13 +15,14 @@ export async function POST(req: NextRequest) {
   if (!user.identityId) return NextResponse.json({ error: "本人確認の設定がありません" }, { status: 400 });
   const body = await req.json().catch(() => null);
   if (body?.method !== "sms" && body?.method !== "passkey") return NextResponse.json({ error: "本人確認の方法を選んでください" }, { status: 400 });
+  const bankEdit = body?.action === "bank_edit";
   const bankChange = body?.action === "bank_change";
-  if (body?.action !== undefined && !bankChange) return NextResponse.json({ error: "本人確認の用途が正しくありません" }, { status: 400 });
+  if (body?.action !== undefined && !bankChange && !bankEdit) return NextResponse.json({ error: "本人確認の用途が正しくありません" }, { status: 400 });
   const bank = bankChange ? normalizeBankAccount(body.bank) : null;
-  if (bankChange && (body.method !== "passkey" || !bank)) return NextResponse.json({ error: "振込口座の変更はパスキーで確認してください" }, { status: 400 });
+  if ((bankChange || bankEdit) && (body.method !== "passkey" || (bankChange && !bank))) return NextResponse.json({ error: "振込口座の変更はパスキーで確認してください" }, { status: 400 });
   try {
-    const before = bankChange ? await readOwnBank(user) : null;
-    if (before && bank) {
+    const before = bankChange || bankEdit ? await readOwnBank(user) : null;
+    if (before) {
       const visible = body.previousBank;
       const current = bankSnapshotValues(before);
       if (!visible || !bankFields.every(key => (visible[key] === undefined || typeof visible[key] === "string") && (visible[key] ?? "").trim() === (current[key] ?? "").trim())) return NextResponse.json({ error: "振込口座が変更されています。登録内容を読み込み直してください", code: "BANK_ACCOUNT_CHANGED" }, { status: 409 });
@@ -38,9 +39,9 @@ export async function POST(req: NextRequest) {
     if (!credentials?.length) return NextResponse.json({ error: "かんたんログインが設定されていません" }, { status: 409 });
     const options = await generateAuthenticationOptions({ rpID: rpConfig().rpID, userVerification: "required",
       allowCredentials: credentials.map((c) => ({ id: c.credential_id as string })) });
-    const challengeToken = await createChallengeToken({ challenge: options.challenge, purpose: bankChange ? "bank_change" : "reauth",
+    const challengeToken = await createChallengeToken({ challenge: options.challenge, purpose: bankEdit ? "bank_edit" : bankChange ? "bank_change" : "reauth",
       identityId: user.identityId, sessionHash: sessionFingerprint(req),
-      ...(before && bank ? { bankBeforeHash: bankBeforeHash(before), bankAfterHash: bankAfterHash(bank) } : {}) });
+      ...(before ? { bankBeforeHash: bankBeforeHash(before), ...(bank ? { bankAfterHash: bankAfterHash(bank) } : {}) } : {}) });
     return NextResponse.json({ options, challengeToken });
   } catch {
     return NextResponse.json({ error: "本人確認を開始できませんでした。時間をおいてお試しください" }, { status: 503 });

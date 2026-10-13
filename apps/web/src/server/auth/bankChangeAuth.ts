@@ -29,12 +29,12 @@ export async function readOwnBank(user: AuthUser): Promise<BankSnapshot> {
   return { bank_name: data.bank_name ?? null, bank_no: data.bank_no ?? null, bank_holder: data.bank_holder ?? null, bank_branch_name: data.bank_branch_name ?? null, bank_account_type: data.bank_account_type ?? null };
 }
 
-/** パスキーの検証が成功した口座変更だけに発行する。口座そのものはJWTに入れない。 */
-export async function issueBankChangeGrant(req: NextRequest, user: AuthUser, before: string, after: string): Promise<string> {
+/** パスキー検証済みの口座変更用。編集開始では変更前口座を束縛し、保存で一度だけ消費する。 */
+export async function issueBankChangeGrant(req: NextRequest, user: AuthUser, before: string, after: string | null): Promise<string> {
   if (!user.identityId || !req.headers.get("authorization")) throw new Error("Missing authenticated identity");
-  return new SignJWT({ kind: "bank_account_change", method: "passkey", identity_id: user.identityId,
+  return new SignJWT({ kind: after === null ? "bank_account_edit" : "bank_account_change", method: "passkey", identity_id: user.identityId,
     driver_id: user.driverId, org_id: user.orgId, token_version: user.tokenVersion ?? 0,
-    session_hash: sessionFingerprint(req), bank_before_hash: before, bank_after_hash: after })
+    session_hash: sessionFingerprint(req), bank_before_hash: before, bank_after_hash: after ?? undefined })
     .setProtectedHeader({ alg: "HS256" }).setJti(randomUUID()).setIssuedAt()
     .setExpirationTime(`${RECENT_AUTH_SECONDS}s`).sign(secret());
 }
@@ -47,10 +47,12 @@ export async function consumeBankChangeGrant(req: NextRequest, user: AuthUser, b
   try { payload = (await jwtVerify(grant, secret(), { algorithms: ["HS256"] })).payload; }
   catch { return false; }
   const now = Math.floor(Date.now() / 1000);
-  if (payload.kind !== "bank_account_change" || payload.method !== "passkey" ||
+  if (!["bank_account_change", "bank_account_edit"].includes(String(payload.kind)) || payload.method !== "passkey" ||
       payload.identity_id !== user.identityId || payload.driver_id !== user.driverId || payload.org_id !== user.orgId ||
       payload.token_version !== (user.tokenVersion ?? 0) || payload.session_hash !== sessionFingerprint(req) ||
-      payload.bank_before_hash !== bankBeforeHash(before) || payload.bank_after_hash !== bankAfterHash(after) ||
+      payload.bank_before_hash !== bankBeforeHash(before) ||
+      (payload.kind === "bank_account_change" && payload.bank_after_hash !== bankAfterHash(after)) ||
+      (payload.kind === "bank_account_edit" && payload.bank_after_hash !== undefined) ||
       typeof payload.iat !== "number" || payload.iat > now || now - payload.iat >= RECENT_AUTH_SECONDS ||
       typeof payload.exp !== "number" || typeof payload.jti !== "string" || !/^[0-9a-f-]{36}$/.test(payload.jti)) return false;
   // WebAuthnの使用済み記録を共用し、同じ確認情報の再利用を原子的に拒否する。
