@@ -36,13 +36,15 @@ export function rpConfig() {
 // 検証成功後、consumeChallengeToken でDBへ使用済みを原子的に記録する。
 // -------------------------------------------------------
 
-type ChallengePurpose = "register" | "login" | "reauth";
+type ChallengePurpose = "register" | "login" | "reauth" | "bank_change";
 
 export async function createChallengeToken(payload: {
   challenge: string;
   purpose: ChallengePurpose;
   identityId?: string | null;
   sessionHash?: string;
+  bankBeforeHash?: string;
+  bankAfterHash?: string;
 }): Promise<string> {
   return new SignJWT({
     kind: "webauthn_challenge",
@@ -50,6 +52,8 @@ export async function createChallengeToken(payload: {
     purpose: payload.purpose,
     identity_id: payload.identityId ?? null,
     session_hash: payload.sessionHash,
+    bank_before_hash: payload.bankBeforeHash,
+    bank_after_hash: payload.bankAfterHash,
   })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
@@ -60,7 +64,7 @@ export async function createChallengeToken(payload: {
 export async function verifyChallengeToken(
   token: string,
   expectedPurpose: ChallengePurpose,
-): Promise<{ challenge: string; identityId: string | null; expiresAt: number; sessionHash?: string }> {
+): Promise<{ challenge: string; identityId: string | null; expiresAt: number; sessionHash?: string; bankBeforeHash?: string; bankAfterHash?: string }> {
   const { payload } = await jwtVerify(token, secret(), { algorithms: ["HS256"] });
   if (payload.kind !== "webauthn_challenge" || payload.purpose !== expectedPurpose) {
     throw new Error("Invalid challenge token");
@@ -75,7 +79,8 @@ export async function verifyChallengeToken(
   const identityId = payload.identity_id ?? null;
   if ((identityId !== null && typeof identityId !== "string") ||
       (expectedPurpose !== "login" && !identityId) ||
-      (expectedPurpose === "reauth" && (typeof payload.session_hash !== "string" || !/^[a-f0-9]{64}$/.test(payload.session_hash))) ||
+      (["reauth", "bank_change"].includes(expectedPurpose) && (typeof payload.session_hash !== "string" || !/^[a-f0-9]{64}$/.test(payload.session_hash))) ||
+      (expectedPurpose === "bank_change" && (![payload.bank_before_hash, payload.bank_after_hash].every(value => typeof value === "string" && /^[a-f0-9]{64}$/.test(value)))) ||
       (expectedPurpose === "login" && identityId !== null)) {
     throw new Error("Invalid challenge token");
   }
@@ -83,7 +88,8 @@ export async function verifyChallengeToken(
     challenge,
     identityId,
     expiresAt: payload.exp,
-    ...(expectedPurpose === "reauth" ? { sessionHash: payload.session_hash as string } : {}),
+    ...(["reauth", "bank_change"].includes(expectedPurpose) ? { sessionHash: payload.session_hash as string } : {}),
+    ...(expectedPurpose === "bank_change" ? { bankBeforeHash: payload.bank_before_hash as string, bankAfterHash: payload.bank_after_hash as string } : {}),
   };
 }
 

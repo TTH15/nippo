@@ -420,3 +420,5 @@ mobile previewの `board=ribbon&state=closeout&revision=closeout` で日報/駐�
 
 
 - 2026/10/13追記: 利用開始準備は通常画面の上のモーダルへ変更。背景操作を止め、モーダル内だけスクロールする。未完了では背景クリック・Escapeで閉じない。保存失敗は `driver-setup?scenario=save-error`、保存後の取得失敗は `scenario=refresh-error` で試す。準備モーダル中は背面のfixture操作バーも覆うため、状態はURLで指定する。完了後のマイページ反映・背景操作/スクロール復帰、Tab巡回、ログアウト確認からの復帰と4幅を再確認。
+
+- 2026/10/13最終追記: 電話番号入力・SMS確認 → 口座登録の2ページ構成、完了済みは省略、下部に丸の進捗を表示。準備モーダルのログアウトを削除。`no-phone` は番号入力から初回確認する。マイページの口座は確認カードと専用変更モーダルにし、変更内容確認後にパスキーで確定。`bank-no-passkey` / `bank-passkey-cancel` / `bank-passkey-error` / `bank-expired` / `bank-conflict` / `bank-change-error` を追加。OS Passkeyはstubで、本番の検証を意味しない。4幅・ページ省略・期限切れ・競合復帰を確認。適用前のmobile互換性とサーバー認可のレビューは設計文書を参照。

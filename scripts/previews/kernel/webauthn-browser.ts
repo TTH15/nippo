@@ -4,5 +4,6 @@ export async function startRegistration(_options: { optionsJSON: unknown }) {
 }
 
 export async function startAuthentication(_options: { optionsJSON: unknown }) {
+  if ((_options.optionsJSON as { previewCancel?: boolean })?.previewCancel) throw Object.assign(new Error("Preview cancelled"), { name: "NotAllowedError" });
   return { id: "preview-only-credential", type: "public-key", response: {} };
 }

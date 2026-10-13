@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
   if (!phone) {
     return NextResponse.json({ error: "電話番号の形式が正しくありません" }, { status: 400 });
   }
-  if (!trustedPhone || phone !== trustedPhone) {
+  if (trustedPhone ? phone !== trustedPhone : !enrollment.canRegister) {
     return NextResponse.json({ error: "登録済みの電話番号を入力してください。番号の変更は運営にご連絡ください" }, { status: 403 });
   }
 
@@ -63,12 +63,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "認証コードが正しくありません" }, { status: 400 });
   }
 
+  // SMS確認中に運営・他端末が番号を保存した場合、その番号を上書きしない。
+  let latest;
+  try { latest = await phoneEnrollment(user, identityId); }
+  catch { return NextResponse.json({ error: "登録済みの電話番号を確認できませんでした" }, { status: 503 }); }
+  if (latest.identity.phone_verified_at) return NextResponse.json({ error: "電話番号は既に確認済みです。読み込み直してください" }, { status: 409 });
+  if (latest.phone ? latest.phone !== phone : !latest.canRegister) return NextResponse.json({ error: "電話番号の設定が変わりました。読み込み直してください" }, { status: 409 });
+
   const update = supabase
     .from("identities")
     .update({ phone, phone_verified_at: new Date().toISOString() })
     .eq("id", identityId).is("phone_verified_at", null);
-  const { data: updated, error: updateError } = await (existingIdentity.phone === null
-    ? update.is("phone", null) : update.eq("phone", existingIdentity.phone)).select("id").maybeSingle();
+  const { data: updated, error: updateError } = await (latest.identity.phone === null
+    ? update.is("phone", null) : update.eq("phone", latest.identity.phone)).select("id").maybeSingle();
 
   if (updateError) {
     if (updateError.code === "23505") {
@@ -77,7 +84,7 @@ export async function POST(req: NextRequest) {
         { status: 409 },
       );
     }
-    console.error("[Phone verify] identities update error:", updateError);
+    console.error("[Phone verify] identity update failed");
     return NextResponse.json({ error: "電話番号の更新に失敗しました" }, { status: 500 });
   }
 

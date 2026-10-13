@@ -494,7 +494,7 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
 
       <PushNotificationSection />
 
-      <PasskeyManagement />
+      <div id="passkey-settings"><PasskeyManagement /></div>
 
       {/* ログアウトはここに集約（ヘッダーだと通知ベルと隣接して誤タップが起きる）。
           破壊的操作ではないが、間違えると再ログインが要るので下端に置き控えめに見せる。 */}

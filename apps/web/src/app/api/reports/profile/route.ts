@@ -46,16 +46,18 @@ export async function GET(req: NextRequest) {
   const primary = identities[0];
 
   let phoneVerified = false;
+  let identityPhone: string | null = null;
   let hasPasskey = false;
   if (identityId) {
     const [{ data: identityRow }, { count }] = await Promise.all([
-      supabase.from("identities").select("phone_verified_at").eq("id", identityId).maybeSingle(),
+      supabase.from("identities").select("phone, phone_verified_at").eq("id", identityId).maybeSingle(),
       supabase
         .from("passkey_credentials")
         .select("id", { count: "exact", head: true })
         .eq("identity_id", identityId),
     ]);
     phoneVerified = Boolean(identityRow?.phone_verified_at);
+    identityPhone = identityRow?.phone ?? null;
     hasPasskey = (count ?? 0) > 0;
   }
 
@@ -66,7 +68,7 @@ export async function GET(req: NextRequest) {
     displayName: driver.display_name ?? "",
     postalCode: driver.postal_code ?? "",
     address: driver.address ?? "",
-    phone: driver.phone ?? "",
+    phone: identityPhone || driver.phone || "",
     phoneVerified,
     hasPasskey,
     canChangePin: false,

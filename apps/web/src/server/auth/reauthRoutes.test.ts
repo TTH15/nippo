@@ -1,18 +1,19 @@
 // @vitest-environment node
 import { beforeEach, afterEach, it, expect, vi } from "vitest";
 import { NextRequest, NextResponse } from "next/server";
-const mock = vi.hoisted(() => ({ auth: vi.fn(), identity: vi.fn(), otp: vi.fn(), send: vi.fn(), from: vi.fn(), rpc: vi.fn(), verify: vi.fn() }));
+const mock = vi.hoisted(() => ({ auth: vi.fn(), identity: vi.fn(), otp: vi.fn(), send: vi.fn(), from: vi.fn(), rpc: vi.fn(), verify: vi.fn(), generate: vi.fn() }));
 vi.mock("@/server/auth", () => ({ requireAuth: mock.auth, isAuthError: (value: unknown) => value instanceof NextResponse }));
 vi.mock("@/server/auth/reauthIdentity", () => ({ reauthIdentity: mock.identity }));
 vi.mock("@/server/otp/twilio", () => ({ checkOtp: mock.otp, sendOtp: mock.send }));
 vi.mock("@/server/db/client", () => ({ supabase: { from: mock.from, rpc: mock.rpc } }));
-vi.mock("@simplewebauthn/server", () => ({ verifyAuthenticationResponse: mock.verify, generateAuthenticationOptions: vi.fn(), generateRegistrationOptions: vi.fn(), verifyRegistrationResponse: vi.fn() }));
+vi.mock("@simplewebauthn/server", () => ({ verifyAuthenticationResponse: mock.verify, generateAuthenticationOptions: mock.generate, generateRegistrationOptions: vi.fn(), verifyRegistrationResponse: vi.fn() }));
 vi.mock("@/server/afterSafely", () => ({ afterSafely: vi.fn() }));
 vi.mock("@/server/notifications/dispatch", () => ({ deliverStoredNotifications: vi.fn() }));
 import { POST as verify } from "@/app/api/auth/reauth/verify/route";
 import { POST as options } from "@/app/api/auth/reauth/options/route";
 import { DELETE as remove } from "@/app/api/me/passkeys/route";
 import { createChallengeToken } from "./webauthn";
+import { bankAfterHash, bankBeforeHash } from "./bankChangeAuth";
 import { hasRecentAuth, sessionFingerprint } from "./recentAuth";
 const user = { driverId: "self", identityId: "person", orgId: "org", role: "DRIVER", companyCode: "TEST" };
 const req = (body: object, session = "session") => new NextRequest("http://localhost/api/auth/reauth/verify", { method: "POST", headers: { authorization: `Bearer ${session}` }, body: JSON.stringify(body) });
@@ -66,4 +67,31 @@ it("削除の対象本人はセッションから決め、復旧手段なしを4
   mock.rpc.mockResolvedValue({ data: null, error: { code: "P0001" } });
   expect((await remove(req({ id: "00000000-0000-0000-0000-000000000001", identityId: "other" }))).status).toBe(409);
   expect(mock.rpc).toHaveBeenCalledWith("manage_passkey", expect.objectContaining({ p_identity_id: "person", p_driver_id: "self", p_org_id: "org" }));
+});
+
+const bankBefore = { bank_name: "以前の見本銀行", bank_no: "1234567", bank_holder: "ミホン タロウ" };
+const bankAfter = { bankName: "新しい見本銀行", bankNo: "01234567", bankHolder: "ミホン タロウ" };
+it("口座変更用のSMS確認・一般のreauth challenge・確認中の口座差し替えを拒否する", async () => {
+  expect((await verify(req({ action: "bank_change", method: "sms", code: "123456", bank: bankAfter }))).status).toBe(400);
+  const generic = await createChallengeToken({ purpose: "reauth", challenge: "generic", identityId: "person", sessionHash: sessionFingerprint(req({})) });
+  expect((await verify(req({ action: "bank_change", method: "passkey", bank: bankAfter, challengeToken: generic, response: { id: "key" } }))).status).toBe(400);
+  const dedicated = await createChallengeToken({ purpose: "bank_change", challenge: "bank", identityId: "person", sessionHash: sessionFingerprint(req({})), bankBeforeHash: bankBeforeHash(bankBefore), bankAfterHash: bankAfterHash(bankAfter) });
+  expect((await verify(req({ action: "bank_change", method: "passkey", bank: { ...bankAfter, bankNo: "7777777" }, challengeToken: dedicated, response: { id: "key" } }))).status).toBe(400);
+  expect(mock.otp).not.toHaveBeenCalled(); expect(mock.from).not.toHaveBeenCalled();
+});
+it("本人のパスキーのユーザー確認後だけ口座変更専用の確認情報を発行する", async () => {
+  const token = await createChallengeToken({ purpose: "bank_change", challenge: "bank-once", identityId: "person", sessionHash: sessionFingerprint(req({})), bankBeforeHash: bankBeforeHash(bankBefore), bankAfterHash: bankAfterHash(bankAfter) });
+  const query = { select: () => query, eq: () => query, update: () => query, maybeSingle: async () => ({ data: { id: "key-row", credential_id: "key", public_key: "\\x01", counter: 0 } }) };
+  mock.from.mockReturnValue(query); mock.rpc.mockResolvedValue({ data: true });
+  mock.verify.mockResolvedValue({ verified: true, authenticationInfo: { newCounter: 0 } });
+  const response = await verify(req({ action: "bank_change", method: "passkey", bank: bankAfter, challengeToken: token, response: { id: "key" } }));
+  expect(response.status).toBe(200); const body = await response.json();
+  expect(body.bankChangeToken).toEqual(expect.any(String)); expect(body).not.toHaveProperty("reauthToken");
+  expect(mock.verify).toHaveBeenCalledWith(expect.objectContaining({ requireUserVerification: true }));
+});
+it("表示した登録口座が既に変わっていれば、パスキー確認を始めない", async () => {
+  const query = { select: () => query, eq: () => query, maybeSingle: async () => ({ data: bankBefore }) };
+  mock.from.mockReturnValue(query);
+  const response = await options(req({ method: "passkey", action: "bank_change", bank: bankAfter, previousBank: { bankName: "さらに古い銀行", bankNo: "1234567", bankHolder: "ミホン タロウ" } }));
+  expect(response.status).toBe(409); expect(mock.generate).not.toHaveBeenCalled();
 });

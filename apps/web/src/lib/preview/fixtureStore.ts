@@ -24,6 +24,7 @@ export type FixtureRequest = {
   path: string;
   params: URLSearchParams;
   method: string;
+  headers: Headers;
   /** JSON文字列なら解釈済み。無ければ空オブジェクト */
   body: Record<string, unknown>;
 };
@@ -55,7 +56,7 @@ export const UNSUPPORTED_MESSAGE = "この操作はプレビュー対象外で�
 export const FAILED_SAVE_MESSAGE = "保存・取得に失敗しました。入力を残したまま再試行してください。";
 export const FETCH_ERROR_MESSAGE = "読み込みに失敗しました。時間をおいて再試行してください。";
 
-export function parseRequest(key: string, init?: { method?: string; body?: unknown }): FixtureRequest {
+export function parseRequest(key: string, init?: { method?: string; body?: unknown; headers?: HeadersInit }): FixtureRequest {
   const [path, query = ""] = key.split("?");
   let body: Record<string, unknown> = {};
   if (typeof init?.body === "string" && init.body) {
@@ -66,7 +67,7 @@ export function parseRequest(key: string, init?: { method?: string; body?: unkno
       body = {};
     }
   }
-  return { key, path, params: new URLSearchParams(query), method: (init?.method ?? "GET").toUpperCase(), body };
+  return { key, path, params: new URLSearchParams(query), method: (init?.method ?? "GET").toUpperCase(), headers: new Headers(init?.headers), body };
 }
 
 export function scenariosOf(fixture: Pick<PreviewFixture<unknown>, "scenarios">): Record<string, ScenarioDefinition> {
@@ -125,7 +126,7 @@ export function createFixtureStore<S>(fixture: PreviewFixture<S>, location: { sc
     },
     getSnapshot: () => revision,
     resolve,
-    async fetch(key: string, init?: { method?: string; body?: unknown; fresh?: boolean }): Promise<unknown> {
+    async fetch(key: string, init?: { method?: string; body?: unknown; fresh?: boolean; headers?: HeadersInit }): Promise<unknown> {
       const request = parseRequest(key, init);
       if (request.method === "GET") {
         // 再取得はこの応答だけを読み直す。購読通知するとSWRの再取得が循環する。

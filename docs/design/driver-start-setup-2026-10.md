@@ -1,49 +1,51 @@
 # Webの利用開始準備・マイページ
 
 2026/10/13。独立ブランチ `codex/driver-start-setup`、基点 `main` の `3321f6f0`。
-既存のセキュリティ対応ブランチと元checkoutの未保存変更は取り込まない。本番公開・DB変更・API認可変更・モバイルアプリ変更は含めない。
+元checkoutの未保存変更と既存セキュリティ対応ブランチは取り込まない。Web UIと本人用APIの確認処理をこのブランチだけでレビューする。本番公開・DB変更・vendorパッケージ変更・mobile実装は含めない。
 
 ## 利用者の動き
 
-- Webのドライバー画面を開くと、本人の登録状態を取得する。電話番号未確認または振込口座3項目の不足があれば通常画面とナビを背景に残して「利用開始の準備」モーダルを重ねる。背景はinert・aria-hiddenで操作対象から外す。
-- 登録済みの電話番号へSMSを送り、6桁のコードを確認する。誤コード・送信失敗・再送に対応。番号の自由な変更は認めない。番号なしは運営へ登録を依頼する。
-- 銀行名・支店、口座番号、名義を登録する。口座番号は既存mobileの数字・最大8桁に揃え、先頭の0を保持する。口座種別などDBにない項目を追加しない。
-- 保存・SMS確認後は本人の状態を再取得する。口座は送った3項目と一致することも確認する。失敗時は入力を保持し、再読み込み・再保存で復帰する。
-- 両項目がそろうと「利用を開始する」が有効になる。既に両方完了した利用者は準備画面を省略する。途中の完了状態は既存APIに保存され、再訪時に再取得する。
-- マイページ上部に登録情報をまとめる。口座は末尾4桁を表示、編集時のみ全文を表示する。未保存の口座は共通離脱確認で保護し、「変更を取り消す」で元に戻せる。
+- 電話未確認または振込口座不足なら、通常画面とナビを背景に残し「利用開始の準備」モーダルを重ねる。背景はinert・aria-hidden。Escapeや背景クリックで閉じず、ログアウトは置かない。
+- 電話番号入力・SMSコード確認を1ページ目、口座登録を2ページ目に分ける。初期状態で完了済みの項目は省略し、下の丸印で現在のページを示す。電話確認後は口座ページへ進む。戻る場合も確認済み状態を維持する。
+- 番号が未登録なら入力してSMSで初回確認する。既存番号の確認は保存済み番号に限り、別番号の変更には使えない。誤コード・送信失敗・再送に対応する。
+- 銀行名・支店、8桁以内の数字の口座番号、名義を登録する。先頭0を保持する。未入力項目を補完する初回登録にはパスキーを要求しない。既に保存された非空の値を変更する場合はパスキーを要求する。
+- 保存後は本人の状態を再取得し、口座3項目が送った値に一致することも確認する。取得失敗・保存失敗は入力を残して再試行できる。両方完了したら背景を再マウントして登録状態を反映する。
+- マイページの登録済み口座は項目名付きの確認カードにする。口座番号は末尾4桁。アコーディオンを廃止し「振込口座を変更」で専用モーダルを開く。登録中の口座と変更後の入力を分け、変更内容の確認画面から「パスキーで確認して変更」で確定する。
+- パスキー未設定なら設定へ誘導する。中止・期限切れ・保存失敗は変更内容を保持する。他端末が先に変更した場合は上書きせず、登録内容を読み込み直して再確認する。未保存の取り消しは共通確認ダイアログを使う。
 
 ## 再利用元と境界
 
-実装の土台は `apps/web/src/app/(user)/me/page.tsx` のプロフィール・SMS処理、およびmobileの既存振込口座3項目。`DriverSetupPanel` をマイページと利用前のゲートで共用する。ロゴ・Nav・UserBottomNav・プロフィール一覧・PasskeyManagementは既存を使用。入力モーダルはEditorModal、キーボード巡回はuseModalKeys、背景スクロール固定はuseBodyScrollLock。開閉はSmoothCollapse、離脱確認はuseUnsavedChanges、ログアウト確認はConfirmDialog。
+土台は `apps/web/src/app/(user)/me/page.tsx` のプロフィール・SMS処理とmobileの既存振込口座3項目。DriverSetupPanelをゲートとマイページで共用する。Nav・UserBottomNav・PasskeyManagementは既存を使用。EditorModal、useModalKeys、useBodyScrollLock、useUnsavedChanges、ConfirmDialogを再利用する。必須モーダルと口座編集はフォーカスを内部に巡回させる。通常EditorModalの閉じる動作は維持する。
 
-取得は既存 `/api/reports/profile` と `/api/me/registration`、保存は `/api/me/registration`、電話確認は `/api/me/phone/send` と `/api/me/phone/verify`。本人・会社の認可、trustedPhone照合、OTP検証、認証世代、localStorageキー、vendorパッケージを変更しない。KYCの本登録完了条件やPasskeyの必須条件も変更しない。
+取得は `/api/reports/profile` と `/api/me/registration`、保存は `/api/me/registration`、電話確認は `/api/me/phone/send` と `/api/me/phone/verify`。口座変更の本人確認に `/api/auth/reauth/options` と `/verify` の専用目的を追加する。localStorageキー・KYC完了条件・通常ログイン処理は維持する。
 
-今回のゲートはWeb画面の導線であり、業務APIそのものの未登録者拒否条件ではない。通常APIを直接呼ぶクライアントやmobileにも同じ必須条件を適用する場合は、対象業務・稼働中利用者への影響を含めたサーバー側の別レビューが必要。
+利用開始ゲートはWebの導線であり、業務API全体に未登録拒否を追加する変更ではない。
+
+## サーバー側のレビュー要点
+
+- DB上の本人の口座を取得して初回補完と変更を判定する。取得失敗を初回扱いしない。既存値の削除、非数字・9桁以上の口座番号、口座とKYCの混在更新を拒否する。
+- 口座変更はSMSや汎用再認証の証明では許可しない。専用 `bank_change` challengeで本人のパスキーとuser verificationを確認する。
+- 確認情報は本人・driver・会社・認証世代・セッション、変更前と変更後の口座のhashに結び付ける。口座の生値をtokenに含めない。有効期間5分、一回限り。署名・purpose・所有者・session・変更内容を保存APIでも照合する。
+- 一回使用の記録は既存 `consume_webauthn_challenge` RPCを専用prefixのhashで再利用する。追加migrationは不要。既存challenge消費・credential counterの競合保護を維持する。
+- パスキー確認開始前に、画面で確認した旧口座とDBを比較する。保存時も本人の全旧口座項目を条件にした比較更新で、他端末の初回登録・変更を上書きしない。
+- 電話の初回登録はidentity・driverの両方に番号がない場合だけ許可する。OTP確認後も最新状態を再読込し、別端末による番号登録や確認済みへの変更を検出する。identity番号・未確認状態を条件に保存する。プロフィールはidentityの確認済み番号を優先する。
+- RLS追加や本番DBアクセスは行っていない。新規読み書きは認証済み本人のdriver IDとidentityに限定する。
 
 ## 隔離プレビュー
 
 このworktreeで `npm run preview:admin -- admin --port 3241`。
 
-- `/preview/admin/driver-setup?scenario=both-missing`：準備画面から両項目の完了、利用開始、実マイページへの切替。
-- `/preview/admin/me?scenario=normal`：実マイページを直接表示。
-- シナリオ：both-missing / phone-missing / bank-missing / no-phone / normal / registered / long-name / loading / error / save-error / refresh-error。
-- 架空SMSコード `123456`、誤コード `000000`。モーダルではURLの `scenario=save-error` で口座保存失敗を模擬する。マイページ単独表示では「次の保存を失敗させる」で送信・確認・口座保存の失敗を模擬する。初期化・再読込でfixtureを戻す。
-- 本番認証・API・DB・通知・実SMS・OS Passkeyに接続しない。保存はメモリのみ。プレビューでは監査のためPCでもマイページ本体を表示する。本番の登録完了後は既存のPC利用案内を維持する。
-- fresh GETはfixtureの該当キーだけ読み直す。購読通知でSWR取得を循環させない。resetVersionで初期化時だけフォームを再マウントする。
+- `/preview/admin/driver-setup?scenario=both-missing`：2ページの準備モーダル。
+- `/preview/admin/me?scenario=normal`：実マイページと口座変更。
+- 準備状態：both-missing / phone-missing / bank-missing / no-phone / normal / registered / long-name / loading / error / save-error / refresh-error。
+- 変更状態：bank-no-passkey / bank-passkey-cancel / bank-passkey-error / bank-expired / bank-conflict / bank-change-error。
+- SMSコード `123456`、誤コード `000000`。パスキーはpreview専用stub。保存・証明はメモリ内だけ。本番API・DB・認証・通知・実SMS・OS Passkeyには接続しない。
+- PCでも監査用にマイページ本文を表示する。本番の登録完了後の既存PC利用案内は維持する。fixtureのfresh GETは購読通知なしで該当cacheだけ更新し、resetVersionで初期化する。
 
-## 検証と残確認
+## 検証と適用前の残確認
 
-- 関連7ファイル45テスト成功。未完了3組合せ、両方完了、取得失敗、口座保存失敗・入力保持、SMS誤入力、サーバー未確認なら通過しないこと、保存後の再取得失敗・復帰、8桁口座・先頭0、末尾表示と編集を確認。既存本人用API・phoneEnrollment・fixture再取得の回帰も検証。
-- WebとpreviewのTypeScript検査成功。共有インストールがTypeScript 6のため、コマンドに `--ignoreDeprecations 6.0 --noUncheckedSideEffectImports false` を指定した。既存configは変更しない。
-- アプリ内ブラウザで1280 / 768 / 390 / 320pxを確認。横はみ出しなし。長い支店・名義、編集・取り消し、SMS誤コード・再送、保存失敗と再保存、保存後の取得失敗と再読み込み、両完了からマイページ、番号なし、loading/error、fixture初期化を操作。最終版のマイページ遷移でconsole error/warnなし。
-- 実SMS到達、実アカウントの口座保存、OS Passkey、ネイティブ実機、ブラウザ戻るの未保存保護、全業務画面の回帰、本番環境での通し確認は未実施。本番公開は未実施。
-
-
-## 2026/10/13 モーダルへの改修
-
-- 利用前の専用ページ表示を廃止し、通常画面を背景に残す。共通EditorModalへ `dismissible=false` を追加した。通常の編集モーダルは従来どおり閉じられる。
-- モーダルは外側に余白と半透明の背景を持ち、入力部分だけスクロールする。見出しと利用開始・ログアウトの操作は固定する。初期フォーカスは見出し、Tabは中で巡回し、背景クリック・Escapeでは閉じない。
-- ログアウト確認はさらに上に表示し、Escapeでその確認だけを閉じられる。入力未完了のモーダルは残る。
-- 完了後は背景の操作とスクロール固定を解除する。操作できなかった背景を再マウントして登録状況を読み直し、登録前のマイページ表示を残さない。
-- 関連8ファイル48テスト・Web/preview型検査成功。モーダル内の保存失敗・再試行、SMS確認、状態取得失敗・再読み込み、完了後の反映、Tab巡回、背景クリック・Escape、ログアウト確認からの復帰をアプリ内ブラウザで検証。1280/768/390/320pxで横はみ出しなし・モーダル内スクロールを確認。
-- 実機キーボード・Safe Area、全ドライバー画面の背景表示と初期読込の通し確認は未実施。実SMS・実保存・本番公開の未検証範囲は前節のまま。
+- 関連12ファイル81テスト成功。2ページ・省略・入力保持・初回登録・口座確認と保存、パスキー中止・未設定・汎用/SMS証明の拒否・対象入替・期限・使い回し・所有者/sessionの結合、初回/変更の競合、電話初回と登録競合を確認する。
+- Web/preview型検査成功。共有インストールがTypeScript 6のため `--ignoreDeprecations 6.0 --noUncheckedSideEffectImports false` を指定。既存configは変更しない。`check:tenant`成功、未レビューのクエリなし。
+- アプリ内ブラウザで1280/768/390/320pxの準備モーダルを確認。横はみ出しなし。番号入力、SMS誤コード・再送・確認から口座への遷移、両方未完了と各1ページ、口座初回保存から背景反映、口座変更の確認・保存、中止と再試行、他端末競合と再読込、期限切れで入力が残る状態を操作した。
+- 実SMS到達、実アカウントでの保存、OS Passkey、native実機、実機キーボード/Safe Area、全業務背景画面、ブラウザ戻るの未保存保護、本番通し確認は未実施。本番公開は未実施。
+- **共通口座保存APIの認可変更はmobileにも作用する。旧mobileの登録済み口座変更は専用パスキー証明を送らないため403になる。** 初回補完は維持するが、公開前にmobileの変更導線対応またはWebへの案内を別途確認する。Web中心の今回のブランチではnative実装を変更していない。
