@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { NextRequest, NextResponse } from "next/server";
-const m = vi.hoisted(() => ({ auth: vi.fn(), from: vi.fn(), rpc: vi.fn(), filters: [] as unknown[][], updates: [] as unknown[], row: { id: "self", bank_branch_name: null as string | null, bank_account_type: null as "ordinary" | "current" | "savings" | null, bank_name: null as string | null, bank_no: null as string | null, bank_holder: null as string | null }, failRead: false, race: false }));
+const m = vi.hoisted(() => ({ auth: vi.fn(), from: vi.fn(), rpc: vi.fn(), filters: [] as unknown[][], updates: [] as unknown[], row: { id: "self", bank_account_type_other: null as string | null, bank_branch_name: null as string | null, bank_account_type: null as "ordinary" | "current" | "savings" | "other" | null, bank_name: null as string | null, bank_no: null as string | null, bank_holder: null as string | null }, failRead: false, race: false }));
 vi.mock("@/server/auth", () => ({ requireAuth: m.auth, isAuthError: (value: unknown) => value instanceof NextResponse }));
 vi.mock("@/server/identity", () => ({ resolveIdentityId: async () => "person" }));
 vi.mock("@/server/db/client", () => ({ supabase: { from: m.from, rpc: m.rpc } }));
@@ -13,7 +13,7 @@ const bank = { bankName: "見本銀行", bankNo: "01234567", bankHolder: "ミホ
 const req = (body: object = bank, proof?: string) => new NextRequest("http://localhost/api/me/registration", { method: "POST", headers: { authorization: "Bearer session", ...(proof ? { "x-bank-change-token": proof } : {}) }, body: JSON.stringify(body) });
 beforeEach(() => {
   vi.stubEnv("JWT_SECRET", "bank-route-test"); m.auth.mockReset().mockResolvedValue(user); m.from.mockReset(); m.rpc.mockReset().mockResolvedValue({ data: true });
-  m.filters = []; m.updates = []; m.row = { id: "self", bank_branch_name: null as string | null, bank_account_type: null as "ordinary" | "current" | "savings" | null, bank_name: null, bank_no: null, bank_holder: null }; m.failRead = false; m.race = false;
+  m.filters = []; m.updates = []; m.row = { id: "self", bank_account_type_other: null as string | null, bank_branch_name: null as string | null, bank_account_type: null as "ordinary" | "current" | "savings" | "other" | null, bank_name: null, bank_no: null, bank_holder: null }; m.failRead = false; m.race = false;
   m.from.mockImplementation(() => {
     const filters: [string, unknown][] = []; let update: Record<string, unknown> | null = null;
     const q = { select: () => q, eq: (key: string, value: unknown) => { filters.push([key, value]); m.filters.push([key, value]); return q; },
@@ -32,7 +32,7 @@ beforeEach(() => {
   });
 });
 afterEach(() => vi.unstubAllEnvs());
-const existing = () => { m.row = { id: "self", bank_branch_name: null as string | null, bank_account_type: null as "ordinary" | "current" | "savings" | null, bank_name: "以前の銀行", bank_no: "1234567", bank_holder: "ミホン タロウ" }; };
+const existing = () => { m.row = { id: "self", bank_account_type_other: null as string | null, bank_branch_name: null as string | null, bank_account_type: null as "ordinary" | "current" | "savings" | "other" | null, bank_name: "以前の銀行", bank_no: "1234567", bank_holder: "ミホン タロウ" }; };
 it("初回の空口座はパスキーなしで本人行だけを比較更新し、先頭0を保持する", async () => {
   expect((await POST(req({ ...bank, driverId: "other" }))).status).toBe(200);
   expect(m.row.bank_no).toBe("01234567"); expect(m.rpc).not.toHaveBeenCalled();
@@ -71,7 +71,7 @@ it("読取失敗を初回登録と扱わず、口座削除やKYCとの同時変�
   expect((await POST(req({ ...bank, address: "別住所" }))).status).toBe(400); expect(m.updates).toHaveLength(0);
 });
 it("同じ登録値の再送では変更・確認情報の消費をしない", async () => {
-  m.row = { id: "self", bank_branch_name: null as string | null, bank_account_type: null as "ordinary" | "current" | "savings" | null, bank_name: bank.bankName, bank_no: bank.bankNo, bank_holder: bank.bankHolder };
+  m.row = { id: "self", bank_account_type_other: null as string | null, bank_branch_name: null as string | null, bank_account_type: null as "ordinary" | "current" | "savings" | "other" | null, bank_name: bank.bankName, bank_no: bank.bankNo, bank_holder: bank.bankHolder };
   expect((await POST(req())).status).toBe(200); expect(m.updates).toHaveLength(0); expect(m.rpc).not.toHaveBeenCalled();
 });
 
@@ -87,7 +87,7 @@ it("銀行と支店を分け、種別を保存する。未対応種別と空支�
   expect((await POST(req({ ...full, bankType: "fixed" }))).status).toBe(400);
   expect((await POST(req({ ...full, bankBranch: "" }))).status).toBe(400);
   expect((await POST(req(full))).status).toBe(200);
-  expect(m.row).toMatchObject({ bank_name: "見本銀行 中央支店", bank_branch_name: "中央支店", bank_account_type: "ordinary" });
+  expect(m.row).toMatchObject({ bank_name: "見本銀行", bank_branch_name: "中央支店", bank_account_type: "ordinary" });
   expect(m.filters).toContainEqual(["bank_branch_name", null]);
   expect(m.filters).toContainEqual(["bank_account_type", null]);
 });
@@ -105,6 +105,19 @@ it("旧形式番号の表記整理と不足名義の初回補完は許可し、�
   const filled = { bankName: "見本銀行", bankBranch: "中央支店", bankType: "ordinary", bankNo: "01234567", bankHolder: "ミホン" };
   expect((await POST(req({ ...filled, bankNo: "9999999" }))).status).toBe(403);
   expect((await POST(req(filled))).status).toBe(200);
-  expect(m.row.bank_no).toBe("01234567"); expect(m.row.bank_account_type).toBe("ordinary"); expect(m.row.bank_name).toBe("見本銀行 中央支店");
+  expect(m.row.bank_no).toBe("01234567"); expect(m.row.bank_account_type).toBe("ordinary"); expect(m.row.bank_name).toBe("見本銀行");
   expect(m.filters).toContainEqual(["bank_no", "普通 01234567"]); expect(m.rpc).not.toHaveBeenCalled();
+});
+
+it("その他の具体名を別列へ保存し、欠落を拒否する。比較更新にも具体名を含める", async () => {
+ const custom = { ...bank, bankBranch: "中央支店", bankType: "other", bankTypeOther: "別段" };
+ expect((await POST(req({ ...custom, bankTypeOther: "" }))).status).toBe(400);
+ expect((await POST(req(custom))).status).toBe(200);
+ expect(m.row).toMatchObject({ bank_name: bank.bankName, bank_no: "01234567", bank_account_type: "other", bank_account_type_other: "別段" });
+ expect(m.filters).toContainEqual(["bank_account_type_other", null]);
+ const changed = { ...custom, bankTypeOther: "別種別" };
+ expect((await POST(req(changed))).status).toBe(403);
+ const proof = await issueBankChangeGrant(req(), user, bankBeforeHash(m.row), null);
+ expect((await POST(req(changed, proof))).status).toBe(200);
+ expect(m.filters).toContainEqual(["bank_account_type_other", "別段"]);
 });

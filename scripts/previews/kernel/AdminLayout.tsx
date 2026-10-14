@@ -1,3 +1,5 @@
+import { bankHolderForTransfer } from "@repo/core/logic/bankHolder";
+import { getPreviewBank } from "../fixtures/bankPreviewStore";
 // "@/lib/components/AdminLayout" の差し替え。実画面の複製レイアウト（AdminPreviewLayout）に、
 // シナリオ・役割の切替バーを載せる。ページ本体のJSXは本番のまま。
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -12,7 +14,7 @@ const pillOff = `${pill} border-slate-300 bg-white text-slate-600 hover:border-s
 const pillOn = `${pill} border-slate-900 bg-slate-900 text-white`;
 
 export function ScenarioBar() {
-  const { store, search } = usePreviewRuntime();
+  const { store, search, navigate } = usePreviewRuntime();
   useStoreRevision(store);
   const currentPath = window.location.pathname;
   const go = (next: { scenario?: string; role?: PreviewRole }) => {
@@ -26,6 +28,9 @@ export function ScenarioBar() {
         一覧
       </a>
       <span className="font-bold text-slate-700">{store.fixture.title}</span>
+      {store.scenario.startsWith("bank-") && ["bank-canonical", "bank-other", "bank-legacy", "bank-legacy-other", "bank-holder-full", "bank-holder-half"].includes(store.scenario) && <span className="flex items-center gap-1" aria-label="口座プレビューの画面">
+        {[["管理画面", "/admin/users"], ["マイページ", "/me"], ["口座変更", "/account/bank-change"]].map(([label, path]) => <button key={path} type="button" className={pillOff} onClick={() => navigate(path)}>{label}</button>)}
+      </span>}
       <span className="flex flex-wrap items-center gap-1" aria-label="シナリオ">
         {Object.entries(store.scenarios).map(([key, definition]) => (
           <button key={key} type="button" title={definition.description} className={key === store.scenario ? pillOn : pillOff} onClick={() => go({ scenario: key })}>
@@ -40,6 +45,7 @@ export function ScenarioBar() {
           </button>
         ))}
       </span>
+      {store.scenario.startsWith("bank-holder-") && <div className="basis-full rounded bg-slate-100 p-2 text-xs text-slate-700"><span>保存名義：{getPreviewBank(store)?.bank_holder}</span><span className="ml-4">振込出力用：{(() => { try { return bankHolderForTransfer(getPreviewBank(store)?.bank_holder ?? ""); } catch { return "口座名義（カナ）を確認してください"; } })()}</span></div>}
       <span className="ml-auto flex items-center gap-1">
         <button
           type="button"

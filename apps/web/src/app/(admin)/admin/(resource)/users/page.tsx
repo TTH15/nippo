@@ -1,4 +1,6 @@
 "use client";
+import { bankAccountFromStorage, bankAccountFormValues, bankAccountTypeLabels, bankAccountTypes, type BankStorage } from "@/lib/bankAccount";
+import { adminBankAccountUpdates } from "@/lib/adminBankAccount";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -67,6 +69,7 @@ type Driver = {
   bank_name?: string | null;
   bank_no?: string | null;
   bank_holder?: string | null;
+  bank_branch_name?: string | null; bank_account_type?: BankStorage["bank_account_type"]; bank_account_type_other?: string | null;
   driver_identities?: DriverIdentity[];
 };
 
@@ -412,8 +415,13 @@ export default function UsersPage() {
       : { ...EMPTY_LEASE, validFrom: currentMonthStartStr() };
     setLeaseForm(nextLease);
     setEditingDriver(full);
-    const { institution, branch } = parseBankName(full.bank_name || "");
-    const { type, number, typeOther } = parseBankNo(full.bank_no || "");
+    const stored = bankAccountFromStorage({ ...full, bank_name: full.bank_name ?? null, bank_no: full.bank_no ?? null, bank_holder: full.bank_holder ?? null });
+    const inputBank = bankAccountFormValues(stored);
+    const { institution, branch } = full.bank_branch_name != null || full.bank_account_type != null
+      ? { institution: stored.bankName, branch: stored.bankBranch ?? "" } : parseBankName(full.bank_name || "");
+    const { type, number, typeOther } = inputBank.bankType
+      ? { type: bankAccountTypeLabels[inputBank.bankType], number: inputBank.bankNo, typeOther: inputBank.bankTypeOther ?? "" }
+      : parseBankNo(full.bank_no || "");
     const id1 = full.driver_identities?.find((x) => x.slot === 1);
     const id2 = full.driver_identities?.find((x) => x.slot === 2);
     const nextForm = {
@@ -523,10 +531,9 @@ export default function UsersPage() {
     prefetchTimerRef.current = null;
   };
 
-  const getBankTypeForSave = () => {
-    if (form.bankType === "その他") return form.bankTypeOther.trim() || "その他";
-    return form.bankType;
-  };
+  const getBankBody = () => ({ bankName: form.bankInstitution.trim(), bankBranch: form.bankBranch.trim(),
+    bankType: bankAccountTypes.find(value => bankAccountTypeLabels[value] === form.bankType) ?? "",
+    bankNo: form.bankNumber.trim(), bankHolder: form.bankHolder.trim(), bankTypeOther: form.bankType === "その他" ? form.bankTypeOther.trim() : "" });
 
   const fetchAddressFromPostalCode = async (zipOverride?: string) => {
     const raw = zipOverride ?? form.postalCode;
@@ -633,6 +640,16 @@ export default function UsersPage() {
       );
 
       let savedDriverId = editingDriver?.id ?? "";
+      const bankChanged =
+        !baselineRef.current?.form ||
+        form.bankInstitution !== baselineRef.current!.form.bankInstitution ||
+        form.bankBranch !== baselineRef.current!.form.bankBranch ||
+        form.bankType !== baselineRef.current!.form.bankType ||
+        form.bankTypeOther !== baselineRef.current!.form.bankTypeOther ||
+        form.bankNumber !== baselineRef.current!.form.bankNumber ||
+        form.bankHolder !== baselineRef.current!.form.bankHolder;
+      const bankBody = getBankBody();
+      const bankStorage = bankChanged ? adminBankAccountUpdates(bankBody) : {};
       // フォーム値を Driver 行へ反映（一覧の楽観更新・詳細キャッシュ更新で共用）
       const applyFormToDriver = (d: Driver): Driver => ({
         ...d,
@@ -643,9 +660,7 @@ export default function UsersPage() {
         postal_code: form.postalCode.trim() || null,
         address: form.address.trim() || null,
         phone: form.phone.trim() || null,
-        bank_name: [form.bankInstitution, form.bankBranch].filter(Boolean).join(" ") || null,
-        bank_no: [getBankTypeForSave(), form.bankNumber].filter(Boolean).join(" ") || null,
-        bank_holder: form.bankHolder.trim() || null,
+        ...bankStorage,
         license_expiry_date: form.licenseExpiryDate.trim() || null,
         status: form.status,
         active_from_month: form.activeFromMonth || null,
@@ -676,18 +691,8 @@ export default function UsersPage() {
         if (!bf || form.postalCode !== bf.postalCode) putBody.postalCode = form.postalCode.trim() || null;
         if (!bf || form.address !== bf.address) putBody.address = form.address.trim() || null;
         if (!bf || form.phone !== bf.phone) putBody.phone = form.phone.trim() || null;
-        const bankChanged =
-          !bf ||
-          form.bankInstitution !== bf.bankInstitution ||
-          form.bankBranch !== bf.bankBranch ||
-          form.bankType !== bf.bankType ||
-          form.bankTypeOther !== bf.bankTypeOther ||
-          form.bankNumber !== bf.bankNumber ||
-          form.bankHolder !== bf.bankHolder;
         if (bankChanged) {
-          putBody.bankName = [form.bankInstitution, form.bankBranch].filter(Boolean).join(" ") || null;
-          putBody.bankNo = [getBankTypeForSave(), form.bankNumber].filter(Boolean).join(" ") || null;
-          putBody.bankHolder = form.bankHolder.trim() || null;
+          Object.assign(putBody, bankBody);
         }
         if (!bf || form.licenseExpiryDate !== bf.licenseExpiryDate) {
           putBody.licenseExpiryDate = form.licenseExpiryDate.trim() || null;
@@ -738,9 +743,7 @@ export default function UsersPage() {
             postalCode: form.postalCode.trim() || null,
             address: form.address.trim() || null,
             phone: form.phone.trim() || null,
-            bankName: [form.bankInstitution, form.bankBranch].filter(Boolean).join(" ") || null,
-            bankNo: [getBankTypeForSave(), form.bankNumber].filter(Boolean).join(" ") || null,
-            bankHolder: form.bankHolder.trim() || null,
+            ...bankBody,
             licenseExpiryDate: form.licenseExpiryDate.trim() || null,
           }),
         });
@@ -755,9 +758,7 @@ export default function UsersPage() {
           postal_code: form.postalCode.trim() || null,
           address: form.address.trim() || null,
           phone: form.phone.trim() || null,
-          bank_name: [form.bankInstitution, form.bankBranch].filter(Boolean).join(" ") || null,
-          bank_no: [getBankTypeForSave(), form.bankNumber].filter(Boolean).join(" ") || null,
-          bank_holder: form.bankHolder.trim() || null,
+          ...bankStorage,
           license_expiry_date: form.licenseExpiryDate.trim() || null,
           driver_identities: nextIdentities,
         };
@@ -2000,7 +2001,7 @@ export default function UsersPage() {
                         type="text"
                         value={form.bankTypeOther}
                         onChange={(e) => setForm((f) => ({ ...f, bankTypeOther: e.target.value }))}
-                        placeholder="口座種別を入力（例：定期）"
+                        aria-label="種別名" maxLength={40} placeholder="種別名"
                         className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400"
                       />
                     )}

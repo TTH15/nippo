@@ -5,7 +5,7 @@ it.each([["普通 01234567", "ordinary"], ["当座　０１２３４５６７", 
   expect(bankAccountFormValues({ ...old, bankNo })).toEqual({ ...old, bankNo: bankNo.includes("貯蓄") ? "1234567" : "01234567", bankType });
   expect(old.bankNo).toBe("普通 01234567");
 });
-it.each(["普通 123A4567", "普通 123456789", "不明 1234567", "123 4567"])("曖昧な番号%sを推測して変えない", bankNo => {
+it.each(["普通 123A4567", "普通 123456789", "123 4567"])("曖昧な番号%sを推測して変えない", bankNo => {
   expect(bankAccountFormValues({ ...old, bankNo }).bankNo).toBe(bankNo);
 });
 it("既存の明示種別を上書きしない", () => {

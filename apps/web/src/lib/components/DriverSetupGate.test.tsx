@@ -214,3 +214,18 @@ it("旧形式の一部登録口座は番号と種別を分離し、未保存扱�
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   expect(m.bank.bankNo).toBe("01234567"); expect(m.bank.bankName).toBe("見本銀行"); expect(m.passkey).not.toHaveBeenCalled();
 });
+
+it("その他は具体名を入力して初回保存し、種別名を表示する", async () => {
+ m.verified = true; gate(); await fillBank();
+ fireEvent.click(screen.getByLabelText("口座種別")); fireEvent.click(screen.getByRole("button", { name: "その他" }));
+ expect(await screen.findByLabelText("種別名")).toBeInTheDocument();
+ fireEvent.click(screen.getByRole("button", { name: "口座を登録して利用を開始" }));
+ await screen.findByText("種別名を入力してください");
+ expect(screen.getByLabelText("種別名")).toHaveAttribute("aria-invalid", "true");
+ fireEvent.change(screen.getByLabelText("種別名"), { target: { value: "別段" } });
+ expect(screen.queryByText("種別名を入力してください")).toBeNull();
+ fireEvent.click(screen.getByRole("button", { name: "口座を登録して利用を開始" }));
+ await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+ expect(m.bank).toMatchObject({ bankType: "other", bankTypeOther: "別段", bankNo: "01234567" });
+ expect(m.passkey).not.toHaveBeenCalled();
+});

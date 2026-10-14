@@ -35,6 +35,7 @@ export function MeScreen({ section = "home", onOpen, onAppSettings, onUnsavedCha
   const [bankName, setBankName] = useState("");
   const [bankBranch, setBankBranch] = useState("");
   const [bankType, setBankType] = useState("");
+  const [bankTypeOther, setBankTypeOther] = useState("");
   const [bankNo, setBankNo] = useState("");
   const [bankHolder, setBankHolder] = useState("");
   const [originalBank, setOriginalBank] = useState("");
@@ -47,11 +48,11 @@ export function MeScreen({ section = "home", onOpen, onAppSettings, onUnsavedCha
     if (!active) return;
     let alive = true;
     setBankStatus("loading");
-    apiFetch<{ bankName: string; bankNo: string; bankHolder: string; bankBranch?: string; bankType?: string }>("/api/me/registration")
+    apiFetch<{ bankName: string; bankNo: string; bankHolder: string; bankBranch?: string; bankType?: string; bankTypeOther?: string }>("/api/me/registration")
       .then((r) => {
         if (!alive) return;
         setOriginalBank(JSON.stringify([(r.bankName || "").trim(), (r.bankNo || "").trim(), (r.bankHolder || "").trim()]));
-        setBankName(r.bankName || ""); setBankBranch(r.bankBranch || ""); setBankType(r.bankType || "");
+        setBankName(r.bankName || ""); setBankBranch(r.bankBranch || ""); setBankType(r.bankType || ""); setBankTypeOther(r.bankTypeOther || "");
         setBankNo(r.bankNo || "");
         setBankHolder(r.bankHolder || "");
         setBankRegistered(!!(r.bankName && r.bankNo && r.bankHolder));
@@ -204,7 +205,7 @@ export function MeScreen({ section = "home", onOpen, onAppSettings, onUnsavedCha
             )}
             {bankRegistered ? <>
               <View className="gap-1"><Text className="text-[13px] text-brand-600">銀行・支店</Text><Text className="text-base text-brand-900">{[bankName, bankBranch].filter(Boolean).join(" ")}</Text></View>
-              {!!bankType && <View className="gap-1"><Text className="text-[13px] text-brand-600">口座種別</Text><Text className="text-base text-brand-900">{({ ordinary: "普通", current: "当座", savings: "貯蓄" } as Record<string, string>)[bankType] || bankType}</Text></View>}
+              {!!bankType && <View className="gap-1"><Text className="text-[13px] text-brand-600">口座種別</Text><Text className="text-base text-brand-900">{bankType === "other" ? bankTypeOther || "その他" : ({ ordinary: "普通", current: "当座", savings: "貯蓄" } as Record<string, string>)[bankType] || bankType}</Text></View>}
               <View className="gap-1"><Text className="text-[13px] text-brand-600">口座番号</Text><Text className="text-base text-brand-900">末尾 {bankNo.slice(-4)}</Text></View>
               <View className="gap-1"><Text className="text-[13px] text-brand-600">口座名義（カナ）</Text><Text className="text-base text-brand-900">{bankHolder}</Text></View>
               <Pressable testID="account-change-bank-web" accessibilityRole="button" onPress={() => void openBankWeb()} disabled={bankSubmitting} className="min-h-12 flex-row items-center justify-center gap-2 rounded-lg border border-brand-200 bg-white px-4 py-3">

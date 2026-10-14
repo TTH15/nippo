@@ -464,3 +464,36 @@ mobile previewの `board=ribbon&state=closeout&revision=closeout` で日報/駐�
 ### 旧形式口座の利用開始（2026/10/14）
 
 `npm run preview:admin -- admin --port 3243` → `/preview/admin/driver-setup?scenario=legacy-bank-complete` は新しい支店・種別がなくてもモーダルを出さない。`legacy-bank-incomplete` は架空の「普通 01234567」と未入力名義を持ち、支店不足の具体的な表示→支店と名義補完→利用開始を試す。本番DriverSetupGate/MePageContentを再利用し、保存はfixture内のみ。320×600/1280×800を確認。本番DB・SMS・OS Passkeyには接続しない。
+
+### 口座保存形式の統一・その他（2026/10/14）
+
+`npm run preview:admin -- admin --port 3245`。管理は `/preview/admin/users?scenario=bank-legacy-other&role=admin`（見本 太郎→契約）、本人は `/preview/admin/bank-change?scenario=bank-other&role=admin`、初回は `/preview/admin/driver-setup?scenario=bank-missing&role=admin` で種別のその他を選ぶ。
+
+bank-canonical / bank-other / bank-legacy / bank-legacy-otherでは、上部の管理画面・マイページ・口座変更ボタンを同じタブで切替すると架空の保存値を共有する。フル再読込や初期化ではリセット。実UsersPage/DriverSetupPanel/MePageContentを再利用し、旧結合値→管理保存→本人確認→本人保存→管理再表示、具体名不足、普通への変更で具体名クリアを操作できる。保存失敗は共通の「次の保存を失敗させる」を使用。全値は架空で本番API/DB/SMS/OS Passkeyへ接続しない。新migrationは本番未適用。
+
+### 口座情報の整理（2026/10/14）
+
+本番の管理画面/APIには追加しない。一度だけ行う整理は `scripts/db/bank-cleanup-review.ts` で読み取り済みのローカルJSONから比較用HTML・計画を生成する。実データはGitに入れず、保存先をアクセス権700、ファイルを600とする。HTMLは外部接続・画像読み込みなしで、確認済みID一覧の保存だけを行い、DBに接続しない。
+
+```
+npx tsx scripts/db/bank-cleanup-review.ts --input <読取JSON> --out-dir <ローカル保存先>
+npx tsx scripts/db/bank-cleanup-review.ts --input <同じ読取JSON> --out-dir <同じ保存先> --approved <確認済みIDのJSON>
+```
+
+後者は `apply-reviewed.sql` と `rollback-reviewed.sql` を作るだけで実行しない。更新SQLはorg/id/原文の各項目を比較し、1件でも競合するとトランザクション全体を中止する。読取時のスキーマにその他具体名カラムがない場合、その他は手動確認に残す。実行前に確認済みの対象をユーザーと照合する。
+
+架空データだけの開発プレビュー `/preview/admin/bank-cleanup` は `scripts/previews/bank-cleanup.tsx` と隔離fixtureを利用。本番のルート・保存API・ドライバー管理入口は撤去済み。normal/save-error/conflict/empty/largeを試せるが、実データの確認HTMLとは別の画面で、実DBへ接続しない。
+
+#### 今回だけのローカル直接更新
+
+`scripts/db/bank-cleanup-local.ts --input <読取JSON> --out-dir <ローカル保存先> --env-file <既存env> [--selection <確認済みID>]` をtsxで起動すると127.0.0.1:3252の画面で銀行名・支店名を編集し、確認した行を直接保存する。環境のSupabase URLが対象projectと一致すること、対象会社の読み取り接続を起動時に検証。DB接続文字列は使用せず、既存service clientでorg/id/ドライバー条件/原文全項目のCASを適用。保存後の返却値も照合する。
+
+更新は行ごとに行い、一部失敗時は成功済みと未更新を表示する（この直接更新方式は全件トランザクションではない）。変更前・確認した値・結果はローカルの権限600ファイルに記録。HTTPはランダムな画面トークンとOriginを検査し、GETの表示以外は認証した更新POSTだけ受ける。本番の管理画面/APIとして公開しない。
+
+### 口座名義の入力幅と振込出力用の幅（2026/10/14）
+
+`npm run preview:admin -- admin --port 3253` → `/preview/admin/me?scenario=bank-holder-full&role=admin`。`bank-holder-full`/`bank-holder-half`では管理・本人・口座変更の実画面を再利用し、保存値（全角/半角）と共通関数による振込出力用の半角名義をプレビューのバーで比較する。管理で名義を編集して保存し、同じタブのマイページへ切り替えて原文保持を確認できる。実DB/振込APIには接続しない。
+
+`@repo/core/logic/bankHolder` の `bankHolderForTransfer` は保存値を変更せず、出力時のカナ・英数字・空白・対応記号の幅を揃える。濁点/半濁点は半角2文字として扱う。文字を切り詰めたり、漢字をカナへ推測したり、法人略称や小書き文字を勝手に置換しない。半角化できない文字は出力用処理でエラーにする。銀行ごとの許容記号/文字数/エンコーディングはファイル形式側で検査する。
+
+現時点でこのリポジトリには銀行向けCSV/全銀ファイル出力が見当たらないため、本番の振込出力への接続は対象の銀行・画面・形式の確認待ち。請求書・プロフィール表示や既存の保存値には出力変換を適用しない。

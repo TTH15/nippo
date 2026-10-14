@@ -17,6 +17,8 @@ import type { ComponentType } from "react";
 import type { PreviewFixture } from "@/lib/preview/fixtureStore";
 import DashboardPage from "@/app/(admin)/admin/page";
 import VehiclesPage from "@/app/(admin)/admin/(resource)/vehicles/page";
+import BankCleanupPage from "../bank-cleanup";
+import { bankCleanupFixture } from "./bankCleanup";
 import UsersPage from "@/app/(admin)/admin/(resource)/users/page";
 import CoursesPage from "@/app/(admin)/admin/(delivery)/courses/page";
 import MapPage from "@/app/(admin)/admin/(ops)/map/page";
@@ -80,6 +82,7 @@ export const PREVIEW_PAGES: PreviewPageEntry[] = [
   entry("dashboard", dashboardFixture, DashboardPage),
   entry("vehicles", vehiclesFixture, VehiclesPage),
   entry("users", usersFixture, UsersPage),
+  entry("bank-cleanup", bankCleanupFixture, BankCleanupPage),
   entry("courses", coursesFixture, CoursesPage),
   entry("roles", rolesFixture, RolesPage),
   entry("payments", paymentsFixture, PaymentsPage),
