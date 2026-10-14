@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { adminBankAccountUpdates } from "./adminBankAccount";
-import { bankAccountFromStorage, bankAccountFormValues, bankAccountLegacyDisplay, normalizeBankAccount } from "./bankAccount";
+import { bankAccountToStorage, bankAccountFromStorage, bankAccountFormValues, bankAccountLegacyDisplay, normalizeBankAccount } from "./bankAccount";
 const bank = { bankName: "見本銀行", bankBranch: "中央支店", bankNo: "01234567", bankHolder: "ミホン", bankType: "other", bankTypeOther: "別段" };
 it("管理画面とユーザー画面は同じ独立項目で保存し、その他の具体名と先頭0を往復できる", () => {
  const row = adminBankAccountUpdates(bank);
@@ -25,4 +25,10 @@ it("旧その他の種別名を勝手に普通へ変えず、未知の番号を�
  expect(bankAccountFormValues({ bankName: "旧銀行 旧支店", bankNo: "別段 ０１２３４５６７", bankHolder: "ミホン" })).toMatchObject({ bankNo: "01234567", bankType: "other", bankTypeOther: "別段" });
  expect(bankAccountFormValues({ bankName: "旧銀行", bankNo: "別段2 01234567", bankHolder: "ミホン" })).toMatchObject({ bankNo: "01234567", bankTypeOther: "別段2" });
  expect(bankAccountFormValues({ bankName: "旧銀行", bankNo: "123 4567", bankHolder: "ミホン" }).bankNo).toBe("123 4567");
+});
+
+it.each(["ミホン ガク", "ﾐﾎﾝ ｶﾞｸ", "ミホン ｶﾞｸ"])("管理・本人の口座名義%sは入力幅を保持して保存する", bankHolder => {
+ const input = { ...bank, bankHolder };
+ expect(adminBankAccountUpdates(input).bank_holder).toBe(bankHolder);
+ expect(bankAccountToStorage(normalizeBankAccount(input)!).bank_holder).toBe(bankHolder);
 });
