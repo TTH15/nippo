@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type SetStateAction } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faRotateLeft, faRotateRight, faCloud, faCloudArrowUp, faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
+import { bankAccountLegacyDisplay, type BankStorage } from "@/lib/bankAccount";
 import { apiFetch } from "@/lib/api";
 import { invalidateApi } from "@/lib/swr";
 import { useApi } from "@/lib/useApi";
@@ -38,6 +39,7 @@ type DriverRow = {
   id: string; name: string; display_name?: string | null; status?: string;
   postal_code?: string | null; address?: string | null; phone?: string | null;
   bank_name?: string | null; bank_no?: string | null; bank_holder?: string | null;
+  bank_branch_name?: string | null; bank_account_type?: BankStorage["bank_account_type"]; bank_account_type_other?: string | null;
 };
 
 const HISTORY_COALESCE_MS = 500; // 連続入力はこの間隔でまとめて1ステップにする
@@ -267,13 +269,14 @@ export function InvoiceSheetEditor({ initial, mode }: { initial: EditorState; mo
 
   const selectDriver = (id: string) => {
     const d = drivers.find((x) => x.id === id);
+    const bank = d ? bankAccountLegacyDisplay({ ...d, bank_name: d.bank_name ?? null, bank_no: d.bank_no ?? null, bank_holder: d.bank_holder ?? null }) : null;
     setSt((prev) => ({
       ...prev,
       fromName: d ? d.name : prev.fromName,
       fromAddrHtml: d ? addrHtml(d.postal_code, d.address) : prev.fromAddrHtml,
       fromTel: d ? d.phone ?? "" : prev.fromTel,
-      bankName: d ? d.bank_name ?? "" : prev.bankName,
-      bankNo: d ? d.bank_no ?? "" : prev.bankNo,
+      bankName: bank ? bank.bankName : prev.bankName,
+      bankNo: bank ? bank.bankNo : prev.bankNo,
       bankHolder: d ? d.bank_holder ?? "" : prev.bankHolder,
       parties: { ...prev.parties, fromParty: id ? `drv-${id}` : prev.parties.fromParty },
     }));

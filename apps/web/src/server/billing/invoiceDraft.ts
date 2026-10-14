@@ -1,3 +1,4 @@
+import { bankAccountLegacyDisplay } from "@/lib/bankAccount";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { buildCounterpartyBillingSnapshot } from "./counterpartyBillingSnapshot";
 import { computeDriverAutoPayout } from "./driverPayout";
@@ -216,7 +217,7 @@ export async function buildDriverDraft(
 ): Promise<DriverDraft | null> {
   const { data: driver, error: driverErr } = await supabase
     .from("drivers")
-    .select("id, name, postal_code, address, phone, bank_name, bank_no, bank_holder")
+    .select("id, name, postal_code, address, phone, bank_name, bank_no, bank_holder, bank_branch_name, bank_account_type, bank_account_type_other")
     .eq("id", driverId)
     .eq("org_id", orgId)
     .maybeSingle();
@@ -302,8 +303,8 @@ export async function buildDriverDraft(
       postalCode: driver.postal_code,
       address: driver.address,
       phone: driver.phone,
-      bankName: driver.bank_name,
-      bankNo: driver.bank_no,
+      bankName: bankAccountLegacyDisplay(driver).bankName || null,
+      bankNo: bankAccountLegacyDisplay(driver).bankNo || null,
       bankHolder: driver.bank_holder,
     },
     tableData: { main, deduct },
