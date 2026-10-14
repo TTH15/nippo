@@ -183,7 +183,7 @@ export function DriverSetupPanel({ required = false, bankChangePage = false, chi
       onChange={event => { if (bankInvalidField === key) { setBankInvalidField(null); setBankError(""); } setBank({ ...bank, [key]: key === "bankNo" ? event.target.value.normalize("NFKC").replace(/[^0-9]/g, "").slice(0, 8) : event.target.value }); }}
       className={`${bankInputClass} ${bankInvalidField === key ? "!border-red-700" : ""}`} placeholder={placeholder} maxLength={key === "bankTypeOther" ? 40 : undefined} required disabled={!!busy} />
   </label>;
-  const bankForm = <form noValidate id={`${id}-bank-form`} onSubmit={saveBank} className="space-y-1">
+  const bankForm = <form noValidate id={`${id}-bank-form`} onSubmit={saveBank} className="space-y-3 [@media(min-height:641px)]:space-y-4">
     <div className="grid grid-cols-2 gap-3">{bankInput("bankName", "銀行名", "〇〇銀行")}{bankInput("bankBranch", "支店名", "〇〇支店")}</div>
     <div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-3">
       <div data-bank-field="bankType" className={`${bankInvalidField === "bankType" ? "[&_button]:!border-red-700" : ""}`}><label htmlFor={`${id}-bank-type`} className="block text-xs text-slate-600">口座種別 <span className="text-red-700">必須</span></label>
