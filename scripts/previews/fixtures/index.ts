@@ -17,7 +17,7 @@ import type { ComponentType } from "react";
 import type { PreviewFixture } from "@/lib/preview/fixtureStore";
 import DashboardPage from "@/app/(admin)/admin/page";
 import VehiclesPage from "@/app/(admin)/admin/(resource)/vehicles/page";
-import BankCleanupPage from "@/app/(admin)/admin/(resource)/users/bank-cleanup/page";
+import BankCleanupPage from "../bank-cleanup";
 import { bankCleanupFixture } from "./bankCleanup";
 import UsersPage from "@/app/(admin)/admin/(resource)/users/page";
 import CoursesPage from "@/app/(admin)/admin/(delivery)/courses/page";

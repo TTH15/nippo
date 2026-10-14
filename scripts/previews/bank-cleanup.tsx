@@ -1,5 +1,5 @@
 "use client";
-import Link from "next/link";
+import Link from "./kernel/next-link";
 import { useEffect, useState } from "react";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { CheckboxField } from "@/lib/components/CheckboxField";

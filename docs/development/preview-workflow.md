@@ -473,5 +473,13 @@ bank-canonical / bank-other / bank-legacy / bank-legacy-otherでは、上部の�
 
 ### 口座情報の整理（2026/10/14）
 
-`npm run preview:admin -- admin --port 3249` → `/preview/admin/bank-cleanup?scenario=normal&role=admin`。
-本番の `/admin/users/bank-cleanup` ページを再利用し、架空の半角・全角区切り、旧口座種別つき番号、その他、曖昧な口座を比較する。行の「確認済み」を選び「確認したN件を保存」で独立6項目に保存。`save-error` は部分失敗後の再試行、`conflict` は他端末変更、`large` は100件の追加読込、`empty` は対象なし。管理者は保存、経理は閲覧のみ、閲覧のみの役割は口座情報を開示しない。本番DB・SMS・認証へ接続せず、実在データは使わない。
+本番の管理画面/APIには追加しない。一度だけ行う整理は `scripts/db/bank-cleanup-review.ts` で読み取り済みのローカルJSONから比較用HTML・計画を生成する。実データはGitに入れず、保存先をアクセス権700、ファイルを600とする。HTMLは外部接続・画像読み込みなしで、確認済みID一覧の保存だけを行い、DBに接続しない。
+
+```
+npx tsx scripts/db/bank-cleanup-review.ts --input <読取JSON> --out-dir <ローカル保存先>
+npx tsx scripts/db/bank-cleanup-review.ts --input <同じ読取JSON> --out-dir <同じ保存先> --approved <確認済みIDのJSON>
+```
+
+後者は `apply-reviewed.sql` と `rollback-reviewed.sql` を作るだけで実行しない。更新SQLはorg/id/原文の各項目を比較し、1件でも競合するとトランザクション全体を中止する。読取時のスキーマにその他具体名カラムがない場合、その他は手動確認に残す。実行前に確認済みの対象をユーザーと照合する。
+
+架空データだけの開発プレビュー `/preview/admin/bank-cleanup` は `scripts/previews/bank-cleanup.tsx` と隔離fixtureを利用。本番のルート・保存API・ドライバー管理入口は撤去済み。normal/save-error/conflict/empty/largeを試せるが、実データの確認HTMLとは別の画面で、実DBへ接続しない。
