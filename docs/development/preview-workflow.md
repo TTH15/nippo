@@ -483,3 +483,9 @@ npx tsx scripts/db/bank-cleanup-review.ts --input <同じ読取JSON> --out-dir <
 後者は `apply-reviewed.sql` と `rollback-reviewed.sql` を作るだけで実行しない。更新SQLはorg/id/原文の各項目を比較し、1件でも競合するとトランザクション全体を中止する。読取時のスキーマにその他具体名カラムがない場合、その他は手動確認に残す。実行前に確認済みの対象をユーザーと照合する。
 
 架空データだけの開発プレビュー `/preview/admin/bank-cleanup` は `scripts/previews/bank-cleanup.tsx` と隔離fixtureを利用。本番のルート・保存API・ドライバー管理入口は撤去済み。normal/save-error/conflict/empty/largeを試せるが、実データの確認HTMLとは別の画面で、実DBへ接続しない。
+
+#### 今回だけのローカル直接更新
+
+`scripts/db/bank-cleanup-local.ts --input <読取JSON> --out-dir <ローカル保存先> --env-file <既存env> [--selection <確認済みID>]` をtsxで起動すると127.0.0.1:3252の画面で銀行名・支店名を編集し、確認した行を直接保存する。環境のSupabase URLが対象projectと一致すること、対象会社の読み取り接続を起動時に検証。DB接続文字列は使用せず、既存service clientでorg/id/ドライバー条件/原文全項目のCASを適用。保存後の返却値も照合する。
+
+更新は行ごとに行い、一部失敗時は成功済みと未更新を表示する（この直接更新方式は全件トランザクションではない）。変更前・確認した値・結果はローカルの権限600ファイルに記録。HTTPはランダムな画面トークンとOriginを検査し、GETの表示以外は認証した更新POSTだけ受ける。本番の管理画面/APIとして公開しない。
