@@ -13,7 +13,10 @@ export const dynamic = "force-dynamic";
 // 行が1件も無いコース/便は「全項目を使う」（後方互換）。
 // ============================================================
 
-type Selection = { cycle_no?: number; unit_id: string; field_key: string };
+type Selection = { cycle_no: number; unit_id: string; field_key: string };
+const isSelections = (value: unknown): value is Selection[] => Array.isArray(value) && value.length <= 2000 && value.every(s =>
+  s && Number.isInteger(s.cycle_no) && s.cycle_no >= 0 && typeof s.unit_id === "string" && typeof s.field_key === "string" && s.field_key.length > 0);
+
 
 export async function GET(req: NextRequest) {
   const user = await requireAnyPermission(req, COURSE_BILLING_VIEW_CAPS);
@@ -23,26 +26,29 @@ export async function GET(req: NextRequest) {
   const courseId = req.nextUrl.searchParams.get("course_id") ?? "";
   if (!courseId) return NextResponse.json({ error: "course_id が必要です" }, { status: 400 });
 
-  const { data: course } = await supabase
+  const { data: course, error: courseError } = await supabase
     .from("courses").select("id, carrier_id, uses_cycles").eq("id", courseId).eq("org_id", orgId).maybeSingle();
+  if (courseError) return NextResponse.json({ error: "コースの読み込みに失敗しました" }, { status: 500 });
   if (!course) return NextResponse.json({ error: "コースが見つかりません" }, { status: 404 });
 
   const carrierId = (course as any).carrier_id as string | null;
-  const [{ data: units }, { data: cycles }, { data: selected }] = await Promise.all([
+  const [{ data: units, error: unitsError }, { data: cycles, error: cyclesError }, { data: selected, error: selectedError }] = await Promise.all([
     carrierId
       ? supabase.from("units").select("id, name, sort_order").eq("carrier_id", carrierId).eq("active", true).order("sort_order")
-      : Promise.resolve({ data: [] as any[] }),
+      : Promise.resolve({ data: [] as any[], error: null }),
     // tenant-scope-ok: 直上で .eq("org_id", orgId) 付きに存在確認した courseId に固定
     supabase.from("course_cycles").select("cycle_no, label, active").eq("course_id", courseId).order("cycle_no"),
     // tenant-scope-ok: 直上で .eq("org_id", orgId) 付きに存在確認した courseId に固定
     supabase.from("course_report_fields").select("cycle_no, unit_id, field_key").eq("course_id", courseId),
   ]);
+  if (unitsError || cyclesError || selectedError) return NextResponse.json({ error: "日報項目の読み込みに失敗しました" }, { status: 500 });
   const unitIds = (units ?? []).map((u: any) => u.id);
-  const { data: fields } = unitIds.length
+  const { data: fields, error: fieldsError } = unitIds.length
     ? await supabase.from("unit_fields")
         .select("unit_id, field_key, label, group_label, input_type, sort_order").in("unit_id", unitIds).order("sort_order")
     : { data: [] as any[] };
 
+  if (fieldsError) return NextResponse.json({ error: "日報項目の読み込みに失敗しました" }, { status: 500 });
   return NextResponse.json({
     usesCycles: !!(course as any).uses_cycles,
     cycles: (cycles ?? []).filter((c: any) => c.active).map((c: any) => ({ cycleNo: Number(c.cycle_no), label: c.label ?? null })),
@@ -71,34 +77,23 @@ export async function PUT(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const courseId = typeof body.course_id === "string" ? body.course_id : "";
   if (!courseId) return NextResponse.json({ error: "course_id が必要です" }, { status: 400 });
-  const { data: course } = await supabase
+  const { data: course, error: courseError } = await supabase
     .from("courses").select("id").eq("id", courseId).eq("org_id", orgId).maybeSingle();
+  if (courseError) return NextResponse.json({ error: "コースの読み込みに失敗しました" }, { status: 500 });
   if (!course) return NextResponse.json({ error: "コースが見つかりません" }, { status: 404 });
 
-  const selections: Selection[] = Array.isArray(body.selected) ? body.selected : [];
-  const rows = selections
-    .filter((s) => typeof s.unit_id === "string" && typeof s.field_key === "string")
-    .map((s) => ({
-      course_id: courseId,
-      cycle_no: Number.isInteger(s.cycle_no) && Number(s.cycle_no) >= 0 ? Number(s.cycle_no) : 0,
-      unit_id: s.unit_id,
-      field_key: s.field_key,
-    }));
-
-  // 総入れ替え。空で保存＝絞り込み解除（全項目を使う）
-  // tenant-scope-ok: 直上で .eq("org_id", orgId) 付きに存在確認した courseId に固定
-  const { error: delErr } = await supabase.from("course_report_fields").delete().eq("course_id", courseId);
-  if (delErr) {
-    console.error(delErr);
-    return NextResponse.json({ error: "入力項目の保存に失敗しました" }, { status: 500 });
+  if (!isSelections(body.selected) || !isSelections(body.expected)) {
+    return NextResponse.json({ error: "日報項目の指定が不正です。再読み込みしてください。" }, { status: 400 });
   }
-  if (rows.length) {
-    // tenant-scope-ok: 直上で .eq("org_id", orgId) 付きに存在確認した courseId に固定
-    const { error } = await supabase.from("course_report_fields").insert(rows);
-    if (error) {
-      console.error(error);
-      return NextResponse.json({ error: "入力項目の保存に失敗しました" }, { status: 500 });
-    }
+  const { error } = await supabase.rpc("replace_course_report_fields", {
+    p_org: orgId, p_course: courseId, p_selected: body.selected, p_expected: body.expected,
+  });
+  if (error) {
+    if (error.code === "40001") return NextResponse.json({ error: error.message }, { status: 409 });
+    if (["22023", "22P02", "23505"].includes(error.code)) return NextResponse.json({ error: "コース・便にない日報項目が含まれています" }, { status: 400 });
+    if (error.code === "P0002") return NextResponse.json({ error: "コースが見つかりません" }, { status: 404 });
+    console.error(error);
+    return NextResponse.json({ error: "日報項目の保存に失敗しました" }, { status: 500 });
   }
-  return NextResponse.json({ ok: true, saved: rows.length });
+  return NextResponse.json({ ok: true, saved: body.selected.length });
 }

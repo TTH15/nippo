@@ -1,3 +1,4 @@
+import { coversReportAssignment as covers } from "@/lib/reportAssignments";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchAllRows } from "@/server/aggregation/pagination";
 import { loadLegacyDailyRows } from "@/server/aggregation/legacyShape";
@@ -51,11 +52,12 @@ export async function loadPendingDatesAppSide(
     shift_date: string;
     driver_id: string;
     course_id: string | null;
+    cycle_no: number | null;
   }>((from, to) =>
     supabase
       // tenant-scope-ok: orgDriverIds は自社の drivers（.eq("org_id", orgId)）から作った集合
       .from("shifts")
-      .select("shift_date, driver_id, course_id")
+      .select("shift_date, driver_id, course_id, cycle_no")
       .gte("shift_date", start)
       .lte("shift_date", end)
       // 自社のドライバー集合で絞る（他社のシフトを読んでページ数を無駄に増やさない）
@@ -79,7 +81,7 @@ export async function loadPendingDatesAppSide(
     if (!shiftCoursesByDate.has(r.shift_date)) shiftCoursesByDate.set(r.shift_date, new Map());
     const byDriver = shiftCoursesByDate.get(r.shift_date)!;
     if (!byDriver.has(r.driver_id)) byDriver.set(r.driver_id, new Set());
-    byDriver.get(r.driver_id)!.add(r.course_id);
+    byDriver.get(r.driver_id)!.add(`${r.course_id}:${Number(r.cycle_no) || 0}`);
   });
 
   // 非却下の日報: 日付×ドライバーの提出コース集合と未承認有無
@@ -89,7 +91,7 @@ export async function loadPendingDatesAppSide(
     if (!submitted.has(r.report_date)) submitted.set(r.report_date, new Map());
     const byDriver = submitted.get(r.report_date)!;
     const cur = byDriver.get(r.driver_id) ?? { courses: new Set<string>(), hasUnapproved: false };
-    if (r.course_id) cur.courses.add(r.course_id);
+    if (r.course_id) cur.courses.add(`${r.course_id}:${Number(r.cycle_no) || 0}`);
     if (!r.approved_at) cur.hasUnapproved = true;
     byDriver.set(r.driver_id, cur);
   });
@@ -104,7 +106,7 @@ export async function loadPendingDatesAppSide(
       const rec = byDriver?.get(driverId);
       if (!rec) return true; // シフトがあるのに日報ゼロ
       const cs = coursesByDriver?.get(driverId);
-      if (cs && Array.from(cs).some((c) => !rec.courses.has(c))) return true; // 一部コース未提出
+      if (cs && Array.from(cs).some((c) => !covers(rec.courses, c))) return true; // 一部コース未提出
     }
     return false;
   };

@@ -1,3 +1,5 @@
+import { SHIFT_ASSIGNMENT_SELECT, shiftAssignment } from "@/server/daily/shiftAssignments";
+import type { ShiftReportAssignment } from "@/lib/shiftReportComparison";
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
@@ -64,7 +66,7 @@ export async function GET(req: NextRequest) {
     const { data: shiftRows, error: shiftsErr } = await supabase
       // tenant-scope-ok: orgDriverIds は自社の drivers（.eq("org_id", orgId)）から作った集合
       .from("shifts")
-      .select("driver_id")
+      .select(SHIFT_ASSIGNMENT_SELECT).eq("courses.org_id", orgId)
       .eq("shift_date", dateParam)
       .in("driver_id", orgDriverIds)
       .not("driver_id", "is", null);
@@ -77,6 +79,15 @@ export async function GET(req: NextRequest) {
     const shiftDriverIds = Array.from(
       new Set((shiftRows ?? []).map((r: { driver_id: string }) => r.driver_id).filter(Boolean))
     );
+
+    const shiftAssignmentsByDriver: Record<string, ShiftReportAssignment[]> = {};
+    for (const r of shiftRows ?? []) {
+      if (!r.course_id || !r.driver_id) continue;
+      const assignments = shiftAssignmentsByDriver[r.driver_id] ?? [];
+      const cycleNo = Number(r.cycle_no) || 0;
+      if (!assignments.some(a => a.courseId === r.course_id && a.cycleNo === cycleNo)) assignments.push(shiftAssignment(r));
+      shiftAssignmentsByDriver[r.driver_id] = assignments;
+    }
 
     // 未提出でも表示するため、ドライバーごとの予定車両（最終選択車両）を取得（ナンバープレート用）
     const driverIds = (drivers ?? []).map((d: { id: string }) => d.id);
@@ -125,6 +136,7 @@ export async function GET(req: NextRequest) {
         carrier: string | null;
         approved_at: string | null;
         rejected_at: string | null;
+      rejection_reason?: "shift_changed" | null;
         vehicle_id: string | null;
         meter_value: number | null;
         vehicle_plate: VehiclePlatePayload | null;
@@ -156,6 +168,7 @@ export async function GET(req: NextRequest) {
         carrier: r.carrier ?? null,
         approved_at: r.approved_at ?? null,
         rejected_at: r.rejected_at ?? null,
+        rejection_reason: r.rejection_reason ?? null,
         vehicle_id: r.vehicle_id ?? null,
         meter_value: r.meter_value != null ? Number(r.meter_value) : null,
         vehicle_plate: toPlatePayload(veh),
@@ -175,6 +188,7 @@ export async function GET(req: NextRequest) {
       date: dateParam,
       drivers: drivers ?? [],
       shiftDriverIds,
+      shiftAssignmentsByDriver,
       reportsByDriver,
       driverPreferredVehicle,
     });

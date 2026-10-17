@@ -1,3 +1,4 @@
+import { validateReportFieldWrites } from "@/server/reports/validateFieldWrites";
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
@@ -35,6 +36,16 @@ export async function PUT(
   try {
     const body = await req.json();
 
+    const { data: before, error: beforeError } = await supabase.from("daily_reports_v2")
+      .select("id, course_id, cycle_no, rejection_reason").eq("org_id", orgId).eq("id", reportId).maybeSingle();
+    if (beforeError) throw beforeError;
+    if (!before) return NextResponse.json({ error: "日報が見つかりません" }, { status: 404 });
+    if (before.rejection_reason === "shift_changed") return NextResponse.json({ error: "シフト変更で対象外になった日報です。現在のシフトから入力してください。" }, { status: 409 });
+    if (before.course_id && Array.isArray(body.entries)) {
+      const fieldError = await validateReportFieldWrites(supabase, orgId, [{ courseId: before.course_id, cycleNo: before.cycle_no, entries: body.entries }], [before], true);
+      if (fieldError) return NextResponse.json({ error: fieldError }, { status: 409 });
+    }
+
     // ヘッダ更新（編集で承認状態はリセット。carrier_id/course_id は変更しない）
     const updates: Record<string, unknown> = {
       approved_at: null,
@@ -42,6 +53,7 @@ export async function PUT(
       rate_snapshot: null,
       rejected_at: null,
       rejected_by: null,
+      rejection_reason: null,
     };
     if (
       body.report_date !== undefined &&
@@ -60,6 +72,9 @@ export async function PUT(
       .maybeSingle();
 
     if (error) {
+      if (error.code === "23514" && error.message.includes("シフトが変更")) {
+        return NextResponse.json({ error: error.message }, { status: 409 });
+      }
       if (error.code === "23505") {
         return NextResponse.json(
           {
@@ -98,6 +113,9 @@ export async function PUT(
         await syncReportEntries(supabase, orgId, reportId, entryRows);
       } catch (e) {
         console.error("[admin/daily/reports] entries sync error", e);
+        if (e && typeof e === "object" && "code" in e && e.code === "23514") {
+          return NextResponse.json({ error: "日報項目が変更されています。再読み込みして確認してください。" }, { status: 409 });
+        }
         return NextResponse.json({ error: "DB error" }, { status: 500 });
       }
     }

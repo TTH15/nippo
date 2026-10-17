@@ -28,6 +28,7 @@ import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { VehiclePlate, plateDigits } from "@/lib/components/VehiclePlate";
 import { format } from "date-fns";
 import { todayJST } from "@/lib/date";
+import { formatDateSlashWeekdayJP } from "@repo/core/logic/calendar";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { VehicleCertificateReader } from "./VehicleCertificateReader";
 import { findKeiVan } from "@/lib/vehicleModels";
@@ -2621,7 +2622,7 @@ export default function VehiclesPage() {
                             <th className="px-2 py-2 text-left text-slate-600">日付</th>
                             <th className="px-2 py-2 text-left text-slate-600">利用者</th>
                             <th className="px-2 py-2 text-right text-slate-600">メーター</th>
-                            <th className="px-2 py-2 text-right text-slate-600">前日比</th>
+                            <th className="px-2 py-2 text-right text-slate-600">前回との差</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -2641,7 +2642,7 @@ export default function VehiclesPage() {
                             [...meterRows].reverse().map((r, idx) => (
                               <tr key={`${r.report_date}-${idx}`} className={idx % 2 === 0 ? "bg-white" : "bg-slate-50"}>
                                 <td className="px-2 py-2 text-slate-700">
-                                  {r.report_date.split("-").map((x, i) => (i === 0 ? x : parseInt(x, 10))).join("/")}
+                                  {formatDateSlashWeekdayJP(r.report_date)}
                                 </td>
                                 <td className="px-2 py-2 text-slate-700">{getDisplayName(r.driver)}</td>
                                 <td className="px-2 py-2 text-right font-medium text-slate-900">{fmt(r.meter_value)} km</td>
@@ -2771,7 +2772,7 @@ export default function VehiclesPage() {
                                     <div>
                                       <span className="text-slate-500">日付:</span>{" "}
                                       <span className="font-medium">
-                                        {selected.report_date.split("-").map((x, i) => (i === 0 ? x : parseInt(x, 10))).join("/")}
+                                        {formatDateSlashWeekdayJP(selected.report_date)}
                                       </span>
                                     </div>
                                     <div>
@@ -2783,7 +2784,7 @@ export default function VehiclesPage() {
                                       <span className="font-medium text-slate-900">{fmt(selected.meter_value)} km</span>
                                     </div>
                                     <div>
-                                      <span className="text-slate-500">前日比:</span>{" "}
+                                      <span className="text-slate-500">前回との差:</span>{" "}
                                       {selectedDelta == null ? (
                                         <span className="text-slate-400">-</span>
                                       ) : (
@@ -2792,9 +2793,6 @@ export default function VehiclesPage() {
                                         </span>
                                       )}
                                     </div>
-                                  </div>
-                                  <div className="mt-2 text-[11px] text-slate-500">
-                                    点をクリックすると、その日の詳細（前日比含む）を表示します。
                                   </div>
                                 </div>
                               </div>

@@ -1,6 +1,7 @@
 // 日報「内容」表示の共有型・整形ヘルパ（送信画面の動的フォームに揃える）。
 
 export type ReportContentField = {
+  needsReview?: boolean;
   fieldKey: string;
   label: string;
   inputType: string; // INT | TEXT | TIME | BOOL

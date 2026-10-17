@@ -9,6 +9,8 @@ import {
   faOilCan,
   faPhone,
 } from "@fortawesome/free-solid-svg-icons";
+import { reportCycleTone } from "@/lib/reportCycles";
+import { ReportFieldInputs } from "@/lib/components/ReportFieldInputs";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { DatePicker } from "@/lib/components/DatePicker";
 import { VehiclePlate } from "@/lib/components/VehiclePlate";
@@ -230,6 +232,10 @@ export default function SubmitPageClientV2() {
   }
 
   async function submit() {
+    if (shifts.some(s => s.existing?.requiresReview)) {
+      setMessage({ kind: "err", text: "提出済みの内容に便の設定と異なる項目があります。運営に確認してください。" });
+      return;
+    }
     // 走行距離の妥当性（未入力・登録値以下）を判定。表示と同一ロジックで送信もブロックする。
     const meterState = evaluateMeter(meter, meterVehicle);
     if (!meterState.canSubmit) {
@@ -508,12 +514,12 @@ export default function SubmitPageClientV2() {
           {shifts.map((s) => {
             const formKey = reportFormKey(s.courseId, s.cycleNo);
             return (
-            <div key={formKey} className="rounded-lg border border-slate-200 bg-white">
-              <div className="flex items-center gap-2 px-4 py-2.5 border-b border-slate-100">
+            <div key={formKey} className={`rounded-lg border border-l-4 border-slate-200 bg-white ${reportCycleTone(s.cycleNo ?? 0).border}`}>
+              <div className={`flex flex-wrap items-center gap-2 px-4 py-2.5 border-b border-slate-100 ${reportCycleTone(s.cycleNo ?? 0).surface}`}>
                 <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: s.color ?? "#94a3b8" }} />
                 <span className="font-medium text-slate-800">{s.courseName}</span>
                 {(s.cycleNo ?? 0) > 0 && (
-                  <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-semibold text-slate-600">
+                  <span className={`rounded border px-1.5 py-0.5 text-[11px] font-semibold ${reportCycleTone(s.cycleNo ?? 0).badge}`}>
                     {s.cycleLabel || `C${s.cycleNo}`}
                   </span>
                 )}
@@ -557,13 +563,14 @@ export default function SubmitPageClientV2() {
         />
       )}
 
+      {shifts.some(s => s.existing?.requiresReview) && <p role="alert" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-800">提出済みの内容に便の設定と異なる項目があります。運営に確認してください。</p>}
       {message && (
         <div className={`text-sm rounded px-3 py-2 ${message.kind === "ok" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>{message.text}</div>
       )}
 
       <button
         type="button"
-        disabled={submitting || shifts.length === 0}
+        disabled={submitting || shifts.length === 0 || shifts.some(s => s.existing?.requiresReview)}
         onClick={submit}
         className="w-full py-3 rounded-lg bg-slate-900 text-white font-medium disabled:opacity-50"
       >
@@ -718,54 +725,8 @@ function UnitFields({
         {groups.map(([groupKey, fields]) => (
           <div key={groupKey}>
             {groupKey && <div className="text-[11px] text-indigo-600 mb-1">{groupKey}</div>}
-            <div className="grid grid-cols-2 gap-3">
-              {fields.map((f) => {
-                const val = values[formKey]?.[unit.id]?.[f.fieldKey] ?? "";
-                // BOOL: カード内トグル
-                if (f.inputType === "BOOL") {
-                  return (
-                    <label
-                      key={f.fieldKey}
-                      className="flex items-center gap-2 bg-white rounded-xl border border-slate-200 p-4"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={val === "true"}
-                        onChange={(e) => setVal(formKey, unit.id, f.fieldKey, e.target.checked ? "true" : "false")}
-                        className="h-5 w-5 accent-brand-700"
-                      />
-                      <span className="text-xs font-semibold text-slate-500">
-                        {f.label}
-                        {f.required && <span className="text-red-500 ml-0.5">*</span>}
-                      </span>
-                    </label>
-                  );
-                }
-                // INT/TEXT/TIME: 旧フォーム同様のカード＋大きな数値入力
-                const isInt = f.inputType === "INT";
-                return (
-                  <div key={f.fieldKey} className="bg-white rounded-xl border border-slate-200 p-4">
-                    <label className="block text-xs font-semibold text-slate-500 mb-1">
-                      {f.label}
-                      {f.required && <span className="text-red-500 ml-0.5">*</span>}
-                    </label>
-                    <input
-                      type={isInt ? "number" : f.inputType === "TIME" ? "time" : "text"}
-                      inputMode={isInt ? "numeric" : undefined}
-                      min={isInt ? "0" : undefined}
-                      placeholder={isInt ? "0" : ""}
-                      value={val}
-                      onChange={(e) => setVal(formKey, unit.id, f.fieldKey, e.target.value)}
-                      className={
-                        isInt
-                          ? "w-full text-3xl font-bold text-brand-900 py-2 border-0 focus:outline-none bg-transparent"
-                          : "w-full text-lg text-slate-900 py-2 border-0 focus:outline-none bg-transparent"
-                      }
-                    />
-                  </div>
-                );
-              })}
-            </div>
+            <ReportFieldInputs fields={fields} valueFor={key => values[formKey]?.[unit.id]?.[key] ?? ""}
+              onChange={(key, value) => setVal(formKey, unit.id, key, value)} />
           </div>
         ))}
       </div>

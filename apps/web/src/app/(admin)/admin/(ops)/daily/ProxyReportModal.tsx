@@ -33,6 +33,8 @@ type ShiftForm = {
   units: Unit[];
   existing: {
     reportId: string;
+    approvedAt?: string | null;
+    requiresReview?: boolean;
     vehicleId: string | null;
     meterValue: number | null;
     values: Record<string, Record<string, number | string>>;
@@ -87,7 +89,7 @@ export default function ProxyReportModal({ target, onClose, onSaved }: ProxyRepo
     if (!formData || !formKey) return;
     if (initializedKeyRef.current === formKey) return;
     initializedKeyRef.current = formKey;
-    const loaded = formData.shifts ?? [];
+    const loaded = (formData.shifts ?? []).filter(s => !s.existing?.approvedAt);
     setShifts(loaded);
     setShiftVehicleId(formData.shiftVehicleId ?? null);
     // 既存値を prefill
@@ -125,6 +127,9 @@ export default function ProxyReportModal({ target, onClose, onSaved }: ProxyRepo
   const hasFields = shifts.some((s) => s.units.some((u) => u.fields.length > 0));
 
   const save = async () => {
+    if (shifts.some(s => s.existing?.requiresReview)) {
+      setError("提出済みの内容に便の設定と異なる項目があります。日報の編集から確認してください。"); return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -170,7 +175,7 @@ export default function ProxyReportModal({ target, onClose, onSaved }: ProxyRepo
             代理入力 — {target.driverName}
           </h2>
           <p className="text-xs text-slate-500 mb-4">
-            {fmtDate(target.date)} のシフトに基づいて個数を入力します。保存すると承認済みの日報として作成され、売上・報酬・集計に反映されます。
+            {fmtDate(target.date)}
           </p>
 
           {error && (

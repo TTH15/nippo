@@ -19,6 +19,8 @@ type ReportData = {
   report_date: string;
   submitted_at: string;
   carrier_name?: string | null;
+  course_name?: string | null;
+  cycle_label?: string | null;
   approved_at?: string | null;
   rejected_at?: string | null;
   content?: ReportContentUnit[];
@@ -119,9 +121,9 @@ export default function EditReportModal({
             日報の編集 — {editingEntry.entry.driver.display_name ?? editingEntry.entry.driver.name}
             {carrierName ? <span className="text-sm font-normal text-slate-500"> / {carrierName}</span> : null}
           </h2>
+          {editingEntry.entry.report.course_name && <div className="mb-2 text-sm font-medium text-slate-700">{editingEntry.entry.report.course_name} {editingEntry.entry.report.cycle_label}</div>}
           <p className="text-xs text-slate-500 mb-4">
-            承認済みの日報を編集すると、売上・報酬・集計にもその内容が反映されます。
-            日付を変えた場合は一覧の別の日付ブロックへ移動します（未承認タブは直近14日のみ表示）。
+            承認済みの日報を変更すると、売上・報酬も変わります。
           </p>
           {saveError ? (
             <div className="mb-4 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">

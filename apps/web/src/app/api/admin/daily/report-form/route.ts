@@ -1,3 +1,4 @@
+import { hasMeaningfulReportValue } from "@/server/reports/courseReportFieldFilter";
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
@@ -134,7 +135,7 @@ export async function GET(req: NextRequest) {
       .filter((u: any) => u.fields.length > 0);
 
   const reportByCourseCycle = new Map<string, any>(
-    (existingReports ?? []).map((r: any) => [`${r.course_id}:${Number(r.cycle_no) || 0}`, r]),
+    (existingReports ?? []).filter((r: any) => !r.rejected_at).map((r: any) => [`${r.course_id}:${Number(r.cycle_no) || 0}`, r]),
   );
   const shiftChoices = resolveReportCycleChoices(
     rawShiftChoices,
@@ -168,6 +169,8 @@ export async function GET(req: NextRequest) {
       units: c?.carrier_id ? unitsFor(c.carrier_id, courseId, cycleNo) : [],
       existing: existing
         ? {
+            requiresReview: (existingEntries ?? []).some((e: any) => e.report_id === existing.id &&
+              hasMeaningfulReportValue(e.value_num, e.value_text) && !reportFieldFilter.allows(courseId, cycleNo, e.unit_id, e.field_key)),
             reportId: existing.id,
             vehicleId: existing.vehicle_id ?? null,
             meterValue: existing.meter_value ?? null,

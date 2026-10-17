@@ -1,5 +1,6 @@
 // 車両一覧（本番 /admin/vehicles のページ本体）用の架空データ。認証・DB・APIには接続しない。
 import type { PreviewFixture } from "@/lib/preview/fixtureStore";
+import { deduplicateMeterReports } from "@/lib/dailyReportGrouping";
 
 export type MockVehicle = {
   id: string;
@@ -132,12 +133,13 @@ export const vehiclesFixture: PreviewFixture<State> = {
     empty: { label: "0件", description: "車両が1台も登録されていない" },
     "long-name": { label: "長い名前", description: "長いメーカー名・車種名・使用不可理由での折返し" },
     large: { label: "大量", description: "45台。20台ずつの追加読み込み" },
+    "meter-duplicates": { label: "C1/C2のメーター", description: "同じ読取値を1件にまとめ、前回との差を確認" },
   },
   createState: ({ scenario }) => ({
-    vehicles: (scenario === "empty" ? [] : scenario === "long-name" ? longNameVehicles : scenario === "large" ? manyVehicles(45) : seedVehicles).map((v) => ({ ...v })),
+    vehicles: (scenario === "empty" ? [] : scenario === "long-name" ? longNameVehicles : scenario === "large" ? manyVehicles(45) : seedVehicles).map((v, index) => ({ ...v, ...(scenario === "meter-duplicates" && index === 0 ? { current_mileage: 149100 } : {}) })),
     colors: ["#ffffff", "#272b30", "#d7d9d8"],
   }),
-  read: (state, { path, params }, { driver }) => {
+  read: (state, { path, params }, { driver, scenario }) => {
     const canViewCost = driver.capabilities.includes("can_view_vehicle_cost");
     if (path === "/api/admin/vehicles/check-number") return { vehicles: state.vehicles.filter(v =>
       !v.is_disposed && v.number_prefix === params.get("numberPrefix") && v.number_class === params.get("numberClass") &&
@@ -155,7 +157,20 @@ export const vehiclesFixture: PreviewFixture<State> = {
     if (path === "/api/admin/vehicles/recovery") {
       return { canViewCost, recovery: Object.fromEntries(state.vehicles.map((v) => [v.id, { recovered: 0, remaining: v.purchase_cost }])) };
     }
-    if (/^\/api\/admin\/vehicles\/[^/]+\/meter-logs$/.test(path)) return { logs: [] };
+    if (/^\/api\/admin\/vehicles\/[^/]+\/meter-logs$/.test(path)) {
+      if (scenario !== "meter-duplicates") return { logs: [] };
+      const vehicleId = path.split("/")[4];
+      if (vehicleId !== seedVehicles[0].id) return { logs: [] };
+      const end = params.get("end") ?? new Date().toISOString().slice(0, 10);
+      const day = (offset: number) => new Date(Date.parse(`${end}T12:00:00Z`) + offset * 86400_000).toISOString().slice(0, 10);
+      const rows = [
+        { report_date: day(-2), meter_value: 149000 },
+        { report_date: day(-1), meter_value: 149063 },
+        { report_date: day(-1), meter_value: 149063 },
+        { report_date: day(0), meter_value: 149100 },
+      ].map(row => ({ ...row, driver_id: previewDrivers[0].id, vehicle_id: vehicleId }));
+      return { logs: deduplicateMeterReports(rows).map(row => ({ report_date: row.report_date, meter_value: row.meter_value, driver: { ...previewDrivers[0], display_name: null } })) };
+    }
     // プレート長押しの詳細シート。位置は架空の「稼働中・退勤打刻」を1件だけ返す
     const detail = path.match(/^\/api\/admin\/vehicles\/([^/]+)\/detail$/);
     if (detail) {

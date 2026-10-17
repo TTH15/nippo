@@ -15,6 +15,10 @@ const SHIFT = {
   ] }],
   existing: null,
 };
+const CYCLE_SHIFTS = [1, 2].map(cycleNo => ({ ...SHIFT, cycleNo, cycleLabel: `C${cycleNo}`, courseName: "日中サンプル",
+  units: [{ ...SHIFT.units[0], fields: ["持出", "完了"].map((label, i) => ({ fieldKey: `${cycleNo === 1 ? "am" : "pm"}_${i ? "completed" : "mochidashi"}`,
+    label, inputType: "INT", groupLabel: cycleNo === 1 ? "午前" : "午後", required: true })) }],
+}));
 const PLACES = [
   { id: "place-toyonaka", name: "豊中センター", lat: 34.7855, lng: 135.4709, icon: "warehouse", slots: [
     { id: "slot-a1", label: "A-1", vehicleId: "veh-1" }, { id: "slot-a2", label: "A-2", vehicleId: null }, { id: "slot-a3", label: "A-3", vehicleId: "veh-2" },
@@ -34,6 +38,7 @@ export const submitFixture: PreviewFixture<State> = {
   title: "日報入力・ログイン設定",
   pathname: "/submit",
   scenarios: {
+    cycles: { label: "C1午前・C2午後", description: "実際の入力欄と便の色を確認し、別々の値を送信する" },
     normal: { label: "通常", description: "車庫3件（豊中は区画あり・veh-1 は A-1 がいつもの）" },
     "no-places": { label: "車庫なし", description: "登録車庫が無い会社。別の場所と状況だけ選べる" },
     "sms-only": { label: "かんたんログイン未設定", description: "SMS確認済み。本人確認後にかんたんログインを設定する" },
@@ -45,7 +50,7 @@ export const submitFixture: PreviewFixture<State> = {
     "no-image-template": { label: "様式なし", description: "画像の様式が未登録。画像は残せるが件数は手入力" },
   },
   createState: ({ scenario }) => ({ places: scenario === "no-places" ? [] : PLACES, submissions: [],
-    phoneVerified: ["sms-only", "complete"].includes(scenario), hasPasskey: scenario === "complete",
+    phoneVerified: ["sms-only", "complete", "cycles"].includes(scenario), hasPasskey: ["complete", "cycles"].includes(scenario),
     recent: false, smsSent: false, challenge: null, attempts: 0, statusFailures: scenario === "setup-error" ? 1 : 0,
     sourceImages: [], readings: [], imageTemplates: scenario !== "no-image-template" }),
   read: (state, { path }, { scenario }) => {
@@ -58,7 +63,7 @@ export const submitFixture: PreviewFixture<State> = {
     if (path === "/api/reports/vehicles-unlinked") return { vehicles: [] };
     if (path === "/api/reports/vehicles") return { vehicles: VEHICLES };
     if (path === "/api/reports/parking-places") return { places: state.places };
-    if (path === "/api/me/report-form") return { shifts: scenario === "no-shifts" ? [] : [SHIFT], shiftVehicleId: "veh-1" };
+    if (path === "/api/me/report-form") return { shifts: scenario === "no-shifts" ? [] : scenario === "cycles" ? CYCLE_SHIFTS : [SHIFT], shiftVehicleId: "veh-1" };
     if (path === "/api/me/report-image-templates") {
       return { templates: state.imageTemplates ? [previewImageTemplate({ unitId: "unit-1", doneKey: "delivered", backKey: "undelivered" })] : [] };
     }

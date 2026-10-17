@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
-import { isMissingOrgColumn, withoutOrgId } from "@/server/db/orgColumn";
+import { syncReportEntries } from "@/server/reports/entries";
+import { validateReportFieldWrites } from "@/server/reports/validateFieldWrites";
 import { captureReportRateSnapshots } from "@/server/aggregation/rateSnapshot";
 
 export const dynamic = "force-dynamic";
@@ -67,6 +68,19 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  try {
+    const { data: existingReports, error: readError } = await supabase.from("daily_reports_v2")
+      .select("id, course_id, cycle_no, approved_at").eq("org_id", orgId).eq("driver_id", driverId)
+      .eq("report_date", reportDate).is("rejected_at", null);
+    if (readError) throw readError;
+    const editable = items.filter(i => !existingReports?.some(r => r.course_id === i.courseId && (Number(r.cycle_no) || 0) === (Number(i.cycleNo) || 0) && r.approved_at));
+    const fieldError = await validateReportFieldWrites(supabase, orgId, editable, existingReports ?? []);
+    if (fieldError) return NextResponse.json({ error: fieldError }, { status: 409 });
+  } catch (error) {
+    console.error(error);
+    return NextResponse.json({ error: "日報項目の確認に失敗しました" }, { status: 500 });
+  }
+
   const nowIso = new Date().toISOString();
   const savedReportIds: string[] = [];
   const allowedShiftKeys = new Set(
@@ -82,7 +96,7 @@ export async function POST(req: NextRequest) {
     // 既存（未却下）の同 (driver,date,course,cycle) を探して上書き、無ければ作成
     const { data: existing } = await supabase
       .from("daily_reports_v2")
-      .select("id")
+      .select("id, approved_at")
       .eq("org_id", orgId)
       .eq("driver_id", driverId)
       .eq("report_date", reportDate)
@@ -90,7 +104,8 @@ export async function POST(req: NextRequest) {
       .eq("cycle_no", cycleNo)
       .is("rejected_at", null)
       .maybeSingle();
-    if (!allowedShiftKeys.has(`${item.courseId}:${cycleNo}`) && !existing) {
+    if (existing?.approved_at) continue;
+    if (!allowedShiftKeys.has(`${item.courseId}:${cycleNo}`) && !(cycleNo === 0 && existing && shiftRows.some(s => s.course_id === item.courseId))) {
       return NextResponse.json({ error: "シフトにないコース・便は代理入力できません" }, { status: 400 });
     }
 
@@ -104,11 +119,12 @@ export async function POST(req: NextRequest) {
       vehicle_id: item.vehicleId ?? null,
       meter_value: typeof item.meterValue === "number" ? item.meterValue : null,
       submitted_at: nowIso,
-      // 代理入力はそのまま承認済みにする（集計に即反映）
-      approved_at: nowIso,
-      approved_by: user.driverId,
+      // 明細とスナップショットが保存されるまでは未承認。
+      approved_at: null,
+      approved_by: null,
       rejected_at: null,
       rejected_by: null,
+      rejection_reason: null,
     };
 
     let reportId: string;
@@ -119,8 +135,6 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "日報の更新に失敗しました" }, { status: 500 });
       }
       reportId = existing.id;
-      // tenant-scope-ok: reportId は直上で .eq("org_id", orgId) 付きに読んだ日報の id
-      await supabase.from("report_entries").delete().eq("report_id", reportId);
     } else {
       const { data, error } = await supabase.from("daily_reports_v2").insert(header).select("id").single(); // tenant-scope-ok: header に org_id を含む（運営自身の org）
       if (error || !data) {
@@ -140,22 +154,21 @@ export async function POST(req: NextRequest) {
         value_num: typeof e.valueNum === "number" ? e.valueNum : null,
         value_text: e.valueText != null ? String(e.valueText) : null,
       }));
-    if (entryRows.length > 0) {
-      // tenant-scope-ok: entryRows の各行に org_id: orgId（運営自身の org）を入れている
-      let { error } = await supabase.from("report_entries").insert(entryRows);
-      if (isMissingOrgColumn(error)) {
-        // tenant-scope-ok: 同じ行の退避。migration 177 未適用（org_id 列が無い）環境でのみ通る
-        ({ error } = await supabase.from("report_entries").insert(withoutOrgId(entryRows)));
-      }
-      if (error) {
-        console.error(error);
-        return NextResponse.json({ error: "報告項目の保存に失敗しました" }, { status: 500 });
-      }
+    try {
+      await syncReportEntries(supabase, orgId, reportId, entryRows);
+    } catch (error) {
+      console.error(error);
+      return NextResponse.json({ error: "日報項目の保存に失敗しました。再読み込みして確認してください。" }, { status: 409 });
     }
     savedReportIds.push(reportId);
   }
 
-  await captureReportRateSnapshots(supabase, orgId, savedReportIds);
+  if (savedReportIds.length) {
+    await captureReportRateSnapshots(supabase, orgId, savedReportIds);
+    const { error } = await supabase.from("daily_reports_v2").update({ approved_at: nowIso, approved_by: user.driverId })
+      .eq("org_id", orgId).in("id", savedReportIds).is("rejected_at", null).is("approved_at", null);
+    if (error) return NextResponse.json({ error: "シフトを確認して、もう一度承認してください。" }, { status: 409 });
+  }
 
   return NextResponse.json({ ok: true, reportIds: savedReportIds });
 }

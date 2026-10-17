@@ -1,9 +1,11 @@
+import { loadShiftAssignments } from "@/server/daily/shiftAssignments";
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { loadLegacyDailyRows } from "@/server/aggregation/legacyShape";
 import { loadReportContents } from "@/server/aggregation/reportContent";
+import { loadVehicleNumberEvidence } from "@/server/daily/vehicleNumberEvidence";
 
 export const dynamic = "force-dynamic";
 
@@ -60,8 +62,12 @@ export async function GET(req: NextRequest) {
       orgId,
       rows.map((r: { id: string }) => r.id).filter(Boolean),
     );
+    const numberEvidence = await loadVehicleNumberEvidence(supabase, orgId, rows);
     rows.forEach((r: Record<string, unknown> & { id: string }) => {
       r.content = contentByReport.get(r.id) ?? [];
+      r.vehicle_plate = r.vehicles ?? null;
+      r.vehicle_number_evidence = numberEvidence.values.get(r.id) ?? null;
+      r.vehicle_number_unavailable = numberEvidence.unavailable && !(r.vehicles as { number_numeric?: string } | null)?.number_numeric;
     });
 
     const driverIds = Array.from(new Set(rows.map((r: { driver_id: string }) => r.driver_id).filter(Boolean)));
@@ -90,9 +96,11 @@ export async function GET(req: NextRequest) {
       grouped.get(date)!.push({ driver, report: r });
     });
 
+    const assignmentsByDate = await loadShiftAssignments(supabase, orgId, driverIds, [...grouped.keys()]);
+
     const groups: ReportGroup[] = Array.from(grouped.entries())
       .sort(([d1], [d2]) => (d1 < d2 ? 1 : d1 > d2 ? -1 : 0))
-      .map(([date, entries]) => ({ date, entries }));
+      .map(([date, entries]) => ({ date, entries, assignmentsByDriver: assignmentsByDate.get(date) ?? {} }));
 
     return NextResponse.json({ groups });
   } catch (err) {

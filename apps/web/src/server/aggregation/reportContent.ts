@@ -1,3 +1,4 @@
+import { hasMeaningfulReportValue } from "@/server/reports/courseReportFieldFilter";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchAllRows, IN_CLAUSE_BATCH_SIZE } from "./pagination";
 import { loadCourseReportFields } from "@/server/reports/courseReportFields";
@@ -9,6 +10,7 @@ import { loadCourseReportFields } from "@/server/reports/courseReportFields";
 // ============================================================
 
 export type ReportContentField = {
+  needsReview?: boolean;
   fieldKey: string;
   label: string;
   inputType: string; // INT | TEXT | TIME | BOOL
@@ -36,9 +38,10 @@ export async function loadReportContents(
   // （設定が無いコースは全項目のまま）。
   const reportMeta = new Map<string, { courseId: string | null; cycleNo: number }>();
   for (let i = 0; i < reportIds.length; i += IN_CLAUSE_BATCH_SIZE) {
-    const { data: rows } = await supabase
+    const { data: rows, error } = await supabase
       .from("daily_reports_v2").select("id, course_id, cycle_no")
       .in("id", reportIds.slice(i, i + IN_CLAUSE_BATCH_SIZE)).eq("org_id", orgId);
+    if (error) throw error;
     for (const r of rows ?? []) {
       reportMeta.set(r.id, { courseId: r.course_id ?? null, cycleNo: Number(r.cycle_no) || 0 });
     }
@@ -81,7 +84,7 @@ export async function loadReportContents(
   );
 
   const unitIds = Array.from(new Set(entries.map((e) => e.unit_id).filter(Boolean)));
-  const [{ data: units }, { data: fields }] = await Promise.all([
+  const [{ data: units, error: unitsError }, { data: fields, error: fieldsError }] = await Promise.all([
     supabase.from("units").select("id, name, sort_order").in("id", unitIds),
     supabase
       .from("unit_fields")
@@ -89,6 +92,8 @@ export async function loadReportContents(
       .in("unit_id", unitIds),
   ]);
 
+  if (unitsError) throw unitsError;
+  if (fieldsError) throw fieldsError;
   const unitMeta = new Map<string, { name: string; sortOrder: number }>();
   (units ?? []).forEach((u: { id: string; name: string | null; sort_order: number | null }) =>
     unitMeta.set(u.id, { name: u.name ?? "", sortOrder: u.sort_order ?? 0 }),
@@ -118,12 +123,14 @@ export async function loadReportContents(
   const byReport = new Map<string, Map<string, ReportContentField[]>>();
   for (const e of entries) {
     const m = reportMeta.get(e.report_id);
-    if (!fieldFilter.allows(m?.courseId ?? null, m?.cycleNo ?? 0, e.unit_id, e.field_key)) continue;
+    const needsReview = !fieldFilter.allows(m?.courseId ?? null, m?.cycleNo ?? 0, e.unit_id, e.field_key);
+    if (needsReview && !hasMeaningfulReportValue(e.value_num, e.value_text)) continue;
     if (!byReport.has(e.report_id)) byReport.set(e.report_id, new Map());
     const um = byReport.get(e.report_id)!;
     if (!um.has(e.unit_id)) um.set(e.unit_id, []);
     const meta = fieldMeta.get(`${e.unit_id}:${e.field_key}`);
     um.get(e.unit_id)!.push({
+      ...(needsReview ? { needsReview: true } : {}),
       fieldKey: e.field_key,
       label: meta?.label ?? e.field_key,
       inputType: meta?.inputType ?? "INT",

@@ -1,3 +1,4 @@
+import { coversReportAssignment as covers } from "@/lib/reportAssignments";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchAllRows } from "@/server/aggregation/pagination";
 import { loadLegacyDailyRows } from "@/server/aggregation/legacyShape";
@@ -55,11 +56,12 @@ export async function countDailyUnreadAppSide(
     shift_date: string;
     driver_id: string;
     course_id: string | null;
+    cycle_no: number | null;
   }>((from, to) =>
     supabase
       // tenant-scope-ok: orgDriverIds は自社の drivers（.eq("org_id", orgId)）から作った集合
       .from("shifts")
-      .select("shift_date, driver_id, course_id")
+      .select("shift_date, driver_id, course_id, cycle_no")
       .gte("shift_date", start)
       .lte("shift_date", end)
       .in("driver_id", orgDriverIds)
@@ -83,13 +85,13 @@ export async function countDailyUnreadAppSide(
     if (!shiftCoursesByDate.has(r.shift_date)) shiftCoursesByDate.set(r.shift_date, new Map());
     const byDriver = shiftCoursesByDate.get(r.shift_date)!;
     if (!byDriver.has(r.driver_id)) byDriver.set(r.driver_id, new Set());
-    byDriver.get(r.driver_id)!.add(r.course_id);
+    byDriver.get(r.driver_id)!.add(`${r.course_id}:${Number(r.cycle_no) || 0}`);
   });
 
   // ドライバーごとに非却下レポートを配列で保持（コース単位の未提出/未承認判定用）
   const reportsByDateDriver = new Map<
     string,
-    Map<string, { course_id: string | null; approved_at: string | null }[]>
+    Map<string, { course_id: string | null; cycle_no: number; approved_at: string | null }[]>
   >();
   (reportRows ?? []).forEach((r) => {
     if (!r.report_date || !r.driver_id) return;
@@ -97,7 +99,7 @@ export async function countDailyUnreadAppSide(
     if (!reportsByDateDriver.has(r.report_date)) reportsByDateDriver.set(r.report_date, new Map());
     const byDriver = reportsByDateDriver.get(r.report_date)!;
     const arr = byDriver.get(r.driver_id) ?? [];
-    arr.push({ course_id: r.course_id ?? null, approved_at: r.approved_at ?? null });
+    arr.push({ course_id: r.course_id ?? null, cycle_no: Number(r.cycle_no) || 0, approved_at: r.approved_at ?? null });
     byDriver.set(r.driver_id, arr);
   });
 
@@ -123,9 +125,9 @@ export async function countDailyUnreadAppSide(
         unreadCount += 1; // 日報未提出
         continue;
       }
-      const reportedCourses = new Set(reps.map((r) => r.course_id).filter((c): c is string => !!c));
+      const reportedCourses = new Set(reps.filter(r => r.course_id).map(r => `${r.course_id}:${r.cycle_no}`));
       const courses = shiftCourses?.get(driverId);
-      const missing = courses ? Array.from(courses).filter((c) => !reportedCourses.has(c)).length : 0;
+      const missing = courses ? Array.from(courses).filter((c) => !covers(reportedCourses, c)).length : 0;
       const hasUnapproved = reps.some((r) => !r.approved_at);
       if (missing > 0 || hasUnapproved) {
         unreadCount += 1; // 一部コース未提出 または 未承認
