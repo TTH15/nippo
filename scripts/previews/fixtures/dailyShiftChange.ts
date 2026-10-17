@@ -9,7 +9,7 @@ export function createDailyShiftChange(scenario = "shift-changed") {
   const driver = { id: "fictional-shift-driver", name: "架空 太郎", display_name: "架空 太郎", status: "active" };
   let reports: MockReport[] = ["午前サンプル", "変更後の夜間サンプル", "解除済みサンプル"].map((name, i) => ({
     id: `shift-report-${i}`, driver_id: driver.id, report_date: date, course_id: `shift-course-${i}`,
-    course_name: name, cycle_no: 0, carrier: "YAMATO", submitted_at: `${date}T19:00:00+09:00`,
+    course_name: name, course_color: ["#3b82f6", "#f59e0b", "#a855f7"][i], cycle_no: 0, carrier: "YAMATO", submitted_at: `${date}T19:00:00+09:00`,
     rejection_reason: i === 2 ? "shift_changed" as const : null,
     approved_at: null as string | null, rejected_at: i === 2 ? `${date}T20:00:00+09:00` : null,
     vehicle_id: null, meter_value: null, vehicle_plate: null,
@@ -30,15 +30,15 @@ export function createDailyShiftChange(scenario = "shift-changed") {
     if (scenario === "long-name") driver.display_name = "架空 太郎（第一配送センター応援担当）";
     if (scenario === "large") reports = [...reports.slice(0, 3), ...Array.from({ length: 12 }, (_, index) => ({ ...first, id: `large-report-${index}`, course_id: `large-course-${index}`, course_name: `追加サンプル ${index + 1}` })), reports[3]];
   }
-  let assignments = reports.filter(r => !r.rejected_at).map(r => ({ courseId: r.course_id!, cycleNo: r.cycle_no ?? 0, courseName: r.course_name ?? undefined, cycleLabel: r.cycle_label ?? null }));
+  let assignments = reports.filter(r => !r.rejected_at).map(r => ({ courseId: r.course_id!, cycleNo: r.cycle_no ?? 0, courseName: r.course_name ?? undefined, courseColor: r.course_color ?? null, cycleLabel: r.cycle_label ?? null }));
   if (scenario === "cycle-added") {
     reports = [{ ...reports[0], approved_at: `${date}T19:15:00+09:00` }, reports[3]];
-    assignments = [1, 2].map(cycleNo => ({ courseId: reports[0].course_id!, cycleNo, courseName: reports[0].course_name ?? undefined, cycleLabel: `C${cycleNo}` }));
+    assignments = [1, 2].map(cycleNo => ({ courseId: reports[0].course_id!, cycleNo, courseName: reports[0].course_name ?? undefined, courseColor: reports[0].course_color ?? null, cycleLabel: `C${cycleNo}` }));
   }
   if (scenario === "mismatch") reports[0] = { ...reports[0], course_id: "wrong-course", course_name: "別コースの提出" };
-  if (scenario === "legacy-whole") { assignments = [1,2].map(cycleNo => ({ courseId: reports[0].course_id!, cycleNo, courseName: reports[0].course_name ?? undefined, cycleLabel: `C${cycleNo}` })); reports = [{ ...reports[0], cycle_no: 0, cycle_label: null }]; }
+  if (scenario === "legacy-whole") { assignments = [1,2].map(cycleNo => ({ courseId: reports[0].course_id!, cycleNo, courseName: reports[0].course_name ?? undefined, courseColor: reports[0].course_color ?? null, cycleLabel: `C${cycleNo}` })); reports = [{ ...reports[0], cycle_no: 0, cycle_label: null }]; }
   if (scenario === "duplicate-report") reports.push({ ...reports[0], id: "duplicate-report" });
-  return { date, driver, reports, assignments };
+  return { date, driver, reports, assignments: assignments.length > 1 && assignments[0].courseId === assignments[1].courseId ? [assignments[1],assignments[0],...assignments.slice(2)] : assignments };
 }
 
 export function readDailyShiftChange(state: ReturnType<typeof createDailyShiftChange>, { path }: FixtureRequest) {

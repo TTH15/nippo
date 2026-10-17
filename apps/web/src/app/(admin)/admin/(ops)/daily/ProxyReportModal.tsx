@@ -1,4 +1,5 @@
 "use client";
+import { orderCourseCycles } from "@/lib/reportCycles";
 
 // 運営の代理入力モーダル。
 //   未提出のドライバー・日付について、運営が個数を入力して日報を作成する。
@@ -89,7 +90,7 @@ export default function ProxyReportModal({ target, onClose, onSaved }: ProxyRepo
     if (!formData || !formKey) return;
     if (initializedKeyRef.current === formKey) return;
     initializedKeyRef.current = formKey;
-    const loaded = (formData.shifts ?? []).filter(s => !s.existing?.approvedAt);
+    const loaded = orderCourseCycles((formData.shifts ?? []).filter(s => !s.existing?.approvedAt), s => s.courseId, s => s.cycleNo ?? 0);
     setShifts(loaded);
     setShiftVehicleId(formData.shiftVehicleId ?? null);
     // 既存値を prefill

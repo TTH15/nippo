@@ -5,6 +5,8 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faTriangleExclamation, faCircleCheck } from "@fortawesome/free-solid-svg-icons";
 import { EditorModal } from "@/lib/components/EditorModal";
 import { DigitInput } from "@/lib/components/DigitInput";
+import { CustomSelect } from "@/lib/components/CustomSelect";
+import { CheckboxField } from "@/lib/components/CheckboxField";
 import { Button } from "@/lib/ui/button";
 import type { Box, FieldRead, ReadTrust } from "@repo/core/logic/reportImageTemplate";
 
@@ -18,7 +20,11 @@ import type { Box, FieldRead, ReadTrust } from "@repo/core/logic/reportImageTemp
 // 読めなかった欄は空のままにする（0で埋めない）。
 // ============================================================
 
+export type ReviewTarget = { key: string; label: string; fields: { unitId: string; fieldKey: string; value: string }[] };
+
 export type ReviewRow = {
+  targetFormKey?: string;
+  included?: boolean;
   fieldId: string;
   unitId: string;
   fieldKey: string;
@@ -38,6 +44,9 @@ const STATUS_BADGE: Partial<Record<FieldRead["status"], string>> = {
 
 export function ReportImageReviewSheet({
   templateName,
+  targets,
+  onTargetChange,
+  onIncludeChange,
   imageUrl,
   imageWidth,
   imageHeight,
@@ -50,6 +59,9 @@ export function ReportImageReviewSheet({
   onConfirm,
 }: {
   templateName: string;
+  targets: ReviewTarget[];
+  onTargetChange: (fieldId: string, key: string) => void;
+  onIncludeChange: (fieldId: string, included: boolean) => void;
   imageUrl: string;
   imageWidth: number;
   imageHeight: number;
@@ -69,16 +81,20 @@ export function ReportImageReviewSheet({
     () => rows.filter((row) => row.box).map((row) => ({ id: row.fieldId, box: row.box as Box, read: row.status === "read" })),
     [rows],
   );
-  const canConfirm = rows.some((row) => row.value != null) && !saving;
+  const candidates = (row: ReviewRow) => targets.filter(target => target.fields.some(field => field.unitId === row.unitId && field.fieldKey === row.fieldKey));
+  const included = rows.filter(row => row.included);
+  const keys = included.map(row => JSON.stringify([row.targetFormKey,row.unitId,row.fieldKey]));
+  const duplicates = new Set(keys).size !== keys.length;
+  const canConfirm = !duplicates && included.length > 0 && included.every(row => row.value != null && Number.isFinite(row.value) && row.value >= 0 && candidates(row).some(target => target.key === row.targetFormKey)) && !saving;
 
   return (
     <EditorModal
-      title="読み取った件数"
-      onClose={onCancel}
+      title="画像から入力する内容"
+      onClose={() => { if (!saving) onCancel(); }}
       footer={
-        <div className="flex items-center justify-end gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <Button variant="ghost" size="touch" onClick={onCancel} disabled={saving}>
-            手入力にする
+            反映せず閉じる
           </Button>
           {verified && !showEvidence && (
             <Button variant="outline" size="touch" onClick={() => setShowEvidence(true)}>
@@ -86,7 +102,7 @@ export function ReportImageReviewSheet({
             </Button>
           )}
           <Button size="touch" onClick={onConfirm} disabled={!canConfirm}>
-            {saving ? "保存中…" : "日報に入れる"}
+            {saving ? "反映中…" : "選んだ項目を反映"}
           </Button>
         </div>
       }
@@ -144,34 +160,27 @@ export function ReportImageReviewSheet({
           </ul>
         )}
 
+        {duplicates && <p role="alert" className="text-xs text-amber-800">反映先が重複しています。同じ入力欄には1項目を選んでください。</p>}
         <ul className="divide-y divide-slate-100">
-          {rows.map((row) => {
-            const badge = STATUS_BADGE[row.status];
-            return (
-              <li key={row.fieldId} className="flex items-center gap-3 py-2">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm text-slate-800">{row.label}</p>
-                  {badge && <span className="text-[11px] font-medium text-amber-700">{badge}</span>}
+          {rows.map(row => {
+            const choices = candidates(row);
+            const target = choices.find(choice => choice.key === row.targetFormKey);
+            const previous = target?.fields.find(field => field.unitId === row.unitId && field.fieldKey === row.fieldKey)?.value ?? "";
+            return <li key={row.fieldId} className="space-y-2 py-3">
+              <div className="flex items-center gap-3">
+                <div className="min-w-0 flex-1"><CheckboxField label={row.label} checked={!!row.included} disabled={!choices.length || saving}
+                  onCheckedChange={value => onIncludeChange(row.fieldId,value)} />
+                  {STATUS_BADGE[row.status] && <span className="text-[11px] text-amber-700">{STATUS_BADGE[row.status]}</span>}
                 </div>
-                {showEvidence && row.cropUrl && (
-                  <img
-                    src={row.cropUrl}
-                    alt=""
-                    aria-hidden
-                    className="h-8 w-20 rounded border border-slate-200 bg-white object-contain"
-                  />
-                )}
-                <DigitInput
-                  value={row.value}
-                  allowEmpty
-                  onValueChange={(value) => onChange(row.fieldId, value)}
-                  ariaLabel={row.label}
-                  className={`h-11 w-20 rounded-lg border px-3 text-right text-base tabular-nums ${
-                    row.status === "read" ? "border-slate-300" : "border-amber-400 bg-amber-50/40"
-                  }`}
-                />
-              </li>
-            );
+                {showEvidence && row.cropUrl && <img src={row.cropUrl} alt="" aria-hidden className="h-8 w-20 rounded border border-slate-200 bg-white object-contain" />}
+                <DigitInput value={row.value} allowEmpty disabled={!row.included || saving} onValueChange={value => onChange(row.fieldId,value)} ariaLabel={row.label}
+                  className="h-11 w-20 rounded-lg border border-slate-300 bg-white px-3 text-right text-base tabular-nums disabled:opacity-50" />
+              </div>
+              {choices.length > 1 ? <CustomSelect ariaLabel={`${row.label}の反映先`} value={row.targetFormKey ?? ""} clearable={false} disabled={!row.included || saving}
+                options={[{ value: "",label: "反映先を選ぶ" },...choices.map(choice => ({ value: choice.key,label: choice.label }))]}
+                onChange={key => onTargetChange(row.fieldId,key)} /> : <p className="text-xs text-slate-600">{target?.label ?? "この日の入力欄に対応しません"}</p>}
+              {row.included && previous !== "" && <p className="text-xs font-medium text-amber-800">入力済み {previous} → {row.value ?? "—"}</p>}
+            </li>;
           })}
         </ul>
       </div>

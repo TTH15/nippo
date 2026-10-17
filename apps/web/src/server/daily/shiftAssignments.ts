@@ -1,11 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ShiftReportAssignment } from "@/lib/shiftReportComparison";
 import { fetchAllRows, IN_CLAUSE_BATCH_SIZE } from "@/server/aggregation/pagination";
-export const SHIFT_ASSIGNMENT_SELECT = "shift_date, driver_id, course_id, cycle_no, courses!inner(id, org_id, name, summary_title, course_cycles(cycle_no, label))";
+export const SHIFT_ASSIGNMENT_SELECT = "shift_date, driver_id, course_id, cycle_no, courses!inner(id, org_id, name, color, summary_title, course_cycles(cycle_no, label))";
 export function shiftAssignment(row: any): ShiftReportAssignment {
   const course = Array.isArray(row.courses) ? row.courses[0] : row.courses;
   const cycleNo = Number(row.cycle_no) || 0;
-  return { courseId: row.course_id, cycleNo, courseName: course?.name ?? undefined,
+  return { courseId: row.course_id, cycleNo, courseName: course?.name ?? undefined, courseColor: course?.color ?? null,
     cycleLabel: course?.course_cycles?.find((c: any) => Number(c.cycle_no) === cycleNo)?.label ?? (cycleNo ? `C${cycleNo}` : null) };
 }
 export async function loadShiftAssignments(db: SupabaseClient, org: string, driverIds: string[], dates: string[]) {

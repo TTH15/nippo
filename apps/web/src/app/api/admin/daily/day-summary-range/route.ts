@@ -232,6 +232,7 @@ export async function GET(req: NextRequest) {
         report_date: r.report_date,
         course_id: r.course_id ?? null,
         course_name: r.course_name ?? null,
+        course_color: r.course_color ?? null,
         // 便（C1/C2）。落とすと同じコースの行が見分けられなくなる（2026-09-19 指摘）
         cycle_no: Number(r.cycle_no) || 0,
         cycle_label: r.cycle_label ?? null,

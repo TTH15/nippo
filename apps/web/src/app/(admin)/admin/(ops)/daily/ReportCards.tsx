@@ -3,8 +3,9 @@
 // 日報報告ページのスマホ用カード表示部品。
 // PC はテーブル、スマホ・タブレット（< lg）はカードで表示する。
 
+import { CourseChip } from "@/lib/components/CourseChip";
 import { reportCycleTone } from "@/lib/reportCycles";
-import { compareShiftReports, shiftReportStatusLabel, type ShiftReportAssignment } from "@/lib/shiftReportComparison";
+import { compareShiftReports, shiftReportStatusLabel, type ShiftReportAssignment, type ShiftReportComparison } from "@/lib/shiftReportComparison";
 import { useId, useState } from "react";
 import { SmoothCollapse } from "@/lib/components/SmoothCollapse";
 import { dailyCourseGroups, dailyVehicleReadings, dailyReportStatus, type DailyReportDisplay } from "@/lib/dailyReportGrouping";
@@ -103,7 +104,7 @@ function CourseReports({ reports, muted, canWrite, onEdit, showStatus }: {
     {dailyCourseGroups(reports).map(group => <div key={group.key}>
       <div className="mb-1 flex min-w-0 flex-wrap items-center gap-1.5">
         <CarrierBadge carrier={group.report.carrier} carrierName={group.report.carrier_name} muted={muted} />
-        {group.report.course_name && <span className="break-words text-xs font-medium text-slate-600">{group.report.course_name}</span>}
+        {group.report.course_name && <CourseChip name={group.report.course_name} color={group.report.course_color} />}
       </div>
       <div className="flex flex-wrap gap-x-5 gap-y-2">
         {group.reports.map((report, index) => <div key={report.id ?? index} className="min-w-0 flex items-start gap-2">
@@ -119,50 +120,55 @@ function CourseReports({ reports, muted, canWrite, onEdit, showStatus }: {
   </div>;
 }
 
+function ComparisonAssignment({ row }: { row: ShiftReportComparison }) {
+  return <div className="min-w-0 space-y-1 text-xs">
+    <div>{row.assignment ? <CourseChip name={row.assignment.courseName || "コース名未確認"} color={row.assignment.courseColor} /> : <span className="text-slate-500">該当シフトなし</span>}</div>
+    {row.assignment && <CycleBadge label={row.assignment.cycleLabel || (row.assignment.cycleNo ? `C${row.assignment.cycleNo}` : null)} cycleNo={row.assignment.cycleNo} />}
+  </div>;
+}
+function ComparisonSubmission({ row, canWrite, onEdit }: { row: ShiftReportComparison; canWrite: boolean; onEdit: (r: ReportLike) => void }) {
+  return <div className="min-w-0 space-y-1 text-xs">
+    {row.reports.map((report,i) => <div key={report.id ?? i} className="min-w-0 space-y-1">
+      <div className="flex flex-wrap items-center gap-1.5"><CourseChip name={report.course_name || "コース未設定"} color={report.course_color} />
+        <CycleBadge label={report.cycle_label || ((report.cycle_no ?? 0) > 0 ? `C${report.cycle_no}` : null)} cycleNo={report.cycle_no ?? 0} />
+        {canWrite && report.rejection_reason !== "shift_changed" && <button type="button" className="inline-flex min-h-11 min-w-11 items-center justify-center text-slate-500 hover:text-slate-900"
+          aria-label={`${report.course_name ?? "日報"}${report.cycle_label ? ` ${report.cycle_label}` : ""}を編集`} onClick={() => onEdit(report)}><FontAwesomeIcon icon={faPenToSquare} /></button>}
+      </div>
+      <ReportContent r={report} />
+    </div>)}
+    {row.status !== "matched" && <span className={`inline-flex items-center gap-1 rounded px-1.5 py-1 text-[10px] font-semibold ${row.status === "unexpected" || row.status === "duplicate" ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-800"}`}>
+      {shiftReportStatusLabel[row.status]}
+    </span>}
+  </div>;
+}
 export function ShiftReportComparisonView({ assignments, reports, canWrite, onEdit }: {
   assignments: ShiftReportAssignment[]; reports: ReportLike[]; canWrite: boolean; onEdit: (r: ReportLike) => void;
 }) {
   const rows = compareShiftReports(assignments, reports);
   if (!rows.length) return null;
   return <div className="space-y-2" aria-label="シフトと日報の照合">
-    <div className="grid grid-cols-2 gap-3 text-[11px] font-semibold text-slate-500"><span>シフト</span><span>提出された日報</span></div>
-    {rows.map((row, index) => <div key={`${row.assignment?.courseId ?? "extra"}:${row.assignment?.cycleNo ?? index}`}
-      className="grid grid-cols-2 gap-3 border-t border-slate-100 pt-2 text-xs">
-      <div className="min-w-0 space-y-1">
-        <p className="break-words font-medium text-slate-800">{row.assignment?.courseName || (row.assignment ? "コース名未確認" : "該当シフトなし")}</p>
-        {row.assignment && <CycleBadge label={row.assignment.cycleLabel || (row.assignment.cycleNo ? `C${row.assignment.cycleNo}` : null)} cycleNo={row.assignment.cycleNo} />}
-      </div>
-      <div className="min-w-0 space-y-2">
-        {row.reports.map((report, i) => <div key={report.id ?? i} className="min-w-0 space-y-1">
-          <div className="flex flex-wrap items-center gap-1.5"><span className="break-words font-medium text-slate-800">{report.course_name || "コース未設定"}</span>
-            <CycleBadge label={report.cycle_label || ((report.cycle_no ?? 0) > 0 ? `C${report.cycle_no}` : null)} cycleNo={report.cycle_no ?? 0} />
-            {canWrite && report.rejection_reason !== "shift_changed" && <button type="button" className="inline-flex min-h-11 min-w-11 items-center justify-center text-slate-500 hover:text-slate-900"
-              aria-label={`${report.course_name ?? "日報"}${report.cycle_label ? ` ${report.cycle_label}` : ""}を編集`} onClick={() => onEdit(report)}><FontAwesomeIcon icon={faPenToSquare} /></button>}
-          </div>
-          <ReportContent r={report} />
-        </div>)}
-        <span className={`inline-flex items-center gap-1 rounded px-1.5 py-1 text-[10px] font-semibold ${row.status === "matched" ? "bg-emerald-50 text-emerald-800" : row.status === "unexpected" || row.status === "duplicate" ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-800"}`}>
-          {row.status === "matched" && <FontAwesomeIcon icon={faCircleCheck} />}{shiftReportStatusLabel[row.status]}
-        </span>
-      </div>
+    {rows.map((row,index) => <div key={index} className="grid grid-cols-2 gap-3 border-b border-slate-100 pb-2 last:border-0">
+      <ComparisonAssignment row={row} /><ComparisonSubmission row={row} canWrite={canWrite} onEdit={onEdit} />
     </div>)}
   </div>;
 }
-
+function ReportHistory({ reports, canWrite, onEdit }: { reports: ReportLike[]; canWrite: boolean; onEdit: (report: ReportLike) => void }) {
+  const [open,setOpen] = useState(false);
+  const id = useId();
+  if(!reports.length) return null;
+  return <div className="mt-2 border-t border-slate-100 pt-1">
+    <button type="button" className="min-h-11 text-xs text-slate-500 underline underline-offset-2" aria-expanded={open} aria-controls={id} onClick={() => setOpen(value => !value)}>対象外・却下（{reports.length}）</button>
+    <SmoothCollapse open={open} id={id}><CourseReports reports={reports} muted canWrite={canWrite} onEdit={onEdit} showStatus /></SmoothCollapse>
+  </div>;
+}
 export function DailyReportContents({ reports, muted, canWrite, onEdit, history = false, assignments }: {
   reports: ReportLike[]; muted?: boolean; canWrite: boolean; onEdit: (report: ReportLike) => void; history?: boolean; assignments?: ShiftReportAssignment[];
 }) {
-  const [open, setOpen] = useState(false);
-  const id = useId();
   const active = reports.filter(report => !report.rejected_at);
-  const rejected = history ? reports.filter(report => !!report.rejected_at) : [];
   const mixed = active.some(report => !!report.approved_at) && active.some(report => !report.approved_at);
   return <>
     {assignments ? <ShiftReportComparisonView assignments={assignments} reports={active} canWrite={canWrite} onEdit={onEdit} /> : <CourseReports reports={active} muted={muted} canWrite={canWrite} onEdit={onEdit} showStatus={mixed} />}
-    {rejected.length > 0 && <div className={active.length ? "mt-2 border-t border-slate-100 pt-1" : ""}>
-      <button type="button" className="min-h-11 text-xs text-slate-500 underline underline-offset-2" aria-expanded={open} aria-controls={id} onClick={() => setOpen(value => !value)}>対象外・却下（{rejected.length}）</button>
-      <SmoothCollapse open={open} id={id}><CourseReports reports={rejected} muted canWrite={canWrite} onEdit={onEdit} showStatus /></SmoothCollapse>
-    </div>}
+    {history && <ReportHistory reports={reports.filter(r => !!r.rejected_at)} canWrite={canWrite} onEdit={onEdit} />}
   </>;
 }
 
@@ -213,7 +219,7 @@ export function AllReportCard(props: Omit<DailyGroupProps, "status">) {
 export function DailyReportTable({ children }: { children: React.ReactNode }) {
   return <div className="hidden overflow-hidden rounded-lg border border-slate-200 bg-white lg:block"><div className="overflow-x-auto table-scroll">
     <table className="w-full min-w-[820px] text-sm"><thead className="bg-slate-50"><tr className="border-b border-slate-200 text-left text-xs text-slate-600">
-      <th className="w-28 px-3 py-3 font-semibold">名前</th><th className="w-44 px-3 py-3 font-semibold">車両・メーター</th><th className="px-3 py-3 font-semibold">シフト・提出内容</th><th className="w-36 px-3 py-3 font-semibold">承認</th><th className="w-24 px-3 py-3 text-right font-semibold">送信時刻</th>
+      <th className="w-28 px-3 py-3 font-semibold">名前</th><th className="w-44 px-3 py-3 font-semibold">車両・メーター</th><th className="w-1/4 px-3 py-3 font-semibold">シフト</th><th className="px-3 py-3 font-semibold">提出された日報</th><th className="w-36 px-3 py-3 font-semibold">承認</th><th className="w-24 px-3 py-3 text-right font-semibold">送信時刻</th>
     </tr></thead><tbody>{children}</tbody></table>
   </div></div>;
 }
@@ -221,16 +227,28 @@ export function DailyReportTable({ children }: { children: React.ReactNode }) {
 export function DailyDriverRow(props: DailyGroupProps) {
   const { driver, reps, status, needsProxy, canWrite, onEdit, history, assignments } = props;
   const muted = status === "off" || (status === "approved" && !needsProxy);
-  return <tr className={`border-b border-slate-100 ${muted ? "bg-slate-50 text-slate-500" : "hover:bg-slate-50"}`}>
-    <td className="px-3 py-3 align-middle font-medium">{getDisplayName(driver)}</td>
-    <td className="px-3 py-3 align-middle"><DailyVehicleReadings reports={reps} /></td>
-    <td className="px-3 py-3 align-middle">
-      {status === "unsubmitted" && !assignments && <span className="text-xs font-semibold text-red-600">日報が未提出です</span>}
-      {status === "off" && reps.length === 0 && <span className="text-xs text-slate-500">休み</span>}
-      <DailyReportContents assignments={assignments} reports={reps} muted={muted} canWrite={canWrite && (history === true || status === "pending" || status === "approved")} onEdit={onEdit} history={history} />
-      {needsProxy && !assignments && reps.length > 0 && <p className="mt-2 text-[11px] font-semibold text-red-600">未提出のコース・便があります</p>}
-    </td>
-    <td className="px-3 py-3 align-middle"><div className="flex flex-col items-start gap-2"><DailyDecision {...props} /><ProxyEntry {...props} /></div></td>
-    <td className="px-3 py-3 text-right align-middle"><ReportSubmissionTimes reports={reps} /></td>
-  </tr>;
+  const editable = canWrite && (history === true || status === "pending" || status === "approved");
+  const rows = assignments ? compareShiftReports(assignments,reps) : [];
+  const rejected = history ? reps.filter(r => !!r.rejected_at) : [];
+  const hasHistory = rows.length > 0 && rejected.length > 0;
+  const displayRows = rows.length ? rows : [null];
+  const span = displayRows.length + (hasHistory ? 1 : 0);
+  return <>{displayRows.map((row,index) => <tr key={index} className={`${index === displayRows.length - 1 && !hasHistory ? "border-b border-slate-200" : "border-b border-slate-100"} ${muted ? "bg-slate-50 text-slate-500" : "hover:bg-slate-50"}`}>
+    {index === 0 && <>
+      <td rowSpan={span} className="px-3 py-3 align-middle font-medium">{getDisplayName(driver)}</td>
+      <td rowSpan={span} className="px-3 py-3 align-middle"><DailyVehicleReadings reports={reps} /></td>
+    </>}
+    <td className="px-3 py-3 align-middle">{row ? <ComparisonAssignment row={row} /> : <span className="text-xs text-slate-500">{status === "off" && !reps.length ? "休み" : "—"}</span>}</td>
+    <td className="px-3 py-3 align-middle">{row ? <ComparisonSubmission row={row} canWrite={editable} onEdit={onEdit} /> : <>
+      {status === "unsubmitted" && <span className="text-xs font-semibold text-red-600">日報が未提出です</span>}
+      <DailyReportContents reports={reps} muted={muted} canWrite={editable} onEdit={onEdit} history={history} />
+      {needsProxy && reps.length > 0 && <p className="mt-2 text-[11px] font-semibold text-red-600">未提出のコース・便があります</p>}
+    </>}</td>
+    {index === 0 && <>
+      <td rowSpan={span} className="px-3 py-3 align-middle"><div className="flex flex-col items-start gap-2"><DailyDecision {...props} /><ProxyEntry {...props} /></div></td>
+      <td rowSpan={span} className="px-3 py-3 text-right align-middle"><ReportSubmissionTimes reports={reps} /></td>
+    </>}
+  </tr>)}
+  {hasHistory && <tr className="border-b border-slate-200"><td colSpan={2} className="px-3 py-1"><ReportHistory reports={rejected} canWrite={editable} onEdit={onEdit} /></td></tr>}
+  </>;
 }
