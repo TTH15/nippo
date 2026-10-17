@@ -16,10 +16,10 @@ vi.mock("@/server/db/client", () => ({ supabase: { rpc: async (name: string, arg
   if (!row) return { data: null, error: { code: "P0002" } };
   h.mutations.push("vehicles"); Object.assign(row, args.p_patch); return { data: row, error: null };
 }, from: (table: string) => {
-  let mode = "select", payload: any, single = false;
+  let mode = "select", payload: any, single = false, slice: [number, number] | null = null;
   const filters: ((r: any) => boolean)[] = [];
   const q: any = {
-    select: () => q, order: () => q, limit: () => q,
+    select: () => q, order: () => q, limit: () => q, range: (from: number, to: number) => { slice = [from, to]; return q; },
     eq: (k: string, v: any) => { filters.push(r => r[k] === v); return q; },
     gte: (k: string, v: any) => { filters.push(r => r[k] >= v); return q; },
     lte: (k: string, v: any) => { filters.push(r => r[k] <= v); return q; },
@@ -32,6 +32,7 @@ vi.mock("@/server/db/client", () => ({ supabase: { rpc: async (name: string, arg
     then: (resolve: any) => {
       const all = h.tables[table] ??= [];
       let rows = all.filter(r => filters.every(f => f(r)));
+      if (mode === "select" && slice) rows = rows.slice(slice[0], slice[1] + 1);
       if (mode !== "select") h.mutations.push(table);
       if (mode === "update") rows.forEach(r => Object.assign(r, payload));
       if (mode === "delete") h.tables[table] = all.filter(r => !rows.includes(r));
@@ -177,5 +178,23 @@ describe("車検証のナンバー確認", () => {
     h.denied = true;
     expect((await checkVehicleNumber(request)).status).toBe(403);
     expect(h.mutations).toEqual([]);
+  });
+});
+
+describe("日報の便設定と承認", () => {
+  it("設定外の数量がある日報は車両更新・単価固定より前に止める", async () => {
+    Object.assign(h.tables.daily_reports_v2[0], { course_id: "course", cycle_no: 1 });
+    h.tables.course_report_fields = [{ course_id: "course", cycle_no: 1, unit_id: "unit", field_key: "am" }];
+    h.tables.report_entries = [{ id: "entry", report_id: "a-daily", unit_id: "unit", field_key: "pm", value_num: 5, value_text: null }];
+    expect((await dailyApprove(req({ driverId: "a-driver", date: "2026-09-12" }))).status).toBe(409);
+    expect(h.mutations).toEqual([]); expect(h.snapshots).not.toHaveBeenCalled();
+  });
+  it("追加した便だけ承認し、既に承認された便と単価を保持する", async () => {
+    Object.assign(h.tables.daily_reports_v2[0], { approved_at: "original", approved_by: "original-admin", rate_snapshot: { fixed: 100 } });
+    h.tables.daily_reports_v2.push({ ...h.tables.daily_reports_v2[0], id: "new-cycle", approved_at: null, approved_by: null, rate_snapshot: null });
+    expect((await dailyApprove(req({ driverId: "a-driver", date: "2026-09-12" }))).status).toBe(200);
+    expect(h.tables.daily_reports_v2[0].approved_at).toBe("original");
+    expect(h.tables.daily_reports_v2[0].rate_snapshot).toEqual({ fixed: 100 });
+    expect(h.snapshots.mock.calls[0][2]).toEqual(["new-cycle"]);
   });
 });

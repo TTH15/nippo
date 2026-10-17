@@ -25,7 +25,7 @@ import { CustomSelect } from "@/lib/components/CustomSelect";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
-import { CourseReportFieldsEditor } from "@/lib/components/CourseReportFieldsEditor";
+import { CourseReportFieldsEditor, type CourseReportFieldsEditorHandle } from "@/lib/components/CourseReportFieldsEditor";
 import { CourseRateEditor, type CourseRateEditorHandle } from "@/lib/components/CourseRateEditor";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
@@ -182,6 +182,7 @@ export default function CoursesPage() {
   };
   const [showModal, setShowModal] = useState(false);
   // 編集モーダルに埋め込む単価エディタ（保存時に ref 経由で course-billing を保存）
+  const reportFieldsRef = useRef<CourseReportFieldsEditorHandle>(null);
   const billingRef = useRef<CourseRateEditorHandle>(null);
   const createBillingRef = useRef<CourseRateEditorHandle>(null);
   const [newCourse, setNewCourse] = useState<CourseFormState>(EMPTY_COURSE_FORM);
@@ -310,6 +311,7 @@ export default function CoursesPage() {
   // 取得結果は同期エフェクトで流し込む。
   const {
     data: bundle,
+    error: bundleError,
     isInitialLoading,
     refresh: refreshBundle,
   } = useApi<{
@@ -705,6 +707,7 @@ export default function CoursesPage() {
   /** 保留中・実行中の自動保存が完了してから編集モーダルを閉じる。 */
   const closeEditModal = async () => {
     if (closingEditModal) return;
+    if (reportFieldsRef.current && !(await reportFieldsRef.current.save())) return;
     if (!editSettingsValid) {
       setEditValidationVisible(true);
       setEditModalTab("settings");
@@ -912,7 +915,7 @@ export default function CoursesPage() {
               {showArchivedCourses ? "稼働中のコース" : "アーカイブ"}
             </Button>
           {canWrite && !showArchivedCourses && (
-            <Button variant="default" size="default" onClick={() => setShowModal(true)}>
+            <Button variant="default" size="default" disabled={!!bundleError || isInitialLoading} onClick={() => setShowModal(true)}>
               <FontAwesomeIcon icon={faPlus} className="w-3.5 h-3.5" />
               新規追加
             </Button>
@@ -920,7 +923,12 @@ export default function CoursesPage() {
           </div>
         </div>
 
-        {loading ? (
+        {bundleError ? (
+          <div role="alert" className="flex flex-wrap items-center gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+            <span>コースを読み込めませんでした。</span>
+            <button type="button" className="min-h-11 underline" onClick={() => void refreshBundle()}>再読み込み</button>
+          </div>
+        ) : loading ? (
           <div className="space-y-2">
             {[...Array(5)].map((_, i) => (
               <div key={i} className="bg-white rounded border border-slate-200 p-4 border-l-4 border-l-slate-200">
@@ -1229,11 +1237,11 @@ export default function CoursesPage() {
               {([
                 ["settings", "コース設定", faGear],
                 ["pricing", "単価設定", faCoins],
-                ["reportFields", "日報項目", faListCheck],
+                ["reportFields", "日報設定", faListCheck],
               ] as const).map(([key, label, icon]) => (
-                <button key={key} type="button" onClick={() => setEditModalTab(key)}
-                  className={`-mb-px inline-flex items-center gap-2 border-b-2 px-4 py-2 text-sm font-medium transition-colors ${editModalTab === key ? "border-amber-500 text-amber-700" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
-                  <FontAwesomeIcon icon={icon} className="h-3.5 w-3.5" />
+                <button key={key} type="button" onClick={async () => { if (reportFieldsRef.current && !(await reportFieldsRef.current.save())) return; setEditModalTab(key); }}
+                  className={`-mb-px inline-flex items-center gap-2 whitespace-nowrap border-b-2 px-3 py-2 text-xs sm:px-4 sm:text-sm font-medium transition-colors ${editModalTab === key ? "border-amber-500 text-amber-700" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
+                  <span className="hidden sm:inline-flex"><FontAwesomeIcon icon={icon} className="h-3.5 w-3.5" /></span>
                   {label}
                   {key === "settings" && editValidationVisible && editSettingsErrors.length > 0 && (
                     <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700">
@@ -1419,8 +1427,10 @@ export default function CoursesPage() {
               {/* 日報で使う入力項目（コース／便ごと） */}
               {editModalTab === "reportFields" && (
                 <CourseReportFieldsEditor
+                  ref={reportFieldsRef}
                   courseId={editingCourse.id}
                   onError={(msg) => setErrorState({ title: "日報項目", message: msg })}
+                  disabled={!canWrite}
                 />
               )}
             </div>
@@ -1446,7 +1456,7 @@ export default function CoursesPage() {
                 </button>
               </div>
               <div className="flex items-center justify-between gap-3 sm:justify-end">
-                <span className={`text-xs ${autoSave === "error" || (editValidationVisible && !editSettingsValid) ? "text-red-600" : "text-slate-400"}`} aria-live="polite">
+                <span hidden={editModalTab === "reportFields"} className={`text-xs ${autoSave === "error" || (editValidationVisible && !editSettingsValid) ? "text-red-600" : "text-slate-400"}`} aria-live="polite">
                   {editValidationVisible && !editSettingsValid
                     ? "入力内容を確認してください"
                     : saving || autoSave === "saving"
@@ -1461,7 +1471,7 @@ export default function CoursesPage() {
                   onClick={() => void closeEditModal()}
                   disabled={saving || closingEditModal}
                   aria-busy={closingEditModal || undefined}
-                  className="shrink-0 whitespace-nowrap px-4 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 disabled:opacity-50 transition-colors"
+                  className="min-h-11 shrink-0 whitespace-nowrap px-4 py-1.5 bg-slate-800 text-white text-sm font-medium rounded hover:bg-slate-700 disabled:opacity-50 transition-colors"
                 >
                   保存して閉じる
                 </button>

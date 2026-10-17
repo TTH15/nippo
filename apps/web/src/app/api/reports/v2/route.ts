@@ -1,3 +1,4 @@
+import { validateReportFieldWrites } from "@/server/reports/validateFieldWrites";
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
@@ -23,6 +24,14 @@ type ItemInput = {
   meterValue?: number | null;
   entries: EntryInput[];
 };
+
+class ReportChangedError extends Error {}
+
+class ShiftChangedError extends ReportChangedError {
+  constructor() {
+    super("シフトが変更されています。最新のシフトを確認して日報を入力し直してください。");
+  }
+}
 
 export async function POST(req: NextRequest) {
   const user = await requireAuth(req, "DRIVER");
@@ -67,7 +76,7 @@ export async function POST(req: NextRequest) {
   const [{ data: existingRows, error: existingErr }, { data: shiftRows, error: shiftErr }] = await Promise.all([
     supabase
       .from("daily_reports_v2")
-      .select("id, course_id, cycle_no, vehicle_id")
+      .select("id, course_id, cycle_no, vehicle_id, meter_value, approved_at")
       .eq("org_id", orgId)
       .eq("driver_id", user.driverId)
       .eq("report_date", reportDate)
@@ -104,15 +113,44 @@ export async function POST(req: NextRequest) {
   );
   const invalidItem = validItems.find((item) => {
     const key = `${item.courseId}:${Number(item.cycleNo) || 0}`;
-    return !allowedShiftKeys.has(key) && !existingByCourseCycle.has(key);
+    const legacyWholeDay = !(Number(item.cycleNo) || 0) && existingByCourseCycle.has(key)
+      && (shiftRows ?? []).some(s => s.course_id === item.courseId)
+      && !(existingRows ?? []).some(r => r.course_id === item.courseId && (Number(r.cycle_no) || 0) > 0);
+    return !allowedShiftKeys.has(key) && !legacyWholeDay;
   });
   if (invalidItem) {
     return NextResponse.json({ error: "シフトにないコース・便は提出できません" }, { status: 400 });
   }
 
+  try {
+    const fieldError = await validateReportFieldWrites(supabase, orgId, validItems, existingRows ?? []);
+    if (fieldError) return NextResponse.json({ error: fieldError }, { status: 409 });
+  } catch (error) {
+    console.error(error);
+    return NextResponse.json({ error: "日報項目の確認に失敗しました" }, { status: 500 });
+  }
+
+  // 便の追加で再送される既存の承認済み実績は、内容が同じなら承認・単価を保持する。
+  const approvedIds = (existingRows ?? []).filter(r => r.approved_at).map(r => r.id);
+  // tenant-scope-ok: approvedIds は上記 org/本人/日付で照合した日報のID集合
+  const { data: approvedEntries, error: approvedReadError } = approvedIds.length
+    ? await supabase
+      // tenant-scope-ok: 日報IDは呼出元で会社・本人・対象日を照合済み
+      .from("report_entries").select("report_id, unit_id, field_key, value_num, value_text").in("report_id", approvedIds)
+    : { data: [], error: null };
+  if (approvedReadError) return NextResponse.json({ error: "提出済みの日報を確認できませんでした" }, { status: 500 });
+
   // item 同士は独立（コースが異なる）ため並列で保存する
   const saveItem = async (item: ItemInput): Promise<string> => {
     const cycleNo = Number.isInteger(item.cycleNo) && Number(item.cycleNo) >= 0 ? Number(item.cycleNo) : 0;
+    const previous = (existingRows ?? []).find(r => r.course_id === item.courseId && (Number(r.cycle_no) || 0) === cycleNo);
+    if (previous?.approved_at && (previous.vehicle_id ?? null) === (item.vehicleId ?? null) &&
+      (previous.meter_value == null ? null : Number(previous.meter_value)) === (item.meterValue ?? null)) {
+      const oldEntries = (approvedEntries ?? []).filter(e => e.report_id === previous.id);
+      if (oldEntries.length === item.entries.length && item.entries.every(e => oldEntries.some(old =>
+        old.unit_id === e.unitId && old.field_key === e.fieldKey && (old.value_num == null ? null : Number(old.value_num)) === (e.valueNum ?? null) &&
+        (old.value_text ?? null) === (e.valueText ?? null)))) return previous.id;
+    }
     const header = {
       org_id: orgId,
       driver_id: user.driverId,
@@ -129,6 +167,7 @@ export async function POST(req: NextRequest) {
       approved_by: null,
       rejected_at: null,
       rejected_by: null,
+      rejection_reason: null,
     };
 
     let reportId: string;
@@ -137,6 +176,7 @@ export async function POST(req: NextRequest) {
       const { error } = await supabase.from("daily_reports_v2").update(header).eq("id", existingId).eq("org_id", orgId);
       if (error) {
         console.error(error);
+        if (error.code === "23514" && error.message.includes("シフトが変更")) throw new ShiftChangedError();
         throw new Error("日報の更新に失敗しました");
       }
       reportId = existingId;
@@ -144,6 +184,7 @@ export async function POST(req: NextRequest) {
       const { data, error } = await supabase.from("daily_reports_v2").insert(header).select("id").single(); // tenant-scope-ok: header に org_id を含む（本人の org）
       if (error || !data) {
         console.error(error);
+        if (error?.code === "23514" && error.message.includes("シフトが変更")) throw new ShiftChangedError();
         throw new Error("日報の作成に失敗しました");
       }
       reportId = data.id;
@@ -163,6 +204,7 @@ export async function POST(req: NextRequest) {
       await syncReportEntries(supabase, orgId, reportId, entryRows);
     } catch (e) {
       console.error(e);
+      if (e && typeof e === "object" && "code" in e && e.code === "23514") throw new ReportChangedError("日報項目が変更されています。再読み込みして入力し直してください。");
       throw new Error("報告項目の保存に失敗しました");
     }
     return reportId;
@@ -174,7 +216,7 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "日報の保存に失敗しました" },
-      { status: 500 },
+      { status: e instanceof ReportChangedError ? 409 : 500 },
     );
   }
 

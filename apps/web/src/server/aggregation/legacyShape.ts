@@ -53,6 +53,7 @@ export type LegacyDailyRow = {
   approved_by: string | null;
   rejected_at: string | null;
   rejected_by: string | null;
+  rejection_reason?: "shift_changed" | null;
 };
 
 type Filters = {
@@ -131,7 +132,7 @@ export async function loadLegacyDailyRows(
     let q = supabase
       .from("daily_reports_v2")
       .select(
-        "id, legacy_report_id, driver_id, identity_id, report_date, course_id, cycle_no, carrier_id, vehicle_id, meter_value, submitted_at, approved_at, approved_by, rejected_at, rejected_by",
+        "id, legacy_report_id, driver_id, identity_id, report_date, course_id, cycle_no, carrier_id, vehicle_id, meter_value, submitted_at, approved_at, approved_by, rejected_at, rejected_by, rejection_reason",
       )
       // 日付だけの絞り込みでは他社の日報まで混ざるため org で必ず絞る
       .eq("org_id", orgId);
@@ -259,6 +260,7 @@ export async function loadLegacyDailyRows(
       approved_by: string | null;
       rejected_at: string | null;
       rejected_by: string | null;
+  rejection_reason?: "shift_changed" | null;
     }) => {
       const counts = zeroCounts();
       for (const e of entriesByReport.get(r.id) ?? []) {
@@ -292,6 +294,7 @@ export async function loadLegacyDailyRows(
         approved_by: r.approved_by,
         rejected_at: r.rejected_at,
         rejected_by: r.rejected_by,
+        rejection_reason: r.rejection_reason ?? null,
       };
     },
   );

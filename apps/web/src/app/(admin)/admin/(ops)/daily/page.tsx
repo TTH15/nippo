@@ -2,8 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
-import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faCircleCheck } from "@fortawesome/free-solid-svg-icons";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { CustomSelect } from "@/lib/components/CustomSelect";
 import { DateRangePicker, type DateRangeValue } from "@/lib/components/DateRangePicker";
@@ -11,18 +9,16 @@ import { Skeleton } from "@/lib/components/Skeleton";
 import { apiFetch } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { getDisplayName } from "@/lib/displayName";
-import { carrierBadgeLabel, carrierBadgeTone } from "@/lib/carrierBadge";
-import { ReportContentView } from "@/lib/components/ReportContentView";
 import type { ReportContentUnit } from "@/lib/reportContent";
 import { hasCapability } from "@/lib/capabilities";
 import { getStoredDriver } from "@/lib/api";
-import { faPenToSquare } from "@fortawesome/free-solid-svg-icons";
-import { ReportVehicleNumber } from "@/lib/components/ReportVehicleNumber";
 import type { ReportVehicleNumber as NumberEvidence } from "@/lib/reportVehicleNumber";
 import { reportDateDefaultJST } from "@/lib/date";
 import type { SelectOption } from "@/lib/components/CustomSelect";
 import { OtherReportsContent } from "../misc-reports/others/OtherReportsContent";
-import { PendingDriverCard, AllReportCard, CycleBadge } from "./ReportCards";
+import { PendingDriverCard, AllReportCard, DailyReportTable, DailyDriverRow } from "./ReportCards";
+import { groupDailyEntries, dailyReportStatus, missingReportAssignments } from "@/lib/dailyReportGrouping";
+import type { ShiftReportAssignment } from "@/lib/shiftReportComparison";
 import type { EditEntryValue } from "./EditReportModal";
 
 const EditReportModal = dynamic(() => import("./EditReportModal"), {
@@ -45,11 +41,19 @@ type ReportData = {
   submitted_at: string;
   carrier?: "YAMATO" | "AMAZON";
   carrier_name?: string | null;
+  course_id?: string | null;
   course_name?: string | null;
+  cycle_no?: number;
   cycle_label?: string | null;
   content?: ReportContentUnit[];
   approved_at?: string | null;
   rejected_at?: string | null;
+  rejection_reason?: "shift_changed" | null;
+  vehicle_id?: string | null;
+  meter_value?: number | null;
+  vehicle_plate?: VehiclePlatePayload | null;
+  vehicle_number_evidence?: NumberEvidence | null;
+  vehicle_number_unavailable?: boolean;
   amazon_am_mochidashi?: number;
   amazon_am_completed?: number;
   amazon_pm_mochidashi?: number;
@@ -64,6 +68,7 @@ type Entry = {
 };
 
 type Group = {
+  assignmentsByDriver?: Record<string, ShiftReportAssignment[]>;
   date: string;
   entries: Entry[];
 };
@@ -86,6 +91,7 @@ type DaySummaryReport = {
   report_date: string;
   course_id?: string | null;
   course_name?: string | null;
+  cycle_no?: number;
   cycle_label?: string | null;
   content?: ReportContentUnit[];
   takuhaibin_completed: number;
@@ -118,6 +124,7 @@ type DaySummary = {
   date: string;
   shiftDriverIds: string[];
   shiftCoursesByDriver?: Record<string, string[]>;
+  shiftAssignmentsByDriver?: Record<string, ShiftReportAssignment[]>;
   reportsByDriver: Record<string, DaySummaryReport[]>;
 };
 
@@ -137,7 +144,7 @@ export default function AdminDailyPage() {
   const [proxyTarget, setProxyTarget] = useState<{ driverId: string; driverName: string; date: string } | null>(null);
 
   const canWrite = hasCapability("can_edit_reports");
-  const totalEntries = groups.reduce((sum, g) => sum + g.entries.length, 0);
+  const totalEntries = groups.reduce((sum, g) => sum + groupDailyEntries(g.entries).length, 0);
   const businessToday = reportDateDefaultJST();
 
   const toYmd = (d: Date) => {
@@ -381,8 +388,6 @@ export default function AdminDailyPage() {
     }
   };
 
-  const isApproved = (r: ReportData) => r.approved_at != null && r.approved_at !== "";
-  const isRejected = (r: ReportData) => r.rejected_at != null && r.rejected_at !== "";
 
   const handleReject = async (e: Entry, groupDate: string) => {
     try {
@@ -580,12 +585,8 @@ export default function AdminDailyPage() {
                   const shiftCourses = s.shiftCoursesByDriver?.[driver.id] ?? [];
                   const hasShift = shiftCourses.length > 0 || s.shiftDriverIds.includes(driver.id);
                   const reps = s.reportsByDriver[driver.id] ?? []; // API側で却下分は除外済み
-                  const reportedCourseIds = new Set(
-                    reps.map((r) => r.course_id).filter((c): c is string => !!c),
-                  );
-                  const missingCount = hasShift
-                    ? shiftCourses.filter((c) => !reportedCourseIds.has(c)).length
-                    : 0;
+                  const assignments = s.shiftAssignmentsByDriver?.[driver.id] ?? shiftCourses.map(courseId => ({ courseId, cycleNo: 0 }));
+                  const missingCount = hasShift ? missingReportAssignments(assignments, reps).length : 0;
                   const hasUnapproved = reps.some((r) => !r.approved_at);
                   let status: Status;
                   if (!hasShift) status = "off";
@@ -595,7 +596,7 @@ export default function AdminDailyPage() {
                   // 全コース未提出(unsubmitted) または 一部コースだけ未提出 → 代理入力が必要
                   const needsProxy = hasShift && (status === "unsubmitted" || missingCount > 0);
                   const actionable = needsProxy || hasUnapproved;
-                  return { driver, reps, status, needsProxy, actionable };
+                  return { driver, reps, status, needsProxy, actionable, assignments };
                 };
 
                 const withActionable = filteredSummaries.map((s) => {
@@ -641,8 +642,8 @@ export default function AdminDailyPage() {
                       {rows.length > 0 && (
                         <>
                         {/* スマホ: カード表示 */}
-                        <div className="md:hidden space-y-2">
-                          {rows.map(({ driver, reps, status, needsProxy }) => {
+                        <div className="lg:hidden space-y-2">
+                          {rows.map(({ driver, reps, status, needsProxy, assignments }) => {
                             const driverEntry: Entry = {
                               driver: { id: driver.id, name: driver.name, display_name: driver.display_name },
                               report: { report_date: summary.date, takuhaibin_completed: 0, takuhaibin_returned: 0, nekopos_completed: 0, nekopos_returned: 0, submitted_at: "", carrier: "YAMATO" } as ReportData,
@@ -652,6 +653,7 @@ export default function AdminDailyPage() {
                                 key={`card-${driver.id}-${summary.date}`}
                                 driver={driver}
                                 reps={reps}
+                                assignments={assignments}
                                 status={status}
                                 needsProxy={needsProxy}
                                 canWrite={canWrite}
@@ -659,162 +661,24 @@ export default function AdminDailyPage() {
                                 onReject={() => handleReject(driverEntry, summary.date)}
                                 onEdit={(r) => openEdit({
                                   driver: { id: driver.id, name: driver.name, display_name: driver.display_name },
-                                  report: { ...(r as unknown as ReportData), id: r.id },
+                                  report: { ...(r as unknown as ReportData), id: r.id, report_date: summary.date },
                                 })}
                                 onProxyEntry={() => openProxy(driver, summary.date)}
                               />
                             );
                           })}
                         </div>
-                        {/* PC: テーブル表示 */}
-                        <div className="hidden md:block bg-white rounded-lg border border-slate-200 overflow-hidden">
-                          <div className="overflow-x-auto table-scroll table-scroll-fade -mx-1 md:mx-0">
-                            <table className="w-full text-sm table-fixed min-w-[860px] md:min-w-0">
-                            <colgroup>
-                              <col className="w-28" />
-                              <col className="w-20" />
-                              <col className="w-40" />
-                              <col className="w-24" />
-                              <col className="w-auto" />
-                              <col className="w-36" />
-                              {canWrite && <col className="w-24" />}
-                              <col className="w-24" />
-                            </colgroup>
-                            <thead className="bg-slate-50">
-                              <tr className="border-b border-slate-200 text-left">
-                                <th className="py-3 px-3 font-semibold text-slate-600">名前</th>
-                                <th className="py-3 px-2 font-semibold text-slate-600 text-center">種別</th>
-                                <th className="py-3 px-2 font-semibold text-slate-600 text-center">車両</th>
-                                <th className="py-3 px-2 font-semibold text-slate-600 text-center">メーター</th>
-                                <th className="py-3 px-2 font-semibold text-slate-600 text-center">内容</th>
-                                <th className="py-3 px-2 font-semibold text-slate-600 text-center">承認</th>
-                                {canWrite && <th className="py-3 px-2 font-semibold text-slate-600 text-center">操作</th>}
-                                <th className="py-3 px-3 font-semibold text-slate-600 text-right">送信時刻</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {rows.map(({ driver, reps, status, needsProxy }) => {
-                                // 提出済み分は承認済みでも、他コースが未提出のままなら「対応済み」表示にしない
-                                const isResolved = status === "approved" && !needsProxy;
-                                const isGray = status === "off" || isResolved;
-                                const stack = reps.length > 1;
-                                const stackCls = stack ? "flex flex-col gap-2 items-center" : "";
-                                const driverEntry: Entry = {
-                                  driver: { id: driver.id, name: driver.name, display_name: driver.display_name },
-                                  report: { report_date: summary.date, takuhaibin_completed: 0, takuhaibin_returned: 0, nekopos_completed: 0, nekopos_returned: 0, submitted_at: "", carrier: "YAMATO" } as ReportData,
-                                };
-                                const repEntry = (r: DaySummaryReport): Entry => ({
-                                  driver: { id: driver.id, name: driver.name, display_name: driver.display_name },
-                                  report: { ...(r as unknown as ReportData), id: r.id },
-                                });
-                                const dash = <span className="inline-block w-full text-center text-slate-400 text-xs">—</span>;
-                                const carrierBadge = (r: DaySummaryReport) => (
-                                  <span className="flex flex-col items-center gap-0.5 w-full min-w-0">
-                                    <span
-                                      className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap ${carrierBadgeTone(r.carrier, r.carrier_name, isGray)}`}
-                                    >
-                                      {carrierBadgeLabel(r.carrier, r.carrier_name)}
-                                    </span>
-                                    {r.course_name && (
-                                      <span className="flex w-full items-center gap-1 text-[10px] text-slate-500" title={r.course_name}>
-                                        <span className="truncate">{r.course_name}</span>
-                                        <CycleBadge label={r.cycle_label} />
-                                      </span>
-                                    )}
-                                  </span>
-                                );
-                                const reportContent = (r: DaySummaryReport) => (
-                                  <ReportContentView units={r.content} muted={isGray} />
-                                );
-                                return (
-                                  <tr key={`${driver.id}-${summary.date}`} className={`border-b border-slate-100 ${isGray ? "bg-slate-100 text-slate-500" : "hover:bg-slate-50"}`}>
-                                    <td className="py-3 px-3 font-medium align-middle">{getDisplayName(driver)}</td>
-                                    <td className="py-3 px-2 text-center align-middle">
-                                      {reps.length === 0 ? dash : <div className={stackCls}>{reps.map((r) => <span key={r.id}>{carrierBadge(r)}</span>)}</div>}
-                                    </td>
-                                    <td className="py-2 px-2 align-middle text-center">
-                                      {reps.length === 0 ? dash : (
-                                        <div className={stackCls}>
-                                          {reps.map((r) => <ReportVehicleNumber key={r.id} report={r} className="mx-auto" />)}
-                                        </div>
-                                      )}
-                                    </td>
-                                    <td className="py-3 px-2 text-center text-xs tabular-nums align-middle">
-                                      {reps.length === 0 ? dash : (
-                                        <div className={stackCls}>
-                                          {reps.map((r) =>
-                                            r.meter_value != null ? (
-                                              <span key={r.id} className="tabular-nums">{r.meter_value.toLocaleString()}<span className="text-[10px] text-slate-500 ml-1">km</span></span>
-                                            ) : (
-                                              <span key={r.id} className="text-slate-400 text-xs">—</span>
-                                            ),
-                                          )}
-                                        </div>
-                                      )}
-                                    </td>
-                                    <td className="py-3 px-2 text-left align-middle">
-                                      {status === "unsubmitted" && <span className="text-red-600 align-middle font-semibold">日報が未提出です</span>}
-                                      {status === "off" && reps.length === 0 && <span className="text-slate-500 align-middle">休み</span>}
-                                      {reps.length > 0 && (
-                                        <div className={stack ? "flex flex-col gap-2" : ""}>
-                                          {reps.map((r) => <div key={r.id}>{reportContent(r)}</div>)}
-                                        </div>
-                                      )}
-                                      {needsProxy && reps.length > 0 && (
-                                        <span className="block mt-1 text-[11px] font-semibold text-red-600">未提出のコースがあります</span>
-                                      )}
-                                    </td>
-                                    <td className="py-3 px-2 text-center align-middle">
-                                      {isResolved && <span className="inline-flex items-center justify-center px-2 h-6 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-700"><FontAwesomeIcon icon={faCircleCheck} className="mr-1" />承認済み</span>}
-                                      {status === "approved" && needsProxy && <span className="inline-flex items-center justify-center px-2 h-6 rounded-full text-[11px] font-semibold bg-amber-100 text-amber-700">一部未提出</span>}
-                                      {status === "pending" && canWrite && (
-                                        <div className="flex items-center justify-center gap-2">
-                                          <button type="button" onClick={() => handleApprove(driverEntry, summary.date)} className="inline-flex items-center px-4 py-1.5 rounded-full text-xs font-semibold bg-slate-800 text-white hover:bg-slate-700">承認</button>
-                                          <button type="button" onClick={() => handleReject(driverEntry, summary.date)} className="inline-flex items-center px-4 py-1.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200">却下</button>
-                                        </div>
-                                      )}
-                                      {status === "pending" && !canWrite && <span className="text-slate-400 text-xs">未承認</span>}
-                                      {status === "unsubmitted" && <span className="text-slate-400 text-xs">—</span>}
-                                      {status === "off" && <span className="text-slate-400 text-xs">—</span>}
-                                    </td>
-                                    {canWrite && (
-                                      <td className="py-3 px-2 text-center align-middle">
-                                        <div className="flex flex-col items-center gap-1.5">
-                                          {(status === "pending" || status === "approved") && reps.length > 0 && (
-                                            <div className={stackCls}>
-                                              {reps.map((r) => (
-                                                <button key={r.id} type="button" onClick={() => openEdit(repEntry(r))} className="text-sm text-slate-600 hover:text-slate-900 underline">
-                                                  <FontAwesomeIcon icon={faPenToSquare} />
-                                                </button>
-                                              ))}
-                                            </div>
-                                          )}
-                                          {needsProxy && (
-                                            <button
-                                              type="button"
-                                              onClick={() => openProxy(driver, summary.date)}
-                                              className="inline-flex items-center whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200"
-                                            >
-                                              代理入力
-                                            </button>
-                                          )}
-                                        </div>
-                                      </td>
-                                    )}
-                                    <td className="py-3 px-3 text-right text-xs text-slate-400 align-middle">
-                                      {reps.length === 0 ? "—" : (
-                                        <div className={stack ? "flex flex-col gap-2 items-end" : ""}>
-                                          {reps.map((r) => <span key={r.id} className="tabular-nums">{r.submitted_at ? new Date(r.submitted_at).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" }) : "—"}</span>)}
-                                        </div>
-                                      )}
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                            </table>
-                          </div>
-                        </div>
+                        <DailyReportTable>
+                          {rows.map(({ driver, reps, status, needsProxy, assignments }) => {
+                            const driverEntry: Entry = { driver, report: { report_date: summary.date } as ReportData };
+                            return <DailyDriverRow key={`${driver.id}-${summary.date}`} driver={driver} reps={reps}
+                              status={status} needsProxy={needsProxy} assignments={assignments} canWrite={canWrite}
+                              onApprove={() => handleApprove(driverEntry, summary.date)}
+                              onReject={() => handleReject(driverEntry, summary.date)}
+                              onEdit={report => openEdit({ driver, report: { ...report, report_date: summary.date } as ReportData })}
+                              onProxyEntry={() => openProxy(driver, summary.date)} />;
+                          })}
+                        </DailyReportTable>
                         </>
                       )}
                     </div>
@@ -854,7 +718,7 @@ export default function AdminDailyPage() {
                 <div className="grid grid-cols-3 gap-2 md:gap-4 mb-6">
                   <div className="bg-white rounded-lg border border-slate-200 p-3 md:p-4">
                     <div className="text-xl md:text-2xl font-bold text-slate-900">{totalEntries}</div>
-                    <div className="text-xs text-slate-500 mt-0.5">全件数</div>
+                    <div className="text-xs text-slate-500 mt-0.5">日報数</div>
                   </div>
                   <div className="bg-white rounded-lg border border-slate-200 p-3 md:p-4">
                     <div className="text-xl md:text-2xl font-bold text-slate-900">{groups.length}</div>
@@ -905,145 +769,25 @@ export default function AdminDailyPage() {
                                 <span className="text-slate-500 text-xs pl-0.5 pr-1">日</span>
                               </>
                             </span>
-                            <span className="text-slate-500 text-xs"> ({group.entries.length} 件)</span>
+                            <span className="text-slate-500 text-xs"> ({groupDailyEntries(group.entries).length} 件)</span>
                           </>
                         )
                       })()}
                     </h2>
-                    {/* スマホ: カード表示 */}
-                    <div className="md:hidden space-y-2">
-                      {group.entries.map((e) => (
-                        <AllReportCard
-                          key={`card-${e.driver.id}-${group.date}-${e.report.id ?? ""}`}
-                          driver={e.driver}
-                          report={e.report}
-                          approved={isApproved(e.report)}
-                          rejected={isRejected(e.report)}
-                          canWrite={canWrite}
-                          showEdit={tab === "all"}
-                          onApprove={() => handleApprove(e, group.date)}
-                          onReject={() => handleReject(e, group.date)}
-                          onEdit={() => openEdit(e)}
-                        />
-                      ))}
+                    <div className="lg:hidden space-y-2">
+                      {groupDailyEntries(group.entries).map(({ driver, reports }) => <AllReportCard
+                        key={`card-${driver.id}-${group.date}`} driver={driver} reps={reports} assignments={group.assignmentsByDriver ? group.assignmentsByDriver[driver.id] ?? [] : undefined} canWrite={canWrite}
+                        onApprove={() => handleApprove({ driver, report: reports[0] }, group.date)}
+                        onReject={() => handleReject({ driver, report: reports[0] }, group.date)}
+                        onEdit={report => openEdit({ driver, report: { ...report, report_date: group.date } as ReportData })} />)}
                     </div>
-                    {/* PC: テーブル表示 */}
-                    <div className="hidden md:block bg-white rounded-lg border border-slate-200 overflow-hidden">
-                      <div className="overflow-x-auto table-scroll table-scroll-fade -mx-1 md:mx-0">
-                        <table className="w-full text-sm table-fixed min-w-[720px] md:min-w-0">
-                        <colgroup>
-                          {/* 名前 */}
-                          <col className="w-32" />
-                          {/* 種別 */}
-                          <col className="w-20" />
-                          {/* 内容（可変） */}
-                          <col className="w-auto" />
-                          {/* 承認 */}
-                          <col className="w-36" />
-                          {/* 操作（allタブのみ表示だが列幅は固定） */}
-                          {tab === "all" && canWrite && <col className="w-20" />}
-                          {/* 送信時刻 */}
-                          <col className="w-24" />
-                        </colgroup>
-                        <thead className="bg-slate-50">
-                          <tr className="border-b border-slate-200 text-left">
-                            <th className="py-3 px-4 font-semibold text-slate-600">名前</th>
-                            <th className="py-3 px-3 font-semibold text-slate-600 text-center">種別</th>
-                            <th className="py-3 px-3 font-semibold text-slate-600 text-center">内容</th>
-                            <th className="py-3 px-3 font-semibold text-slate-600 text-center">承認</th>
-                            {tab === "all" && canWrite && (
-                              <th className="py-3 px-3 font-semibold text-slate-600 text-center">操作</th>
-                            )}
-                            <th className="py-3 px-4 font-semibold text-slate-600 text-right">送信時刻</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {group.entries.map((e) => {
-                            const r = e.report;
-                            const carrier = r.carrier || "YAMATO";
-                            const approved = isApproved(r);
-                            const rejected = isRejected(r);
-
-                            return (
-                              <tr key={`${e.driver.id}-${group.date}`} className="border-b border-slate-100 hover:bg-slate-50">
-                                <td className="py-3 px-4 font-medium align-middle">{getDisplayName(e.driver)}</td>
-                                <td className="py-3 px-3 text-center align-middle">
-                                  <div className="flex flex-col items-center gap-0.5 w-full min-w-0">
-                                    <span
-                                      className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${carrierBadgeTone(carrier, r.carrier_name)}`}
-                                    >
-                                      {carrierBadgeLabel(carrier, r.carrier_name)}
-                                    </span>
-                                    {r.course_name && (
-                                      <span className="flex w-full items-center gap-1 text-[10px] text-slate-500" title={r.course_name}>
-                                        <span className="truncate">{r.course_name}</span>
-                                        <CycleBadge label={r.cycle_label} />
-                                      </span>
-                                    )}
-                                  </div>
-                                </td>
-                                <td className="py-3 px-3 text-left align-middle">
-                                  <div className="pl-6">
-                                    <ReportContentView units={r.content} />
-                                  </div>
-                                </td>
-                                <td className="py-3 px-3 text-center align-middle">
-                                  {approved ? (
-                                    <span className="inline-flex items-center justify-center px-2 h-6 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-700" title="承認済み">
-                                      <FontAwesomeIcon icon={faCircleCheck} className="mr-1" />
-                                      <span className="text-slate-500 text-xs">承認済み</span>
-                                    </span>
-                                  ) : rejected ? (
-                                    <span className="inline-flex items-center justify-center px-2 h-6 rounded-full text-[11px] font-semibold bg-rose-100 text-rose-700">
-                                      却下
-                                    </span>
-                                  ) : canWrite ? (
-                                    <div className="flex items-center justify-center gap-2">
-                                      <button
-                                        type="button"
-                                        onClick={() => handleApprove(e, group.date)}
-                                        className="inline-flex items-center px-4 py-1.5 rounded-full text-xs font-semibold bg-slate-800 text-white hover:bg-slate-700"
-                                      >
-                                        承認
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleReject(e, group.date)}
-                                        className="inline-flex items-center px-4 py-1.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200"
-                                      >
-                                        却下
-                                      </button>
-                                    </div>
-                                  ) : (
-                                    <span className="text-slate-400 text-xs">未承認</span>
-                                  )}
-                                </td>
-                                {tab === "all" && canWrite && (
-                                  <td className="py-3 px-3 text-center align-middle">
-                                    <button
-                                      type="button"
-                                      onClick={() => openEdit(e)}
-                                      className="text-sm text-slate-600 hover:text-slate-900 underline"
-                                    >
-                                      <FontAwesomeIcon icon={faPenToSquare} />
-                                    </button>
-                                  </td>
-                                )}
-                                <td className="py-3 px-6 text-right text-xs text-slate-400 align-middle">
-                                  <span className="text-slate-900 text-base tabular-nums">
-                                    {new Date(r.submitted_at).toLocaleTimeString("ja-JP", {
-                                      hour: "2-digit",
-                                      minute: "2-digit",
-                                    })}
-                                  </span>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                        </table>
-                      </div>
-                    </div>
+                    <DailyReportTable>
+                      {groupDailyEntries(group.entries).map(({ driver, reports }) => <DailyDriverRow
+                        key={`${driver.id}-${group.date}`} driver={driver} reps={reports} assignments={group.assignmentsByDriver ? group.assignmentsByDriver[driver.id] ?? [] : undefined} status={dailyReportStatus(reports)} canWrite={canWrite} history
+                        onApprove={() => handleApprove({ driver, report: reports[0] }, group.date)}
+                        onReject={() => handleReject({ driver, report: reports[0] }, group.date)}
+                        onEdit={report => openEdit({ driver, report: { ...report, report_date: group.date } as ReportData })} />)}
+                    </DailyReportTable>
                   </div>
                 ))}
               </>

@@ -1,3 +1,5 @@
+import { SHIFT_ASSIGNMENT_SELECT, shiftAssignment } from "@/server/daily/shiftAssignments";
+import type { ShiftReportAssignment } from "@/lib/shiftReportComparison";
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
@@ -42,7 +44,7 @@ function toPlatePayload(v: any): VehiclePlatePayload | null {
   };
 }
 
-type ShiftRow = { shift_date: string | null; driver_id: string | null; course_id: string | null };
+type ShiftRow = { shift_date: string | null; driver_id: string | null; course_id: string | null; cycle_no: number | null; courses?: unknown };
 
 export async function GET(req: NextRequest) {
   const user = await requirePermission(req, "can_view_reports");
@@ -124,7 +126,7 @@ export async function GET(req: NextRequest) {
             supabase
               // tenant-scope-ok: orgDriverIds は自社の drivers（.eq("org_id", orgId)）から作った集合
               .from("shifts")
-              .select("shift_date, driver_id, course_id")
+              .select(SHIFT_ASSIGNMENT_SELECT).eq("courses.org_id", orgId)
               .in("shift_date", slice)
               .in("driver_id", orgDriverIds)
               .not("driver_id", "is", null)
@@ -151,7 +153,7 @@ export async function GET(req: NextRequest) {
           supabase
             // tenant-scope-ok: orgDriverIds は自社の drivers（.eq("org_id", orgId)）から作った集合
             .from("shifts")
-            .select("shift_date, driver_id, course_id")
+            .select(SHIFT_ASSIGNMENT_SELECT).eq("courses.org_id", orgId)
             .gte("shift_date", startParam)
             .lte("shift_date", endParam)
             .in("driver_id", orgDriverIds)
@@ -177,6 +179,16 @@ export async function GET(req: NextRequest) {
         dates.push(d.toISOString().slice(0, 10));
         d.setDate(d.getDate() + 1);
       }
+    }
+
+    const shiftAssignmentsByDate = new Map<string, Record<string, ShiftReportAssignment[]>>();
+    for (const r of shiftRows) {
+      if (!r.shift_date || !r.driver_id || !r.course_id) continue;
+      const byDriver = shiftAssignmentsByDate.get(r.shift_date) ?? {};
+      const assignments = byDriver[r.driver_id] ?? [];
+      const cycleNo = Number(r.cycle_no) || 0;
+      if (!assignments.some(a => a.courseId === r.course_id && a.cycleNo === cycleNo)) assignments.push(shiftAssignment(r));
+      byDriver[r.driver_id] = assignments; shiftAssignmentsByDate.set(r.shift_date, byDriver);
     }
 
     // 却下済みは同日に残るため、一覧は「未却下」を優先表示
@@ -235,6 +247,7 @@ export async function GET(req: NextRequest) {
         carrier_name: r.carrier_name ?? null,
         approved_at: r.approved_at ?? null,
         rejected_at: r.rejected_at ?? null,
+        rejection_reason: r.rejection_reason ?? null,
         vehicle_id: r.vehicle_id ?? null,
         meter_value: r.meter_value != null ? Number(r.meter_value) : null,
         vehicle_plate: toPlatePayload(veh),
@@ -261,6 +274,7 @@ export async function GET(req: NextRequest) {
         date,
         shiftDriverIds,
         shiftCoursesByDriver,
+        shiftAssignmentsByDriver: shiftAssignmentsByDate.get(date) ?? {},
         reportsByDriver,
       };
     });

@@ -37,12 +37,13 @@ export function ReportContentView({
                 >
                   {g.label && <span className="text-[11px] text-slate-400">{g.label}</span>}
                   {g.fields.map((f) => (
-                    <span key={f.fieldKey}>
+                    <span key={f.fieldKey} className={f.needsReview ? "rounded bg-amber-50 px-1 text-amber-800" : undefined}>
                       <span className="text-slate-500 text-xs">{f.label}</span>{" "}
                       <span className={`font-semibold tabular-nums ${valueCls}`}>
                         {formatFieldValue(f)}
                       </span>
                       {f.inputType === "INT" && <span className="text-slate-500 text-xs"> 個</span>}
+                      {f.needsReview && <span className="ml-1 text-[10px] text-amber-800">便の設定を確認</span>}
                     </span>
                   ))}
                 </div>

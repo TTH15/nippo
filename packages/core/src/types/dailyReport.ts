@@ -31,6 +31,7 @@ export type ShiftForm = {
   carrierName: string;
   units: UnitDef[];
   existing: {
+    requiresReview?: boolean;
     vehicleId: string | null;
     meterValue: number | null;
     values: Record<string, Record<string, number | string>>;

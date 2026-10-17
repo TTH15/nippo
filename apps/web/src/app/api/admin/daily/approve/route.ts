@@ -1,3 +1,4 @@
+import { loadReportContents } from "@/server/aggregation/reportContent";
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
@@ -55,7 +56,8 @@ export async function POST(req: NextRequest) {
       .eq("org_id", orgId)
       .eq("driver_id", driverId)
       .eq("report_date", date)
-      .is("rejected_at", null);
+      .is("rejected_at", null)
+      .is("approved_at", null);
 
     if (reportErr) {
       console.error(reportErr);
@@ -63,6 +65,11 @@ export async function POST(req: NextRequest) {
     }
 
     if (!reportRows?.length) return NextResponse.json({ error: "日報が見つかりません。" }, { status: 404 });
+
+    const contents = await loadReportContents(supabase, orgId, reportRows.map(r => r.id));
+    if ([...contents.values()].some(units => units.some(u => u.fields.some(f => f.needsReview)))) {
+      return NextResponse.json({ error: "便の設定と異なる項目があります。日報を修正してから承認してください。" }, { status: 409 });
+    }
 
     // 車両ごとに、その日の最大メーター値を採用（複数コース行の last-row-wins を排除）。
     const maxMeterByVehicle = new Map<string, number>();
@@ -131,10 +138,15 @@ export async function POST(req: NextRequest) {
       .eq("org_id", orgId)
       .eq("driver_id", driverId)
       .eq("report_date", date)
-      .is("rejected_at", null);
+      .in("id", reportRows.map(r => r.id))
+      .is("rejected_at", null)
+      .is("approved_at", null);
 
     if (error) {
       console.error(error);
+      if (error.code === "23514" && (error.message.includes("シフトが変更") || error.message.includes("日報項目"))) {
+        return NextResponse.json({ error: error.message }, { status: 409 });
+      }
       return NextResponse.json({ error: "DB error" }, { status: 500 });
     }
 

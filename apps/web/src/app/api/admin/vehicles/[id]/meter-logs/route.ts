@@ -4,6 +4,7 @@ import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { reportDateDefaultJST } from "@/lib/date";
 import { loadLegacyDailyRows } from "@/server/aggregation/legacyShape";
+import { deduplicateMeterReports } from "@/lib/dailyReportGrouping";
 
 export const dynamic = "force-dynamic";
 
@@ -84,7 +85,7 @@ export async function GET(
       });
     });
 
-    const logs: MeterLog[] = (rows ?? [])
+    const logs: MeterLog[] = deduplicateMeterReports(rows)
       .map((r: any) => {
         if (!r?.report_date || r.meter_value == null || !r.driver_id) return null;
         const drv = driverMap.get(String(r.driver_id));
