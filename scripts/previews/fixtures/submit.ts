@@ -19,6 +19,10 @@ const CYCLE_SHIFTS = [1, 2].map(cycleNo => ({ ...SHIFT, cycleNo, cycleLabel: `C$
   units: [{ ...SHIFT.units[0], fields: ["持出", "完了"].map((label, i) => ({ fieldKey: `${cycleNo === 1 ? "am" : "pm"}_${i ? "completed" : "mochidashi"}`,
     label, inputType: "INT", groupLabel: cycleNo === 1 ? "午前" : "午後", required: true })) }],
 }));
+const CYCLE_IMAGE_TEMPLATE = (() => {
+  const base = previewImageTemplate({ unitId: "unit-1", doneKey: "am_completed", backKey: "am_mochidashi" });
+  return { ...base,name: "便別入力の見本",definition: { ...base.definition,fields: CYCLE_SHIFTS.flatMap(shift => shift.units[0].fields.map(field => ({ ...base.definition.fields[1],id: field.fieldKey,role: "entry" as const,unitId: "unit-1",fieldKey: field.fieldKey,label: `${field.groupLabel} ${field.label}` }))) } };
+})();
 const PLACES = [
   { id: "place-toyonaka", name: "豊中センター", lat: 34.7855, lng: 135.4709, icon: "warehouse", slots: [
     { id: "slot-a1", label: "A-1", vehicleId: "veh-1" }, { id: "slot-a2", label: "A-2", vehicleId: null }, { id: "slot-a3", label: "A-3", vehicleId: "veh-2" },
@@ -38,6 +42,8 @@ export const submitFixture: PreviewFixture<State> = {
   title: "日報入力・ログイン設定",
   pathname: "/submit",
   scenarios: {
+    "image-multi": { label: "画像・同じ項目の複数コース",description: "反映先を選ぶまで数量を変更しない" },
+    "image-reupload": { label: "画像・入力済み",description: "既存値と読み取り値を見比べて選んだ項目だけ変更する" },
     cycles: { label: "C1午前・C2午後", description: "実際の入力欄と便の色を確認し、別々の値を送信する" },
     normal: { label: "通常", description: "車庫3件（豊中は区画あり・veh-1 は A-1 がいつもの）" },
     "no-places": { label: "車庫なし", description: "登録車庫が無い会社。別の場所と状況だけ選べる" },
@@ -50,7 +56,7 @@ export const submitFixture: PreviewFixture<State> = {
     "no-image-template": { label: "様式なし", description: "画像の様式が未登録。画像は残せるが件数は手入力" },
   },
   createState: ({ scenario }) => ({ places: scenario === "no-places" ? [] : PLACES, submissions: [],
-    phoneVerified: ["sms-only", "complete", "cycles"].includes(scenario), hasPasskey: ["complete", "cycles"].includes(scenario),
+    phoneVerified: ["sms-only", "complete", "cycles", "image-multi", "image-reupload"].includes(scenario), hasPasskey: ["complete", "cycles", "image-multi", "image-reupload"].includes(scenario),
     recent: false, smsSent: false, challenge: null, attempts: 0, statusFailures: scenario === "setup-error" ? 1 : 0,
     sourceImages: [], readings: [], imageTemplates: scenario !== "no-image-template" }),
   read: (state, { path }, { scenario }) => {
@@ -63,11 +69,11 @@ export const submitFixture: PreviewFixture<State> = {
     if (path === "/api/reports/vehicles-unlinked") return { vehicles: [] };
     if (path === "/api/reports/vehicles") return { vehicles: VEHICLES };
     if (path === "/api/reports/parking-places") return { places: state.places };
-    if (path === "/api/me/report-form") return { shifts: scenario === "no-shifts" ? [] : scenario === "cycles" ? CYCLE_SHIFTS : [SHIFT], shiftVehicleId: "veh-1" };
+    if (path === "/api/me/report-form") return { shifts: scenario === "no-shifts" ? [] : scenario === "image-multi" ? [SHIFT,{ ...SHIFT,courseId: "course-2",courseName: "南ルート" }] : scenario === "image-reupload" ? CYCLE_SHIFTS.map(shift => ({ ...shift,existing: { vehicleId: "veh-1",meterValue: 50063,values: { "unit-1": Object.fromEntries(shift.units[0].fields.map((field,i) => [field.fieldKey,shift.cycleNo === 1 ? [71,63][i] : [52,47][i]])) } } })).reverse() : scenario === "cycles" ? [...CYCLE_SHIFTS].reverse() : [SHIFT], shiftVehicleId: "veh-1" };
     if (path === "/api/me/report-image-templates") {
-      return { templates: state.imageTemplates ? [previewImageTemplate({ unitId: "unit-1", doneKey: "delivered", backKey: "undelivered" })] : [] };
+      return { templates: state.imageTemplates ? [scenario === "cycles" || scenario === "image-reupload" ? CYCLE_IMAGE_TEMPLATE : (() => { const template=previewImageTemplate({ unitId: "unit-1", doneKey: "delivered", backKey: "undelivered" }); return scenario === "image-multi" ? { ...template,definition:{ ...template.definition,fields:template.definition.fields.filter(field => ["takkyubin-done","takkyubin-back"].includes(field.id)) } } : template; })()] : [] };
     }
-    if (path.startsWith("/api/reports/source-images?")) return { images: state.sourceImages, unavailable: false };
+    if (path === "/api/reports/source-images") return { images: state.sourceImages, unavailable: false };
     if (path === "/api/me/form-notice") return { notice: null };
     if (path === "/api/me/shift-deadline-reminder") return { reminder: null };
     if (path === "/api/me/submit-screen") return { todayReward: 12000, blocks: [{ id: "greeting", type: "greeting", title: "お疲れさまでした", message: "" }, { id: "reward", type: "today_reward", todayReward: 12000 }] };

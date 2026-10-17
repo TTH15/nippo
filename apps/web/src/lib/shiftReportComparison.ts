@@ -1,5 +1,6 @@
+import { orderCourseCycles } from "./reportCycles";
 import type { DailyReportDisplay } from "./dailyReportGrouping";
-export type ShiftReportAssignment = { courseId: string; cycleNo: number; courseName?: string; cycleLabel?: string | null };
+export type ShiftReportAssignment = { courseId: string; cycleNo: number; courseName?: string; courseColor?: string | null; cycleLabel?: string | null };
 export type ShiftReportComparison = { assignment: ShiftReportAssignment | null; reports: DailyReportDisplay[]; status: "matched" | "missing" | "unexpected" | "duplicate" | "legacy" | "fields" | "unknown" };
 
 /** 名称で照合しない。同名の別コース・別便、旧全体、重複、設定外数量を区別する。 */
@@ -7,7 +8,7 @@ export function compareShiftReports(assignments: ShiftReportAssignment[], report
   const active = reports.filter(r => !r.rejected_at);
   const used = new Set<DailyReportDisplay>();
   const rows: ShiftReportComparison[] = [];
-  const unique = [...new Map(assignments.map(a => [`${a.courseId}:${a.cycleNo}`, a])).values()];
+  const unique = orderCourseCycles([...new Map(assignments.map(a => [`${a.courseId}:${a.cycleNo}`, a])).values()], a => a.courseId, a => a.cycleNo);
   for (const assignment of unique) {
     const exact = active.filter(r => r.course_id === assignment.courseId && (Number(r.cycle_no) || 0) === assignment.cycleNo);
     const wholeDay = active.filter(r => r.course_id === assignment.courseId && !(Number(r.cycle_no) || 0));
@@ -22,7 +23,7 @@ export function compareShiftReports(assignments: ShiftReportAssignment[], report
     const review = matching.some(r => r.content?.some(u => u.fields.some(f => f.needsReview)));
     rows.push({ assignment, reports: matching, status: !matching.length ? "missing" : matching.length > 1 ? "duplicate" : legacy.length ? "legacy" : review ? "fields" : !assignment.courseName ? "unknown" : "matched" });
   }
-  for (const report of active) if (!used.has(report)) rows.push({ assignment: null, reports: [report], status: "unexpected" });
+  for (const report of orderCourseCycles(active, r => r.course_id ?? "", r => r.cycle_no ?? 0)) if (!used.has(report)) rows.push({ assignment: null, reports: [report], status: "unexpected" });
   return rows;
 }
 export const shiftReportStatusLabel: Record<ShiftReportComparison["status"], string> = {

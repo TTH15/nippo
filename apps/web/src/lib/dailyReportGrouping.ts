@@ -6,6 +6,7 @@ export type DailyReportDisplay = {
   id?: string;
   course_id?: string | null;
   course_name?: string | null;
+  course_color?: string | null;
   cycle_no?: number | null;
   cycle_label?: string | null;
   carrier?: string | null;

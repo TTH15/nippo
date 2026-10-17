@@ -34,8 +34,8 @@ export const dailyFixture: PreviewFixture<State> = {
       if (state.empty) return { drivers: [], days: [] };
       const date = today();
       const drivers = names.map((name, i) => ({ id: `driver-${i}`, name, display_name: name, status: "active" }));
-      return { drivers, days: [{ date, shiftDriverIds: drivers.map(driver => driver.id), shiftAssignmentsByDriver: Object.fromEntries(drivers.map(driver => [driver.id, [{ courseId: "fictional-normal", courseName: "架空コース", cycleNo: 0 }]])), reportsByDriver: Object.fromEntries(drivers.map((driver, i) => [driver.id, [{
-        id: `report-${i}`, driver_id: driver.id, report_date: date, course_id: "fictional-normal", course_name: "架空コース", carrier: "YAMATO", submitted_at: `${date}T10:00:00+09:00`, approved_at: null, rejected_at: null,
+      return { drivers, days: [{ date, shiftDriverIds: drivers.map(driver => driver.id), shiftAssignmentsByDriver: Object.fromEntries(drivers.map(driver => [driver.id, [{ courseId: "fictional-normal", courseName: "架空コース", courseColor: "#10b981", cycleNo: 0 }]])), reportsByDriver: Object.fromEntries(drivers.map((driver, i) => [driver.id, [{
+        id: `report-${i}`, driver_id: driver.id, report_date: date, course_id: "fictional-normal", course_name: "架空コース", course_color: "#10b981", carrier: "YAMATO", submitted_at: `${date}T10:00:00+09:00`, approved_at: null, rejected_at: null,
         vehicle_id: [0, 5].includes(i) ? i === 5 ? "borrowed" : "linked" : null, meter_value: 145545,
         vehicle_plate: [0, 5].includes(i) ? { id: i === 5 ? "borrowed" : "linked", number_prefix: "京都", number_class: "480", number_hiragana: "り", number_numeric: i === 5 ? "7890" : "1234" } : null,
         content: i === 1 ? [{ unitId: "number", unitName: "報告", fields: [{ fieldKey: "vehicle_number", label: "車両番号", inputType: "TEXT", groupLabel: null, valueNum: null, valueText: "大阪 480 れ 45-67" }] }] : [],

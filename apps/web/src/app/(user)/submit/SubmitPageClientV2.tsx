@@ -9,7 +9,7 @@ import {
   faOilCan,
   faPhone,
 } from "@fortawesome/free-solid-svg-icons";
-import { reportCycleTone } from "@/lib/reportCycles";
+import { reportCycleTone, reportCycleTitle, orderCourseCycles } from "@/lib/reportCycles";
 import { ReportFieldInputs } from "@/lib/components/ReportFieldInputs";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { DatePicker } from "@/lib/components/DatePicker";
@@ -147,7 +147,7 @@ export default function SubmitPageClientV2() {
     if (initializedDateRef.current === reportFormDateStr) return;
     initializedDateRef.current = reportFormDateStr;
     const list = formData.shifts ?? [];
-    setShifts(list);
+    setShifts(orderCourseCycles(list, s => s.courseId, s => s.cycleNo ?? 0));
     // 既存値で初期化
     setValues(buildInitialValues(list));
     // 既定車両: その日のシフト割当車両を最優先 > 既存report の車両。メーターは既存report のみ。
@@ -514,13 +514,13 @@ export default function SubmitPageClientV2() {
           {shifts.map((s) => {
             const formKey = reportFormKey(s.courseId, s.cycleNo);
             return (
-            <div key={formKey} className={`rounded-lg border border-l-4 border-slate-200 bg-white ${reportCycleTone(s.cycleNo ?? 0).border}`}>
-              <div className={`flex flex-wrap items-center gap-2 px-4 py-2.5 border-b border-slate-100 ${reportCycleTone(s.cycleNo ?? 0).surface}`}>
+            <div key={formKey} className={`rounded-lg border ${reportCycleTone(s.cycleNo ?? 0).border} ${reportCycleTone(s.cycleNo ?? 0).surface}`}>
+              <div className={`flex flex-wrap items-center gap-2 px-4 py-2.5 border-b ${reportCycleTone(s.cycleNo ?? 0).border}`}>
                 <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: s.color ?? "#94a3b8" }} />
-                <span className="font-medium text-slate-800">{s.courseName}</span>
+                <span className={(s.cycleNo ?? 0) > 0 ? "text-xs text-slate-600" : "font-medium text-slate-800"}>{s.courseName}</span>
                 {(s.cycleNo ?? 0) > 0 && (
-                  <span className={`rounded border px-1.5 py-0.5 text-[11px] font-semibold ${reportCycleTone(s.cycleNo ?? 0).badge}`}>
-                    {s.cycleLabel || `C${s.cycleNo}`}
+                  <span className="order-first font-semibold text-slate-900">
+                    {reportCycleTitle(s.cycleNo ?? 0, s.cycleLabel, s.units.flatMap(u => u.fields.map(f => f.groupLabel)))}
                   </span>
                 )}
                 {s.carrierName && <span className="text-[11px] text-slate-400">{s.carrierName}</span>}
@@ -528,7 +528,7 @@ export default function SubmitPageClientV2() {
               <div className="px-4 py-3 space-y-4">
                 {s.units.length === 0 && <p className="text-xs text-slate-400">報告項目が設定されていません。</p>}
                 {s.units.map((u) => (
-                  <UnitFields key={u.id} unit={u} formKey={formKey} values={values} setVal={setVal} />
+                  <UnitFields hideSingleGroup={(s.cycleNo ?? 0) > 0 && new Set(s.units.flatMap(unit => unit.fields.map(field => field.groupLabel?.trim()).filter(Boolean))).size === 1} key={u.id} unit={u} formKey={formKey} values={values} setVal={setVal} />
                 ))}
               </div>
             </div>
@@ -541,7 +541,8 @@ export default function SubmitPageClientV2() {
       {shifts.length > 0 && (
         <ReportSourceImageField
           reportDate={reportFormDateStr}
-          courseId={shifts[0]?.courseId ?? null}
+          courseId={new Set(shifts.map(s => s.courseId)).size === 1 ? shifts[0]?.courseId : null}
+          shifts={shifts} values={values}
           onApply={(entries) => {
             setValues((prev) => applyImageEntries(prev, shifts, entries).values);
           }}
@@ -705,11 +706,13 @@ export default function SubmitPageClientV2() {
 }
 
 function UnitFields({
+  hideSingleGroup = false,
   unit,
   formKey,
   values,
   setVal,
 }: {
+  hideSingleGroup?: boolean;
   unit: UnitDef;
   formKey: string;
   values: ValueMap;
@@ -724,7 +727,7 @@ function UnitFields({
       <div className="space-y-2">
         {groups.map(([groupKey, fields]) => (
           <div key={groupKey}>
-            {groupKey && <div className="text-[11px] text-indigo-600 mb-1">{groupKey}</div>}
+            {groupKey && !(hideSingleGroup && groups.length === 1) && <div className="text-[11px] text-indigo-600 mb-1">{groupKey}</div>}
             <ReportFieldInputs fields={fields} valueFor={key => values[formKey]?.[unit.id]?.[key] ?? ""}
               onChange={(key, value) => setVal(formKey, unit.id, key, value)} />
           </div>

@@ -6,7 +6,7 @@ import { useApi } from "@/lib/useApi";
 import { invalidateApi } from "@/lib/swr";
 import { CustomSelect } from "@/lib/components/CustomSelect";
 import { ReportFieldInputs } from "@/lib/components/ReportFieldInputs";
-import { reportCycleTone } from "@/lib/reportCycles";
+import { reportCycleTone, reportCycleTitle } from "@/lib/reportCycles";
 import { useUnsavedChanges } from "@/lib/recordForms/useUnsavedChanges";
 import { SmoothCollapse } from "@/lib/components/SmoothCollapse";
 
@@ -42,9 +42,10 @@ export const CourseReportFieldsEditor = forwardRef<CourseReportFieldsEditorHandl
   const [saving, setSaving] = useState(false);
   const busy = useRef(false);
   const [message, setMessage] = useState("");
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const targets = useMemo(() => !data ? [] : data.usesCycles && data.cycles.length
-    ? data.cycles.map(c => ({ cycleNo: c.cycleNo, label: c.label?.trim() || `C${c.cycleNo}` }))
+    ? [...data.cycles].sort((a,b) => a.cycleNo - b.cycleNo).map(c => ({ cycleNo: c.cycleNo, label: c.label?.trim() || `C${c.cycleNo}` }))
     : [{ cycleNo: 0, label: "このコース" }], [data]);
 
   useEffect(() => {
@@ -64,7 +65,7 @@ export const CourseReportFieldsEditor = forwardRef<CourseReportFieldsEditorHandl
       }
     }
     setSelected(keys); setOriginal(data.selected); setLoadedKey(apiKey);
-    setDirty(false); setMessage(""); setExpanded(new Set());
+    setDirty(false); setMessage(""); setExpanded(new Set()); setDetailsOpen(false);
   }, [data, apiKey, loadedKey, targets]);
 
   const change = (next: Set<string>) => {
@@ -85,10 +86,26 @@ export const CourseReportFieldsEditor = forwardRef<CourseReportFieldsEditorHandl
     const values = fields.map(f => targets.filter(t => selected.has(keyOf(t.cycleNo, unit.id, f.fieldKey))).map(t => t.cycleNo).join(",") || "none");
     return values.every(value => value === values[0]) ? values[0] : "custom";
   };
+  const groups = (data?.units ?? []).flatMap(unit => [...new Set(unit.fields.map(f => f.groupLabel ?? ""))].map(group => ({
+    key: JSON.stringify([unit.id, group]), unit, label: group || unit.name, fields: unit.fields.filter(f => (f.groupLabel ?? "") === group),
+  })));
+  const groupsFor = (cycleNo: number) => groups.filter(g => g.fields.some(f => selected.has(keyOf(cycleNo, g.unit.id, f.fieldKey))));
+  const groupValue = (cycleNo: number) => {
+    const active = groupsFor(cycleNo);
+    return active.length === 0 ? "" : active.length === 1 && active[0].fields.every(f => selected.has(keyOf(cycleNo, active[0].unit.id, f.fieldKey))) ? active[0].key : "custom";
+  };
+  const selectGroup = (cycleNo: number, value: string) => {
+    if (value === "custom") { setDetailsOpen(true); return; }
+    const next = new Set(selected);
+    for (const unit of data?.units ?? []) for (const field of unit.fields) next.delete(keyOf(cycleNo, unit.id, field.fieldKey));
+    const group = groups.find(g => g.key === value);
+    if (group) for (const field of group.fields) next.add(keyOf(cycleNo, group.unit.id, field.fieldKey));
+    change(next);
+  };
   const assignmentOptions = (value: string) => [
     { value: "none", label: "このコースでは使わない" },
-    ...targets.map(t => ({ value: String(t.cycleNo), label: data?.usesCycles ? `${t.label}として記録` : "このコースで記録" })),
-    ...(targets.length > 1 ? [{ value: targets.map(t => t.cycleNo).join(","), label: "全便で記録" }] : []),
+    ...targets.map(t => ({ value: String(t.cycleNo), label: data?.usesCycles ? `${t.label}で使う` : "このコースで記録" })),
+    ...(targets.length > 1 ? [{ value: targets.map(t => t.cycleNo).join(","), label: "全便で使う" }] : []),
     ...(value.includes(",") && value !== targets.map(t => t.cycleNo).join(",") ? [{ value, label: value.split(",").map(v => targets.find(t => t.cycleNo === Number(v))?.label ?? v).join("・") + "として記録" }] : []),
     { value: "custom", label: "項目ごとに指定" },
   ];
@@ -125,38 +142,52 @@ export const CourseReportFieldsEditor = forwardRef<CourseReportFieldsEditorHandl
       <span className="font-semibold text-slate-700">ドライバーの日報</span>
       <span className="text-xs text-slate-500">次の入力から適用</span>
     </div>
-    {data.units.map(unit => <div key={unit.id} className="space-y-3">
-      <p className="text-sm font-medium text-slate-700">{unit.name}</p>
-      {[...new Set(unit.fields.map(f => f.groupLabel ?? ""))].map((group, index) => {
-        const fields = unit.fields.filter(f => (f.groupLabel ?? "") === group);
-        const value = assignmentValue(unit, fields);
-        const cycle = /^\d+$/.test(value) ? Number(value) : 0;
-        const tone = reportCycleTone(cycle);
-        const key = `${unit.id}:${group}`;
-        const open = expanded.has(key) || value === "custom";
-        return <section key={key} className={`rounded-lg border border-l-4 border-slate-200 p-3 space-y-3 ${tone.border} ${tone.surface}`}>
+    {targets.map(target => {
+      const active = groupsFor(target.cycleNo);
+      const value = groupValue(target.cycleNo);
+      const tone = reportCycleTone(target.cycleNo);
+      const title = reportCycleTitle(target.cycleNo, target.label, active.map(g => g.label));
+      return <section key={target.cycleNo} aria-label={title} className={`rounded-lg border p-3 space-y-3 ${tone.border} ${tone.surface}`}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="font-semibold text-slate-900">{title}</span>
+          <div className="w-full sm:w-56"><CustomSelect ariaLabel={`${target.label}の入力欄`} value={value}
+            options={[
+              { value: "", label: "入力欄を選ぶ" },
+              ...groups.map(g => ({ value: g.key, label: (data.units.length > 1 ? `${g.unit.name} / ` : "") + g.label })),
+              ...(value === "custom" ? [{ value: "custom", label: "複数・個別の設定" }] : []),
+            ]} clearable={false} disabled={disabled || saving} onChange={next => selectGroup(target.cycleNo, next)} /></div>
+        </div>
+        {active.map(g => <div key={g.key} className="space-y-2">
+          {(active.length > 1 || data.units.length > 1) && <p className="text-xs font-medium text-slate-600">{g.label}</p>}
+          <ReportFieldInputs fields={g.fields.filter(f => selected.has(keyOf(target.cycleNo, g.unit.id, f.fieldKey))).map(f => ({ ...f, required: false }))} valueFor={() => ""} onChange={() => {}} preview />
+        </div>)}
+      </section>;
+    })}
+    <button type="button" className="min-h-11 text-xs font-medium text-slate-600 underline underline-offset-2" aria-expanded={detailsOpen}
+      aria-controls="course-report-details" onClick={() => setDetailsOpen(value => !value)}>詳細設定</button>
+    <SmoothCollapse open={detailsOpen} id="course-report-details">
+      <div className="space-y-3 border-t border-slate-200 pt-3">{groups.map((g,index) => {
+        const value = assignmentValue(g.unit, g.fields);
+        const open = expanded.has(g.key) || value === "custom";
+        return <div key={g.key} className="rounded-lg border border-slate-200 p-3 space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="font-semibold text-slate-800">{group || "入力欄"}</span>
-            <div className="w-full sm:w-56"><CustomSelect ariaLabel={`${unit.name} ${group || "入力欄"}の記録先`} value={value}
-              options={assignmentOptions(value)} clearable={false} disabled={disabled || saving}
-              triggerClassName={cycle > 0 ? tone.badge : undefined}
-              onChange={next => { if (next === "custom") setExpanded(prev => new Set(prev).add(key)); else { assign(unit, fields, next); setExpanded(prev => { const n = new Set(prev); n.delete(key); return n; }); } }} /></div>
+            <span className="text-xs font-semibold text-slate-700">{g.label}</span>
+            <div className="w-full sm:w-56"><CustomSelect ariaLabel={`${g.label}を使う便`} value={value} options={assignmentOptions(value)} clearable={false} disabled={disabled || saving}
+              onChange={next => { if(next === "custom") setExpanded(prev => new Set(prev).add(g.key)); else assign(g.unit, g.fields, next); }} /></div>
           </div>
-          <ReportFieldInputs fields={fields.map(f => ({ ...f, required: false }))} valueFor={() => ""} onChange={() => {}} preview />
-          {value === "none" && <p className="text-xs text-slate-500">このコースの日報には表示しません。</p>}
-          <SmoothCollapse open={open} id={`field-target-${unit.id}-${index}`}>
-            <div className="space-y-2 border-t border-slate-200 pt-3">{fields.map(f => {
-              const fieldValue = assignmentValue(unit, [f]);
-              return <div key={f.fieldKey} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)] items-center gap-3">
+          <SmoothCollapse open={open} id={`course-report-field-details-${index}`}>
+            <div className="space-y-2 border-t border-slate-100 pt-2">{g.fields.map(f => {
+              const fieldValue = assignmentValue(g.unit, [f]);
+              return <div key={f.fieldKey} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)] items-center gap-2">
                 <span className="text-xs text-slate-600">{f.label}</span>
-                <CustomSelect ariaLabel={`${group} ${f.label}の記録先`} value={fieldValue} options={assignmentOptions(fieldValue).filter(o => o.value !== "custom")}
-                  clearable={false} disabled={disabled || saving} onChange={next => assign(unit, [f], next)} />
+                <CustomSelect ariaLabel={`${g.label} ${f.label}を使う便`} value={fieldValue} options={assignmentOptions(fieldValue).filter(o => o.value !== "custom")}
+                  clearable={false} disabled={disabled || saving} onChange={next => assign(g.unit, [f], next)} />
               </div>;
             })}</div>
           </SmoothCollapse>
-        </section>;
-      })}
-    </div>)}
+        </div>;
+      })}</div>
+    </SmoothCollapse>
     {message && <p role={dirty ? "alert" : "status"} className={`text-xs ${dirty ? "text-red-700" : "text-slate-600"}`}>{message}</p>}
     {!disabled && <div className="flex justify-end"><button type="button" disabled={!dirty || saving} onClick={() => void save()}
       className="min-h-11 rounded-lg bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-40">{saving ? "保存中…" : "振り分けを保存"}</button></div>}

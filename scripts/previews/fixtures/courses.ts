@@ -40,7 +40,14 @@ export const coursesFixture: PreviewFixture<State> = {
       ] : [],
     }, ...(scenario === "cycle-fields" ? [{ id: "preview-four", name: "4便サンプル", color: "#94a3b8", sort_order: 1, carrier_id: carrierId,
       summary_title: "4便", daily_lease: 0, max_drivers: 1, uses_cycles: false, course_cycles: [] }] : [])],
-    billing: {}, reportFields: {}, scenario,
+    billing: {}, reportFields: {
+      "preview-course-1": scenario === "cycle-fields" ? [
+        { cycleNo: 1, unitId: "unit-delivery", fieldKey: "am_mochidashi" },
+        { cycleNo: 1, unitId: "unit-delivery", fieldKey: "am_completed" },
+        { cycleNo: 2, unitId: "unit-delivery", fieldKey: "pm_mochidashi" },
+        { cycleNo: 2, unitId: "unit-delivery", fieldKey: "pm_completed" },
+      ] : [],
+    }, scenario,
   }),
   read: (state, { path, params }) => {
     if (path === "/api/admin/courses") return { courses: state.courses };

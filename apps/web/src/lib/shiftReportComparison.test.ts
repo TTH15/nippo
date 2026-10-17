@@ -24,3 +24,9 @@ it("設定外の実績や照合元のコース名が無い場合は一致表示�
   expect(compareShiftReports(shifts.slice(0,1), [{ course_id: "a", cycle_no: 1, content }])[0].status).toBe("fields");
   expect(compareShiftReports([{ courseId: "a", cycleNo: 1 }], [{ course_id: "a", cycle_no: 1 }])[0].status).toBe("unknown");
 });
+
+it("取得順がC2→別コース→C1でも、同じコースはC1→C2の順で並ぶ", () => {
+  const a=shifts;
+  const rows=compareShiftReports([a[1],{courseId:"b",courseName:"夜間",cycleNo:0},a[0]],[]);
+  expect(rows.map(row => [row.assignment?.courseId,row.assignment?.cycleNo])).toEqual([["a",1],["a",2],["b",0]]);
+});

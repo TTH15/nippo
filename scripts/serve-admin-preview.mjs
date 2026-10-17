@@ -50,6 +50,7 @@ const isAdminRunner = feature === "admin" || feature === "vehicles";
 // その内側の "swr" と "@/lib/api" だけを fixture ストアへ向ける（本番コードとの乖離を最小にする）。
 const adminReplacements = new Map([
   ["@/lib/api", "kernel/services.tsx"],
+  ["@/lib/ocr/reportImageReader", "kernel/reportImageReader.ts"],
   ["swr", "kernel/swr.tsx"],
   ["swr/infinite", "kernel/swr-infinite.tsx"],
   ["next/link", "kernel/next-link.tsx"],

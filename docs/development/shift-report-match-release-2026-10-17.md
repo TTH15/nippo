@@ -32,3 +32,15 @@ Web全1,912テスト（会社境界・承認保持の追加2件を含む）、We
 いずれも本番ページを架空fixtureで再利用し、認証・DB・通知へ接続しない。プレビューの送信・承認はメモリ内だけ。実機のネイティブMobileや、未公開のbusiness境界を含めた一括移行は今回の公開範囲外。
 
 コード番号は [日報と一緒に送る選択項目](../design/daily-report-labels.md) として汎用設計に整理した。今回は機能追加しない。
+
+## カード全体の背景色（2026/10/17 プレビュー）
+
+左側の色帯を廃止し、運営の日報設定と本人の日報入力を、C1は青（sky-100）、C2は紫（violet-100）の全体背景へ変更。入力欄は白、枠は全周1pxとする。今回の配色変更は本番未反映。
+
+既存の本番 `CourseReportFieldsEditor` / `SubmitPageClientV2` / `ReportFieldInputs` を隔離runnerで再利用。`cycle-fields` の初期fixtureをC1午前/C2午後・4便対象外にし、開いた直後から配色を確認できるようにした。
+
+- 起動: `npm run preview:admin -- admin --port 3199`
+- 運営: `/preview/admin/courses?scenario=cycle-fields&role=admin` → 豊中 → 日報設定
+- ドライバー: `/preview/admin/submit?scenario=cycles`
+- 確認: 運営1280/768/390/320px、本人1280/390/320pxで背景・枠・横はみ出しを確認。本人の数量入力、preview型検査、差分検査も通過。
+- 制限: 架空データ・メモリ内のみ。本番認証・DB・通知への接続なし。実機ネイティブMobileは対象外。

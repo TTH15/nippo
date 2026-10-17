@@ -19,7 +19,11 @@ import {
   releaseReaders,
   type ReportImageOutcome,
 } from "@/lib/ocr/reportImageReader";
-import { ReportImageReviewSheet, type ReviewRow } from "./ReportImageReviewSheet";
+import { reportFormKey } from "@repo/core/logic/dailyReport";
+import type { ShiftForm, ValueMap } from "@repo/core/types";
+import { reportCycleTitle } from "@/lib/reportCycles";
+import type { ImageEntry } from "@repo/core/logic/reportImageEntries";
+import { ReportImageReviewSheet, type ReviewTarget, type ReviewRow } from "./ReportImageReviewSheet";
 
 // ============================================================
 // 日報に配完個数表などの原本画像を添え、件数を読み取って入力する。
@@ -61,7 +65,7 @@ type UploadResponse = {
   capturedAtSource: "exif" | "photo_library" | "unknown";
 };
 
-export type ReportImageEntry = { unitId: string; fieldKey: string; value: number };
+export type ReportImageEntry = ImageEntry;
 
 /** 画像そのものは変えずに、縦横だけ読む */
 function readSize(file: File): Promise<{ width: number | null; height: number | null }> {
@@ -81,6 +85,7 @@ function readSize(file: File): Promise<{ width: number | null; height: number | 
 }
 
 type Review = {
+  context: string;
   outcome: ReportImageOutcome;
   sourceImageId: string;
   imageUrl: string;
@@ -91,10 +96,14 @@ type Review = {
 export default function ReportSourceImageField({
   reportDate,
   courseId,
+  shifts = [],
+  values = {},
   onApply,
 }: {
   reportDate: string;
   courseId?: string | null;
+  shifts?: readonly ShiftForm[];
+  values?: ValueMap;
   onApply?: (entries: ReportImageEntry[]) => void;
 }) {
   const { data, refresh } = useApi<ListResponse>(`/api/reports/source-images?date=${reportDate}`);
@@ -108,6 +117,20 @@ export default function ReportSourceImageField({
   /** 見比べずに入れたときの結果表示 */
   const [filled, setFilled] = useState<string[]>([]);
 
+  const targets: ReviewTarget[] = shifts.map(shift => ({
+    key: reportFormKey(shift.courseId,shift.cycleNo ?? 0),
+    label: `${shift.courseName} ${reportCycleTitle(shift.cycleNo ?? 0,shift.cycleLabel,shift.units.flatMap(unit => unit.fields.map(field => field.groupLabel)))}`,
+    fields: shift.units.flatMap(unit => unit.fields.map(field => ({ unitId: unit.id,fieldKey: field.fieldKey,value: values[reportFormKey(shift.courseId,shift.cycleNo ?? 0)]?.[unit.id]?.[field.fieldKey] ?? "" }))),
+  }));
+  const context = JSON.stringify([reportDate,courseId,targets.map(target => [target.key,target.fields.map(field => [field.unitId,field.fieldKey])])]);
+  const contextRef = useRef(context); contextRef.current = context;
+  const targetsRef = useRef(targets); targetsRef.current = targets;
+  const busyRef = useRef(false);
+  useEffect(() => { setReview(null);setFilled([]);setError(null); },[context]);
+  const routeRow = (row: ReviewRow): ReviewRow => {
+    const choices = targetsRef.current.filter(target => target.fields.some(field => field.unitId === row.unitId && field.fieldKey === row.fieldKey));
+    return { ...row,targetFormKey: choices.length === 1 ? choices[0].key : undefined,included: choices.length > 0 && row.value != null };
+  };
   const images = data?.images ?? [];
   const templates = useMemo(() => templateData?.templates ?? [], [templateData]);
   const canRead = templates.length > 0;
@@ -154,6 +177,8 @@ export default function ReportSourceImageField({
   };
 
   const handleFile = async (file: File) => {
+    if (busyRef.current || saving || review) return;
+    const requestContext = context;
     setError(null);
     if (file.type !== "image/jpeg" && file.type !== "image/png") {
       setError("PNGまたはJPEGの画像を選んでください");
@@ -163,6 +188,7 @@ export default function ReportSourceImageField({
       setError(`画像は${Math.floor(MAX_BYTES / (1024 * 1024))}MBまでです`);
       return;
     }
+    busyRef.current = true;
     setBusy(canRead ? "画像を読んでいます" : "送信中…");
     setFilled([]);
     try {
@@ -176,6 +202,7 @@ export default function ReportSourceImageField({
           ? readReportImage(file, latestTemplates, { reportDate, onStep: (step) => setBusy(step) })
           : Promise.resolve(null),
       ]);
+      if (contextRef.current !== requestContext) return;
       await refresh();
       if (uploadResult.status === "rejected") {
         throw uploadResult.reason instanceof Error ? uploadResult.reason : new Error("画像を送れませんでした");
@@ -205,10 +232,11 @@ export default function ReportSourceImageField({
         .map((field) => ({ unitId: field.unitId, fieldKey: field.fieldKey, value: field.value as number }));
 
       // 裏が取れている読み取り、または確認を省く設定のコースは、見比べずにそのまま入れる
-      if (canSkipReview(outcome.result.trust, { courseAllowsSkip }) && entries.length > 0) {
-        onApply?.(entries);
+      if (canSkipReview(outcome.result.trust, { courseAllowsSkip }) && entries.length > 0 && new Set(entries.map(entry => JSON.stringify([entry.unitId,entry.fieldKey]))).size === entries.length && targetsRef.current.length === 1 && images.length === 0 &&
+        entries.every(entry => targetsRef.current[0].fields.some(field => field.unitId === entry.unitId && field.fieldKey === entry.fieldKey && field.value === ""))) {
         await saveReading(
           {
+            context: requestContext,
             outcome,
             sourceImageId: uploaded.id,
             rows: outcome.result.fields
@@ -228,6 +256,8 @@ export default function ReportSourceImageField({
           },
           true,
         );
+        if (contextRef.current !== requestContext) return;
+        onApply?.(entries.map(entry => ({ ...entry,targetFormKey: targetsRef.current[0].key })));
         setFilled(
           outcome.result.fields
             .filter((field) => (field.role ?? "entry") === "entry" && field.value != null)
@@ -253,16 +283,19 @@ export default function ReportSourceImageField({
       const blob = await new Promise<Blob | null>((resolve) =>
         outcome.prepared.canvas.toBlob((value) => resolve(value), "image/jpeg", 0.85),
       );
+      if (contextRef.current !== requestContext) return;
       setReview({
+        context: requestContext,
         outcome,
         sourceImageId: uploaded.id,
         imageUrl: blob ? URL.createObjectURL(blob) : URL.createObjectURL(file),
-        rows,
+        rows: rows.map(routeRow),
         warnings: [...judged.reasons, ...outcome.result.warnings],
       });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "画像を送れませんでした");
+      if (contextRef.current === requestContext) setError(e instanceof Error ? e.message : "画像を送れませんでした");
     } finally {
+      busyRef.current = false;
       setBusy(null);
       if (inputRef.current) inputRef.current.value = "";
     }
@@ -292,8 +325,9 @@ export default function ReportSourceImageField({
         },
         corrected: adopted
           ? {
-              fields: current.rows.map((row) => ({
+              fields: current.rows.filter(row => row.included !== false).map((row) => ({
                 fieldId: row.fieldId,
+                targetFormKey: row.targetFormKey ?? null,
                 unitId: row.unitId,
                 fieldKey: row.fieldKey,
                 value: row.value,
@@ -306,14 +340,17 @@ export default function ReportSourceImageField({
   };
 
   const confirmReview = async () => {
-    if (!review) return;
+    if (!review || review.context !== contextRef.current) return;
+    const chosen = review.rows.filter(row => row.included);
+    if (new Set(chosen.map(row => JSON.stringify([row.targetFormKey,row.unitId,row.fieldKey]))).size !== chosen.length) return;
+    if (!chosen.length || chosen.some(row => row.value == null || !Number.isFinite(row.value) || row.value < 0 || !targetsRef.current.some(target => target.key === row.targetFormKey && target.fields.some(field => field.unitId === row.unitId && field.fieldKey === row.fieldKey)))) return;
     setSaving(true);
     try {
       await saveReading(review, true);
-      const entries = review.rows
-        .filter((row) => row.value != null && row.unitId && row.fieldKey)
-        .map((row) => ({ unitId: row.unitId, fieldKey: row.fieldKey, value: row.value as number }));
+      if (review.context !== contextRef.current) return;
+      const entries = chosen.map(row => ({ unitId: row.unitId,fieldKey: row.fieldKey,value: row.value as number,targetFormKey: row.targetFormKey }));
       onApply?.(entries);
+      setFilled([...new Set(chosen.map(row => targetsRef.current.find(target => target.key === row.targetFormKey)?.label).filter((label): label is string => !!label))]);
       if (review.imageUrl) URL.revokeObjectURL(review.imageUrl);
       setReview(null);
       await refresh();
@@ -327,7 +364,7 @@ export default function ReportSourceImageField({
   const cancelReview = async () => {
     if (!review) return;
     // 読んだ記録だけは残す（採用しない）。原本は提出済みのまま
-    void saveReading(review, false);
+    void saveReading(review, false).catch(() => { if(review.context === contextRef.current) setError("読み取りの記録を保存できませんでした。"); });
     if (review.imageUrl) URL.revokeObjectURL(review.imageUrl);
     setReview(null);
     await refresh();
@@ -370,8 +407,7 @@ export default function ReportSourceImageField({
                 className={`h-3 w-3 ${image.status === "confirmed" ? "text-emerald-600" : "text-slate-400"}`}
               />
               <span className="min-w-0 flex-1 truncate text-slate-700">{image.original_filename || "画像"}</span>
-              {image.status === "confirmed" && <span className="text-emerald-700">件数入力済み</span>}
-              <span className="tabular-nums text-slate-500">{Math.round(image.byte_size / 1024)}KB</span>
+              {image.status === "confirmed" && <span className="text-emerald-700">読み取り確認済み</span>}
             </li>
           ))}
         </ul>
@@ -391,7 +427,7 @@ export default function ReportSourceImageField({
         variant="outline"
         size="touch"
         className="w-full"
-        disabled={busy != null}
+        disabled={busy != null || saving || review != null}
         onClick={() => inputRef.current?.click()}
       >
         {busy ?? (canRead ? "画像から入力" : images.length > 0 ? "画像を追加" : "画像を選ぶ")}
@@ -414,6 +450,9 @@ export default function ReportSourceImageField({
 
       {review && (
         <ReportImageReviewSheet
+          targets={targets}
+          onTargetChange={(fieldId,key) => setReview(prev => prev ? { ...prev,rows: prev.rows.map(row => row.fieldId === fieldId ? { ...row,targetFormKey: key } : row) } : prev)}
+          onIncludeChange={(fieldId,included) => setReview(prev => prev ? { ...prev,rows: prev.rows.map(row => row.fieldId === fieldId ? { ...row,included } : row) } : prev)}
           templateName={review.outcome.template?.name ?? ""}
           imageUrl={review.imageUrl}
           imageWidth={review.outcome.prepared.width}

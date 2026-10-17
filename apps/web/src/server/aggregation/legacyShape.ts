@@ -29,6 +29,7 @@ export type LegacyDailyRow = {
   driver_identity_id: string | null;
   report_date: string;
   course_id: string | null;
+  course_color?: string | null;
   course_name: string | null; // コースの実表示名（同一キャリアで複数コースのとき行を見分けるため）
   // 便（サイクル）。同じコースのC1/C2が2行並ぶため、どちらの便かを行で見分けられるようにする
   cycle_no: number;
@@ -163,7 +164,7 @@ export async function loadLegacyDailyRows(
     supabase.from("carriers").select("id, code, name"),
     supabase.from("units").select("id, code"),
     // コースはテナント固有マスタ。名前解決のためだけでも他社行は読まない
-    supabase.from("courses").select("id, name").eq("org_id", orgId),
+    supabase.from("courses").select("id, name, color").eq("org_id", orgId),
     // 便も同じ。courses!inner で結合先の org を絞る（course_cycles は org 列を持たない）
     // tenant-scope-ok: courses!inner + .eq("courses.org_id", orgId) で結合先の org を絞っている
     supabase.from("course_cycles").select("course_id, cycle_no, label, courses!inner(org_id)").eq("courses.org_id", orgId),
@@ -176,6 +177,7 @@ export async function loadLegacyDailyRows(
     carrierCodeById.set(c.id, c.code ?? "");
     carrierNameById.set(c.id, c.name ?? "");
   });
+  const courseColorById = new Map<string, string | null>((courseRows ?? []).map((c: { id: string; color?: string | null }) => [c.id, c.color ?? null]));
   const courseNameById = new Map<string, string>();
   (courseRows ?? []).forEach((c: { id: string; name: string | null }) =>
     courseNameById.set(c.id, c.name ?? ""),
@@ -279,6 +281,7 @@ export async function loadLegacyDailyRows(
         report_date: r.report_date,
         course_id: r.course_id,
         course_name: (r.course_id && courseNameById.get(r.course_id)) || null,
+        course_color: (r.course_id && courseColorById.get(r.course_id)) || null,
         cycle_no: Number(r.cycle_no) || 0,
         cycle_label: Number(r.cycle_no) > 0
           ? cycleLabelByKey.get(`${r.course_id}:${Number(r.cycle_no)}`) ?? `C${Number(r.cycle_no)}`
