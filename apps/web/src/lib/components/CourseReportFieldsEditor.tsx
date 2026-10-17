@@ -93,8 +93,9 @@ export const CourseReportFieldsEditor = forwardRef<CourseReportFieldsEditorHandl
   const save = async () => {
     if (busy.current) return false;
     if (!courseId || !data || disabled || !dirty) return true;
-    if (targets.some(t => data.units.some(u => u.fields.length) && !data.units.some(u => u.fields.some(f => selected.has(keyOf(t.cycleNo, u.id, f.fieldKey)))))) {
-      setMessage("各便に記録する入力欄を1つ以上選んでください。"); return false;
+    const emptyTarget = targets.find(t => data.units.some(u => u.fields.length) && !data.units.some(u => u.fields.some(f => selected.has(keyOf(t.cycleNo, u.id, f.fieldKey)))));
+    if (emptyTarget) {
+      setMessage(`${emptyTarget.label}に記録する入力欄を1つ以上選んでください。`); return false;
     }
     busy.current = true; setSaving(true); setMessage("");
     try {

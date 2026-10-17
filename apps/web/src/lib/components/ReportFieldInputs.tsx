@@ -11,7 +11,7 @@ export function ReportFieldInputs({ fields, valueFor, onChange, preview = false 
 }) {
   return <div className="grid grid-cols-2 gap-3">{fields.map(f => {
     const value = valueFor(f.fieldKey);
-    if (f.inputType === "BOOL") return <CheckboxField key={f.fieldKey} label={f.label} variant="row"
+    if (f.inputType === "BOOL") return <CheckboxField key={f.fieldKey} label={f.required ? `${f.label}（必須）` : f.label} variant="row"
       checked={value === "true"} disabled={preview} onCheckedChange={checked => onChange(f.fieldKey, checked ? "true" : "false")} />;
     const numeric = f.inputType === "INT";
     return <label key={f.fieldKey} className="min-w-0 rounded-xl border border-slate-200 bg-white p-4">
