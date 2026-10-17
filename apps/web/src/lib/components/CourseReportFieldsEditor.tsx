@@ -7,6 +7,7 @@ import { invalidateApi } from "@/lib/swr";
 import { CustomSelect } from "@/lib/components/CustomSelect";
 import { ReportFieldInputs } from "@/lib/components/ReportFieldInputs";
 import { reportCycleTone } from "@/lib/reportCycles";
+import { useUnsavedChanges } from "@/lib/recordForms/useUnsavedChanges";
 import { SmoothCollapse } from "@/lib/components/SmoothCollapse";
 
 type FieldDef = { fieldKey: string; label: string; groupLabel: string | null; inputType: "INT" | "TEXT" | "TIME" | "BOOL" };
@@ -37,6 +38,7 @@ export const CourseReportFieldsEditor = forwardRef<CourseReportFieldsEditorHandl
   const [original, setOriginal] = useState<Selected[]>([]);
   const [loadedKey, setLoadedKey] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
+  useUnsavedChanges(dirty);
   const [saving, setSaving] = useState(false);
   const busy = useRef(false);
   const [message, setMessage] = useState("");
