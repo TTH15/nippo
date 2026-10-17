@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { AllReportCard, PendingDriverCard, type ReportLike } from "./ReportCards";
 const driver = { id: "driver", name: "架空 太郎" };
-const first: ReportLike = { id: "c1", course_id: "course", course_name: "日中サンプル", cycle_no: 1, cycle_label: "C1", carrier: "YAMATO", vehicle_id: "van", vehicle_plate: { id: "van", number_prefix: "京都", number_class: "480", number_hiragana: "り", number_numeric: "1234" }, meter_value: 149063, submitted_at: "2026-10-16T19:00:00+09:00", content: [{ unitId: "parcel", unitName: "宅急便", fields: [{ fieldKey: "completed", label: "完了", inputType: "INT", groupLabel: null, valueNum: 80, valueText: null }] }] };
+const first: ReportLike = { id: "c1", course_id: "course", course_name: "日中サンプル", cycle_no: 1, cycle_label: "C1", carrier: "YAMATO", vehicle_id: "van", vehicle_plate: { id: "van", number_prefix: "京都", number_class: "480", number_hiragana: "り", number_numeric: "1234" }, meter_value: 149063, submitted_at: new Date(2026, 9, 16, 19, 0).toISOString(), content: [{ unitId: "parcel", unitName: "宅急便", fields: [{ fieldKey: "completed", label: "完了", inputType: "INT", groupLabel: null, valueNum: 80, valueText: null }] }] };
 const second = { ...first, id: "c2", cycle_no: 2, cycle_label: "C2", content: [{ ...first.content![0], fields: [{ ...first.content![0].fields[0], valueNum: 40 }] }] };
 afterEach(cleanup);
 it("1人1日で車両・メーター・送信時刻を1回表示し、両便の実績と編集先を保つ", () => {
