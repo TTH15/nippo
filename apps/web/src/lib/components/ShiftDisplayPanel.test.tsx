@@ -25,7 +25,7 @@ it("開閉ではシフト表を再描画せず、表示項目の変更だけを�
   const toggle = screen.getByRole("button", { name: "表示" });
   expect(toggle).toHaveAttribute("aria-expanded", "false");
   fireEvent.click(toggle);
-  expect(screen.getByRole("region", { name: "表示" })).toHaveAttribute("id", toggle.getAttribute("aria-controls"));
+  expect(screen.getByRole("dialog", { name: "表示" })).toHaveAttribute("id", toggle.getAttribute("aria-controls"));
   expect(renderTable).toHaveBeenCalledTimes(initialRenders);
 
   fireEvent.click(screen.getByRole("button", { name: "車両" }));

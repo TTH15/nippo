@@ -27,3 +27,6 @@ export const loginSceneTransition = {
   duration: 0.62,
   ease: [0.22, 1, 0.36, 1] as const,
 };
+
+/** 表を動かさない表示設定と半月切替。 */
+export const controlPopoverMotion = { duration: 0.2, ease: [0.22, 1, 0.36, 1] as const, scale: 0.98, cssEase: "cubic-bezier(0.22, 1, 0.36, 1)" };

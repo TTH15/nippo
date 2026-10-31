@@ -30,8 +30,15 @@ export async function apiFetch<T = unknown>(path: string, init?: RequestInit, op
 }
 
 /** "@/lib/api" の apiUpload の差し替え。ファイルは送らず、fixture へ POST だけ伝える */
-export async function apiUpload<T = unknown>(path: string, form: FormData): Promise<T> {
+export async function apiUpload<T = unknown>(path: string, form: FormData, signal?: AbortSignal): Promise<T> {
   const { store } = getPreviewRuntime();
+  if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+  if (path === "/api/admin/shifts/memo/read" && store.scenario === "memo-read") await new Promise<void>((resolve,reject) => {
+    const abort = () => { clearTimeout(timer); reject(new DOMException("Aborted", "AbortError")); };
+    const timer = setTimeout(() => { signal?.removeEventListener("abort",abort); resolve(); },4000);
+    signal?.addEventListener("abort",abort,{once:true});
+  });
+  if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
   const body: Record<string, unknown> = {};
   form.forEach((value, key) => {
     body[key] = value instanceof File ? { name: value.name, size: value.size, type: value.type } : value;

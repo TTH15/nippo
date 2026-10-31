@@ -15,7 +15,7 @@ vi.mock("@repo/core/auth", () => ({
 }));
 vi.mock("@repo/core/api", () => ({ apiFetch: mock.fetch }));
 
-import { apiFetch, clearAuth, getAdminToken, renewAdminToken, setAuth, setLoginSession } from "./api";
+import { apiFetch, apiUpload, clearAuth, getAdminToken, renewAdminToken, setAuth, setLoginSession } from "./api";
 
 const driver = { id: "member-1", name: "試験者", role: "DRIVER" };
 
@@ -71,4 +71,18 @@ describe("同じアカウントの業務・運営セッション", () => {
       headers: expect.objectContaining({ Authorization: "Bearer renewed-admin-token" }),
     }), expect.objectContaining({ skipAuthRedirect: true }));
   });
+});
+
+it("アップロードの中止をfetchへ伝え、ログイン状態を保つ",async()=>{
+ setLoginSession("work-token",driver,"admin-token");
+ const controller=new AbortController();
+ vi.mocked(fetch).mockImplementationOnce((_path,init)=>new Promise((_resolve,reject)=>{
+   init?.signal?.addEventListener("abort",()=>reject(new DOMException("Aborted","AbortError")),{once:true});
+ }));
+ const form=new FormData();form.set("file",new File(["sample"],"memo.png"));
+ const uploading=apiUpload("/api/admin/shifts/memo/read",form,controller.signal);
+ controller.abort();
+ await expect(uploading).rejects.toMatchObject({name:"AbortError"});
+ expect(fetch).toHaveBeenCalledWith("/api/admin/shifts/memo/read",expect.objectContaining({signal:controller.signal,headers:{Authorization:"Bearer admin-token"}}));
+ expect(getAdminToken()).toBe("admin-token");
 });

@@ -55,3 +55,8 @@ it("候補の非表示をJSONで復元し、利用できないIDと不正値は�
  expect(parseShiftMemoTransfer(exportShiftMemo(hidden),context).board.hiddenPeople).toEqual(hidden.hiddenPeople);
  expect(parseShiftMemoTransfer(exportShiftMemo(hidden),{...context,driverIds:[]}).board.hiddenPeople).toEqual({"custom:乙":true});
 });
+
+it("曜日・日付の背景色をJSONで欠かさず受け渡す", () => {
+  const colored={...board,backgroundColors:{"weekday:1":"yellow" as const,"date:2026-10-20":"none" as const}};
+  expect(parseShiftMemoTransfer(exportShiftMemo(colored),context).board).toEqual(colored);
+});

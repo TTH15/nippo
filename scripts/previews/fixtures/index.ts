@@ -50,6 +50,7 @@ import { submitFixture } from "./submit";
 import { myShiftsFixture } from "./myShifts";
 import { accountFixture } from "./account";
 import { loginFixture } from "./login";
+import ShiftMemosPage from "@/app/(admin)/admin/(ops)/shift-memos/page";
 import ShiftsPage from "@/app/(admin)/admin/(ops)/shifts/page";
 import { shiftsFixture } from "./shifts";
 import OrganizationPage from "@/app/(admin)/admin/(settings)/organization/page";
@@ -69,6 +70,7 @@ export const PREVIEW_PAGES: PreviewPageEntry[] = [
   entry("driver-report", reportFixture, ReportPreview),
   entry("organization", organizationFixture, OrganizationPage),
   entry("shifts", shiftsFixture, ShiftsPage),
+  entry("shift-memos", { ...shiftsFixture, title: "シフトメモ", pathname: "/admin/shift-memos" }, ShiftMemosPage),
   entry("report-kinds", reportKindsFixture, ReportKindsPage),
   entry("report-image-templates", reportImageTemplatesFixture, ReportImageTemplatesPage),
   entry("daily", dailyFixture, AdminDailyPage),

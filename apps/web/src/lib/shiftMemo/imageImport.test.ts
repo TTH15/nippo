@@ -48,3 +48,14 @@ describe("画像・PDFから個人メモへの読み込み", () => {
     expect(board.assignments["lane-1|2026-09-16"][0].name).toBe("旧");
   });
 });
+
+it("稼働への変更を選んだときだけ休みを上書きし、対象外の日・配置を維持する", () => {
+  const read = parseImageMemoRead(raw,raw.period);
+  const source = {...board,dayOverrides:{"lane-1|2026-09-16":"off" as const,"lane-1|2026-09-18":"off" as const}};
+  const unchanged = mergeImageMemoRead(source,read,["lane:lane-1","skip"],courses,drivers);
+  expect(unchanged.dayOverrides).toEqual(source.dayOverrides);
+  const merged = mergeImageMemoRead(source,read,["lane:lane-1","skip"],courses,drivers,{activateDays:true});
+  expect(merged.dayOverrides).toEqual({"lane-1|2026-09-16":"on","lane-1|2026-09-18":"off"});
+  expect(merged.assignments["lane-1|2026-09-18"]).toEqual(source.assignments["lane-1|2026-09-18"]);
+  expect(source.dayOverrides["lane-1|2026-09-16"]).toBe("off");
+});

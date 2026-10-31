@@ -1,5 +1,5 @@
 import { readHiddenPeople } from "./sharedBoardSync";
-import { readRequiredCountOverrides, type DayOverride } from "./board";
+import { readBackgroundColors, readRequiredCountOverrides, type MemoBackground, type DayOverride } from "./board";
 
 export type TransferLane = {
   id: string;
@@ -23,6 +23,7 @@ export type ShiftMemoBoardData = {
   notes: Record<string, string>;
   dayOverrides?: Record<string, DayOverride>;
   requiredCountOverrides?: Record<string, number>;
+  backgroundColors?: Record<string, MemoBackground>;
   routeOrder?: string[];
   hiddenRouteIds?: string[];
   widths?: { day: number; lane: number; detail: number };
@@ -157,6 +158,7 @@ export function parseShiftMemoTransfer(
     ...(source.hiddenPeople === undefined ? {} : { hiddenPeople: Object.fromEntries(Object.entries(readHiddenPeople(source.hiddenPeople)).filter(([key]) =>
       key.startsWith("driver:") ? driverIds.has(key.slice(7)) : (source.extraPeople as string[]).includes(key.slice(7)))) }),
     requiredCountOverrides: readRequiredCountOverrides(source.requiredCountOverrides),
+    ...(source.backgroundColors === undefined ? {} : { backgroundColors: readBackgroundColors(source.backgroundColors) }),
     routeOrder, hiddenRouteIds,
     widths: object(source.widths) && [source.widths.day, source.widths.lane, source.widths.detail].every((n) => typeof n === "number" && Number.isFinite(n))
       ? source.widths as ShiftMemoBoardData["widths"] : undefined,

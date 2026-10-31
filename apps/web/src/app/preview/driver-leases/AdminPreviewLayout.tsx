@@ -6,7 +6,9 @@ import { previewConnectionLabel } from "./mapbox-config";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronDown, faLock, faRightFromBracket, faXmark } from "@fortawesome/free-solid-svg-icons";
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
-import { activeAdminNavHref, adminNavItems as navItems, type NavChild, type NavItem } from "@/lib/components/adminNavItems";
+import { activeAdminNavGroup, activeAdminNavHref, adminNavItems as navItems, type NavChild, type NavItem } from "@/lib/components/adminNavItems";
+import { AdminSidebar } from "@/lib/components/AdminSidebar";
+import { scrollAdminNavItemIntoView } from "@/lib/ui/scrollAdminNavItemIntoView";
 import { SmoothCollapse } from "@/lib/components/SmoothCollapse";
 
 // 試験提供中バッジ。ラベルの直後に置く。
@@ -22,13 +24,14 @@ function BetaBadge() {
 function LockedNavRow({ label, icon }: { label: string; icon?: IconDefinition }) {
   return (
     <div
-      className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-[13px] font-bold text-slate-300 cursor-not-allowed select-none"
-      title="このロールには権限がありません"
+      className="flex items-center gap-2 px-3 group-data-[sidebar-open]/sidebar:px-[17px] py-2.5 rounded-lg text-[13px] font-bold text-slate-300 cursor-not-allowed select-none"
+      title={`${label}：権限がありません`}
+      aria-label={label}
       aria-disabled
     >
       {icon && <FontAwesomeIcon icon={icon} className="w-3.5 h-3.5 opacity-60" />}
-      {label}
-      <span className="ml-auto flex items-center gap-2">
+      <span className="group-data-[sidebar-open=false]/sidebar:invisible">{label}</span>
+      <span className="ml-auto flex items-center gap-2 group-data-[sidebar-open=false]/sidebar:invisible">
         <FontAwesomeIcon icon={faLock} className="w-3 h-3 opacity-70" />
       </span>
     </div>
@@ -57,7 +60,7 @@ export function AdminPreviewLayout({ children, pathname, onReset, viewer, compan
   const canWrite = viewer ? viewer.role === "ADMIN" : true;
   const isViewer = viewer?.role === "ADMIN_VIEWER";
   const isLocked = (cap?: string) => !!viewer && !!cap && !viewer.capabilities.includes(cap);
-  const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const [openMenu, setOpenMenu] = useState<string | null>(() => activeAdminNavGroup(pathname));
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const dailyUnreadCount = 0;
   const otherUnreadCount = 0;
@@ -90,7 +93,7 @@ export function AdminPreviewLayout({ children, pathname, onReset, viewer, compan
   }, []);
 
   useEffect(() => {
-    setOpenMenu(null); setMobileNavOpen(false);
+    setMobileNavOpen(false);
     // 本番ではルート遷移でページが再マウントされる。状態切替のモックでも先頭へ戻す。
     if (mainRef.current) mainRef.current.scrollTop = 0;
     document.documentElement.scrollTop = 0;
@@ -102,10 +105,7 @@ export function AdminPreviewLayout({ children, pathname, onReset, viewer, compan
   const isActive = (href: string) => activeAdminNavHref(pathname) === href;
 
   useEffect(() => {
-    const activeGroup = navItems.find((item) => item.children?.some((child) =>
-      pathname === child.href || pathname.startsWith(`${child.href}/`),
-    ));
-    setOpenMenu(activeGroup?.label ?? null);
+    setOpenMenu(activeAdminNavGroup(pathname));
   }, [pathname]);
 
   const toggleMenu = (label: string) => setOpenMenu((current) => current === label ? null : label);
@@ -114,7 +114,7 @@ export function AdminPreviewLayout({ children, pathname, onReset, viewer, compan
     if (!openMenu) return;
     const timer = window.setTimeout(() => {
       const panel = document.getElementById(`${mobileNavOpen ? "admin-mobile-nav" : "admin-nav"}-${openMenu}`);
-      (panel?.querySelector('[aria-current="page"]') ?? panel?.querySelector("a"))?.scrollIntoView({ block: "nearest" });
+      scrollAdminNavItemIntoView(panel);
     }, 170);
     return () => window.clearTimeout(timer);
   }, [openMenu, mobileNavOpen]);
@@ -176,24 +176,12 @@ export function AdminPreviewLayout({ children, pathname, onReset, viewer, compan
       </header>
 
       <div className="flex flex-1 min-h-0">
-        {/* Sidebar（デスクトップ常時表示） */}
-        <aside
-          className="hidden md:flex z-40 w-56 bg-white text-slate-700 border-r border-slate-200 flex-col shrink-0 h-screen sticky top-0 overflow-hidden"
-        >
-          {/* Logo */}
-          <div className="h-20 flex items-center border-b border-slate-200 p-2">
-            <Link href="/admin" className="inline-flex items-center">
-              <Image
-                src={"/logo/hakotora-logo_primary_logo.svg"}
-                alt="ハコ虎"
-                width={150}
-                height={50}
-                className="h-20 w-auto"
-                priority
-              />
-            </Link>
-          </div>
-
+        <AdminSidebar logo={
+          <Link href="/admin" className="inline-flex max-w-full items-center">
+            <Image src="/logo/hakotora-logo_primary_logo.svg" alt="ハコ虎" width={150} height={50}
+              className="h-auto w-full max-w-[150px]" priority />
+          </Link>
+        }>{({ open: sidebarOpen, expand }) => <>
           {/* Navigation */}
           <nav aria-label="管理メニュー" className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-3">
             <ul className="space-y-0.5 px-2">
@@ -222,14 +210,15 @@ export function AdminPreviewLayout({ children, pathname, onReset, viewer, compan
                         id={`${panelId}-button`}
                         aria-expanded={isOpen}
                         aria-controls={panelId}
-                        onClick={() => toggleMenu(item.label)}
-                        className={`flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[13px] font-bold transition-colors ${hasActiveChild
+                        onClick={() => { if (sidebarOpen) toggleMenu(item.label); else { setOpenMenu(item.label); expand(`${panelId}-button`); } }}
+                        aria-label={getParentUnreadCount(item) > 0 ? `${item.label}（要確認${getParentUnreadCount(item)}件）` : item.label} title={item.label}
+                        className={`flex min-h-11 w-full group-data-[sidebar-open=false]/sidebar:w-12 items-center gap-2 rounded-lg px-[17px] py-2 text-left text-[13px] font-bold transition-colors ${hasActiveChild
                           ? "bg-amber-100 text-amber-800"
                           : isOpen ? "bg-slate-100 text-slate-900" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"}`}
                       >
-                        {item.icon && <FontAwesomeIcon icon={item.icon} className="h-3.5 w-3.5 opacity-90" />}
-                        {item.label}
-                        <span className="ml-auto flex items-center gap-2">
+                        {item.icon && <span className="relative shrink-0"><FontAwesomeIcon icon={item.icon} className="h-3.5 w-3.5 opacity-90" />{getParentUnreadCount(item) > 0 && <span aria-hidden="true" className="absolute -right-1 -top-1 hidden h-1.5 w-1.5 rounded-full bg-rose-500 group-data-[sidebar-open=false]/sidebar:block"/>}</span>}
+                        <span className="whitespace-nowrap group-data-[sidebar-open=false]/sidebar:invisible">{item.label}</span>
+                        <span className="ml-auto flex items-center gap-2 group-data-[sidebar-open=false]/sidebar:invisible">
                           {getParentUnreadCount(item) > 0 && (
                             <span className="inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] leading-none text-white tabular-nums">
                               {getParentUnreadCount(item)}
@@ -239,22 +228,23 @@ export function AdminPreviewLayout({ children, pathname, onReset, viewer, compan
                         </span>
                       </button>
                       <SmoothCollapse open={isOpen} id={panelId} labelledBy={`${panelId}-button`} speed="quick">
-                        <ul className="mb-1 ml-5 border-l border-slate-200 pl-2">
+                        <ul className="mb-1 ml-2 border-l border-slate-200">
                           {filteredChildren.map((child) => (
                             <li key={child.href}>
                               {isLocked(child.cap) ? <LockedNavRow label={child.label} icon={child.icon} /> : (
                                 <Link
                                   href={child.href}
+                                  aria-label={child.label} title={child.label}
                                   aria-current={isActive(child.href) ? "page" : undefined}
-                                  className={`flex min-h-11 items-center gap-2 rounded-lg px-2 py-2 text-[12px] font-semibold transition-colors ${isActive(child.href)
+                                  className={`flex min-h-11 group-data-[sidebar-open=false]/sidebar:w-11 items-center gap-2 rounded-lg px-2 py-2 text-[12px] font-semibold transition-colors ${isActive(child.href)
                                     ? "bg-amber-50 text-amber-800"
                                     : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"}`}
                                 >
                                   {child.icon && <FontAwesomeIcon icon={child.icon} className="h-3.5 w-3.5 shrink-0 opacity-90" />}
-                                  <span>{child.label}</span>
-                                  {child.beta && <BetaBadge />}
+                                  <span className="whitespace-nowrap group-data-[sidebar-open=false]/sidebar:invisible">{child.label}</span>
+                                  {child.beta && <span className="whitespace-nowrap group-data-[sidebar-open=false]/sidebar:invisible"><BetaBadge /></span>}
                                   {getChildUnreadCount(child.href) > 0 && (
-                                    <span className="ml-auto inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] leading-none text-white tabular-nums">
+                                    <span className="ml-auto group-data-[sidebar-open=false]/sidebar:invisible inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] leading-none text-white tabular-nums">
                                       {getChildUnreadCount(child.href)}
                                     </span>
                                   )}
@@ -281,18 +271,20 @@ export function AdminPreviewLayout({ children, pathname, onReset, viewer, compan
                   <li key={item.href}>
                     <Link
                       href={item.href}
-                      className={`flex items-center gap-2 px-3 py-2.5 rounded-lg text-[13px] font-bold transition-colors ${active
+                      aria-label={item.label} title={item.label}
+                      aria-current={active ? "page" : undefined}
+                      className={`flex min-h-11 group-data-[sidebar-open=false]/sidebar:w-12 items-center gap-2 px-[17px] py-2.5 rounded-lg text-[13px] font-bold transition-colors ${active
                           ? "bg-amber-100 text-amber-800"
                           : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
                         }`}
                     >
                       {item.icon && (
-                        <FontAwesomeIcon icon={item.icon} className="w-3.5 h-3.5 opacity-90" />
+                        <FontAwesomeIcon icon={item.icon} className="w-3.5 h-3.5 shrink-0 opacity-90" />
                       )}
-                      {item.label}
-                      {item.beta && <BetaBadge />}
+                      <span className="whitespace-nowrap group-data-[sidebar-open=false]/sidebar:invisible">{item.label}</span>
+                      {item.beta && <span className="whitespace-nowrap group-data-[sidebar-open=false]/sidebar:invisible"><BetaBadge /></span>}
                       {/* chevron を持たないリンクも、同じ幅のスペーサーでバッジ右端を親項目と揃える */}
-                      <span className="ml-auto flex items-center gap-2">
+                      <span className="ml-auto flex items-center gap-2 group-data-[sidebar-open=false]/sidebar:invisible">
                         {linkUnread > 0 && (
                           <span className="inline-flex items-center justify-center min-w-5 h-5 px-1 rounded-full bg-rose-500 text-white text-[10px] leading-none tabular-nums">
                             {linkUnread}
@@ -308,7 +300,7 @@ export function AdminPreviewLayout({ children, pathname, onReset, viewer, compan
           </nav>
 
           {/* User section */}
-          <div className="shrink-0 p-4 border-t border-slate-200">
+          <div inert={!sidebarOpen || undefined} aria-hidden={!sidebarOpen || undefined} className="shrink-0 p-4 border-t border-slate-200 group-data-[sidebar-open=false]/sidebar:invisible">
             <p className="mb-2 text-[10px] font-medium text-amber-800">{noticeLabel ?? `プレビュー · 架空データ・${previewConnectionLabel}`}</p>
             <div className="flex items-center justify-between">
               <Link href="/admin/account" className="min-w-0 hover:opacity-70 transition-opacity">
@@ -327,7 +319,8 @@ export function AdminPreviewLayout({ children, pathname, onReset, viewer, compan
               </button>
             </div>
           </div>
-        </aside>
+        </>}
+        </AdminSidebar>
 
         {/* モバイル用ドロワーナビ。常時マウントし、開閉ともスライド＋フェードで滑らかに動かす
             （条件付きマウントだと初期状態が無く transition が効かない） */}

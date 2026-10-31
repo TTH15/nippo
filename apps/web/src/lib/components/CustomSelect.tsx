@@ -221,6 +221,7 @@ export function CustomSelect({
         createPortal(
           <AnimatePresence>
             <motion.div
+              data-custom-select-popup=""
               ref={dropdownRef}
               initial={{ opacity: 0, y: dropdownRect.bottom !== undefined ? 10 : -10 }}
               animate={{ opacity: 1, y: 0 }}

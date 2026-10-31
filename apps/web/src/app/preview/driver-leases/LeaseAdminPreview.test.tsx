@@ -9,7 +9,7 @@ const openDrivers = () => {
 };
 const openShifts = () => {
   fireEvent.click(navigation().getByRole("button", { name: "シフト" }));
-  fireEvent.click(navigation().getByRole("link", { name: "シフト" }));
+  fireEvent.click(navigation().getByRole("link", { name: "シフト表" }));
 };
 const click = (name: string) => {
   const nav = screen.getByRole("navigation");
@@ -316,7 +316,7 @@ describe("管理プレビューの画面間連携", () => {
     click("表示"); click("コース軸"); click("ヤマト 北大阪 2026-09-02 の割当を編集");
     click("伊藤 彩をコースに追加");
     expect(screen.getByRole("button", { name: "伊藤 彩をコースから外す" })).toBeTruthy();
-    click("閉じる"); click("ドライバー軸");
+    click("閉じる"); click("表示"); click("ドライバー軸");
     const cell = screen.getByRole("button", { name: "伊藤 彩 2026-09-02 のシフトを編集" });
     expect(cell.textContent).toContain("北大阪");
     expect(cell.textContent).toContain("吹田");

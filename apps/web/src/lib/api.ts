@@ -110,7 +110,7 @@ export async function apiFetch<T = unknown>(path: string, options: RequestInit =
   }
 }
 
-export async function apiUpload<T = unknown>(path: string, form: FormData): Promise<T> {
+export async function apiUpload<T = unknown>(path: string, form: FormData, signal?: AbortSignal): Promise<T> {
   const admin = isAdminRequest(path);
   const token = admin ? (getAdminToken() ?? await renewAdminToken()) : getToken();
   if (!token && admin) {
@@ -118,6 +118,7 @@ export async function apiUpload<T = unknown>(path: string, form: FormData): Prom
     throw new Error("運営画面にはかんたんログインが必要です");
   }
   const send = (credential: string | null) => fetch(path, { method: "POST", body: form,
+    ...(signal ? { signal } : {}),
     headers: credential ? { Authorization: `Bearer ${credential}` } : {} });
   let response = await send(token);
   if (response.status === 401 && admin) {

@@ -105,3 +105,91 @@ export function fullDayOffByDate(requests: readonly ShiftRequestLike[]): Map<str
   }
   return map;
 }
+
+
+export const MEMO_BACKGROUND_COLORS = [
+  { value: "none", label: "色なし", color: "#ffffff" },
+  { value: "yellow", label: "黄", color: "#fef3c7" },
+  { value: "rose", label: "赤", color: "#ffe4e6" },
+  { value: "sky", label: "青", color: "#dbeafe" },
+  { value: "green", label: "緑", color: "#dcfce7" },
+  { value: "violet", label: "紫", color: "#ede9fe" },
+] as const;
+export type MemoBackground = typeof MEMO_BACKGROUND_COLORS[number]["value"];
+export const isMemoBackgroundKey = (key: string) => key.length <= 200 && /^(weekday:[0-6]|date:\d{4}-\d{2}-\d{2}|row:.+|course:.+|cell:.+\|\d{4}-\d{2}-\d{2})$/.test(key);
+export const isMemoBackground = (value: unknown): value is MemoBackground => MEMO_BACKGROUND_COLORS.some(item => item.value === value);
+export function readBackgroundColors(value: unknown): Record<string, MemoBackground> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(Object.entries(value).filter(([key,color]) => isMemoBackgroundKey(key) && isMemoBackground(color))) as Record<string, MemoBackground>;
+}
+/** セル > 担当枠 > コース > 日付 > 曜日。色なしも明示指定として扱う。 */
+export function memoBackgroundColor(colors: Record<string, MemoBackground>, date?: string, laneId?: string, routeId?: string): string | undefined {
+  const value = (date && laneId ? colors[`cell:${cellKey(laneId,date)}`] : undefined)
+    ?? (laneId ? colors[`row:${laneId}`] : undefined)
+    ?? (routeId ? colors[`course:${routeId}`] : undefined)
+    ?? (date ? colors[`date:${date}`] ?? colors[`weekday:${new Date(`${date}T12:00:00`).getDay()}`] : undefined);
+  return MEMO_BACKGROUND_COLORS.find(item => item.value === value)?.color;
+}
+/** 非表示は表示設定だけ。全コースの稼働枠にある配置を日付で重複排除する。 */
+export function memoWorkDays(
+  lanes: readonly { id: string; activeWeekdays: number[] }[],
+  assignments: Record<string, readonly { personKey: string; driverId?: string; name: string }[]>,
+  dates: readonly string[], dayOverrides: Record<string, DayOverride>,
+): Map<string, { name: string; days: number }> {
+  const days = new Map<string, { name: string; dates: Set<string> }>();
+  for (const date of dates) for (const lane of lanes) {
+    const key = cellKey(lane.id,date);
+    if (!resolveDayActivity(lane.activeWeekdays,new Date(`${date}T12:00:00`).getDay(),dayOverrides[key]).active) continue;
+    for (const person of assignments[key] ?? []) {
+      const id = person.driverId ? `driver:${person.driverId}` : person.personKey;
+      const entry = days.get(id) ?? { name: person.name, dates: new Set<string>() };
+      entry.dates.add(date);days.set(id,entry);
+    }
+  }
+  return new Map([...days].map(([key,entry]) => [key,{ name: entry.name, days: entry.dates.size }]));
+}
+
+
+/** 行・列の交差は最後に塗った範囲に合わせ、範囲外の設定は維持する。 */
+export function paintMemoBackground(
+  colors: Record<string, MemoBackground>, key: string, value: MemoBackground | null,
+  lanes: readonly {id: string; routeId: string}[], dates: readonly string[],
+): Record<string, MemoBackground> {
+  if (!isMemoBackgroundKey(key)) return colors;
+  const next = {...colors};
+  if (value === null) delete next[key];else next[key] = value;
+  if (key.startsWith("date:")) {
+    const date = key.slice(5);
+    for (const lane of lanes) {
+      const cell = `cell:${cellKey(lane.id,date)}`;
+      if(value === null) delete next[cell];
+      else if (next[cell] || next[`row:${lane.id}`] || next[`course:${lane.routeId}`]) next[cell] = value;
+    }
+  } else if (key.startsWith("row:") || key.startsWith("course:")) {
+    const selected = lanes.filter(lane => key === `row:${lane.id}` || key === `course:${lane.routeId}`);
+    for (const lane of selected) {
+      if(key.startsWith("course:")) delete next[`row:${lane.id}`];
+      for (const date of dates) delete next[`cell:${cellKey(lane.id,date)}`];
+    }
+  }
+  return next;
+}
+
+
+/** 未配置の表示用一覧。非表示の枠も確認し、driverIdで旧personKeyを同一人物として扱う。 */
+export function memoUnassignedPeople<T extends { personKey: string; driverId?: string }>(
+  candidates: readonly T[], lanes: readonly { id: string }[],
+  assignments: Record<string, readonly { personKey: string; driverId?: string }[]>,
+  dates: readonly string[], hiddenPeople: Record<string, true>,
+): Map<string, T[]> {
+  const visible = candidates.filter(person => !hiddenPeople[person.personKey]);
+  return new Map(dates.map(date => {
+    const keys = new Set<string>();
+    const driverIds = new Set<string>();
+    for (const lane of lanes) for (const person of assignments[cellKey(lane.id, date)] ?? []) {
+      keys.add(person.personKey);
+      if (person.driverId) driverIds.add(person.driverId);
+    }
+    return [date, visible.filter(person => !keys.has(person.personKey) && !(person.driverId && driverIds.has(person.driverId)))];
+  }));
+}

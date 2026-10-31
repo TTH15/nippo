@@ -87,3 +87,20 @@ export function exportBodySlices(
 
   return slices;
 }
+
+/** エクスポート中の見出しクリックを、配置を書き換えず出力矩形へ変換する。 */
+export function exportRangeFromHeader(
+  rows: (ExportBodyRow & { laneId: string })[], dates: readonly string[], labelWidth: number, dayWidth: number,
+  target: { kind: "column" | "row" | "course"; key: string },
+) {
+  const selected = target.kind === "column" ? rows : rows.filter(row => target.kind === "row" ? row.laneId === target.key : row.routeId === target.key);
+  const dayIndex = target.kind === "column" ? dates.indexOf(target.key) : 0;
+  if (selected.length === 0 || dates.length === 0 || dayIndex < 0) return null;
+  const first = selected[0], last = selected.at(-1)!;
+  return {
+    x: labelWidth + dayIndex * dayWidth, y: first.top,
+    width: target.kind === "column" ? dayWidth : dayWidth * dates.length,
+    height: last.bottom - first.top,
+    laneIds: selected.map(row => row.laneId), routeIds: [...new Set(selected.map(row => row.routeId).filter(Boolean))],
+  };
+}

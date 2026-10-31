@@ -1,5 +1,5 @@
 // 共有メモの保存単位。盤面全体の版番号ではなく、変更した項目だけを比較する。
-export const BOARD_MAP_FIELDS = ["assignments", "notes", "dayOverrides", "requiredCountOverrides", "hiddenPeople"] as const;
+export const BOARD_MAP_FIELDS = ["assignments", "notes", "dayOverrides", "requiredCountOverrides", "hiddenPeople", "backgroundColors"] as const;
 export const BOARD_VALUE_FIELDS = ["lanes", "laneOrder", "hiddenLaneIds", "routeOrder", "hiddenRouteIds", "extraPeople", "widths"] as const;
 export type BoardChange = { field: string; key?: string; expected: unknown; value: unknown };
 export type Board = Record<string, unknown>;

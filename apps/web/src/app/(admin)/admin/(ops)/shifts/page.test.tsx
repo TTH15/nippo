@@ -14,10 +14,11 @@ vi.mock("@/lib/components/VehiclePlate", () => ({
   VehiclePlate: ({ vehicle }: { vehicle: { id: string } }) => <span data-testid="vehicle-plate">{vehicle.id}</span>,
 }));
 import ShiftsPage from "./page";
+import { ShiftWorkspaceContext } from "@/lib/shiftMemo/workspace";
 import { resetPreviewShifts, setPreviewDuplicateVehicleScenario, setPreviewLeaseScenario } from "../../../../../../../../scripts/previews/shifts-services";
 
 afterEach(() => { cleanup(); vi.useRealTimers(); });
-beforeEach(() => { localStorage.clear(); resetPreviewShifts(); vi.setSystemTime(new Date("2026-08-31T12:00:00+09:00")); Element.prototype.scrollIntoView = vi.fn(); });
+beforeEach(() => { localStorage.clear(); sessionStorage.clear(); resetPreviewShifts(); vi.setSystemTime(new Date("2026-08-31T12:00:00+09:00")); Element.prototype.scrollIntoView = vi.fn(); });
 describe("本番シフトページの表示操作", () => {
   it("契約区分を表示し、月替わり・絞り込み・段分け解除が予定を書き換えず反映される", async () => {
     render(<ShiftsPage />);
@@ -27,7 +28,7 @@ describe("本番シフトページの表示操作", () => {
     fireEvent.click(screen.getByRole("button", { name: "9月前半を表示" }));
     await waitFor(() => expect(within(table).getByRole("columnheader", { name: "月額リース 4人" })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "表示" }));
-    const displayPanel = screen.getByRole("region", { name: "表示" });
+    const displayPanel = screen.getByRole("dialog", { name: "表示" });
     fireEvent.click(within(displayPanel).getByRole("button", { name: "リース区分で絞り込み" }));
     fireEvent.click(screen.getByRole("button", { name: "月額リース" }));
     expect(within(table).queryByText("田中")).not.toBeInTheDocument();
@@ -45,7 +46,7 @@ describe("本番シフトページの表示操作", () => {
     render(<ShiftsPage />);
     const table = await screen.findByRole("table", { name: "ドライバー別シフト表" });
     fireEvent.click(screen.getByRole("button", { name: "表示" }));
-    const displayPanel = screen.getByRole("region", { name: "表示" });
+    const displayPanel = screen.getByRole("dialog", { name: "表示" });
     expect(within(displayPanel).getByRole("alert")).toHaveTextContent("契約区分を取得できませんでした");
     expect(within(table).queryByText("リースなし")).not.toBeInTheDocument();
     expect(within(table).getAllByText("佐藤").length).toBeGreaterThan(0);
@@ -60,7 +61,7 @@ describe("本番シフトページの表示操作", () => {
     act(() => setPreviewLeaseScenario("empty"));
     expect(within(table).getByRole("columnheader", { name: "リースなし 12人" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "表示" }));
-    const displayPanel = screen.getByRole("region", { name: "表示" });
+    const displayPanel = screen.getByRole("dialog", { name: "表示" });
     fireEvent.click(within(displayPanel).getByRole("button", { name: "リース区分で絞り込み" }));
     fireEvent.click(screen.getByRole("button", { name: "月額リース" }));
     expect(within(table).getByText(/該当するドライバーはいません/)).toBeInTheDocument();
@@ -108,5 +109,21 @@ describe("本番シフトページの表示操作", () => {
     expect(screen.getByRole("button", { name: /^全員\s*12$/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^稼働\s*\d+$/ })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: /^未割当\s*\d+$/ })).toBeInTheDocument();
+  });
+});
+
+
+describe("シフト表とメモの入口", () => {
+  it("メモの期間を変えてからシフト表へ移っても年月・前後半を引き継ぎ、上部に画面タブを重ねない", async () => {
+    const memo = render(<ShiftWorkspaceContext.Provider value="memo"><ShiftsPage /></ShiftWorkspaceContext.Provider>);
+    expect(screen.getByRole("heading", {name:"シフトメモ",level:1})).toBeInTheDocument();
+    expect(screen.queryByRole("button", {name:"シフト表"})).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", {name:"9月前半を表示"}));
+    await waitFor(() => expect(screen.getByRole("button", {name:"2026年9月"})).toBeInTheDocument());
+    memo.unmount();
+    render(<ShiftsPage />);
+    expect(screen.getByRole("heading", {name:"シフト表",level:1})).toBeInTheDocument();
+    expect(screen.getByRole("button", {name:"2026年9月"})).toBeInTheDocument();
+    expect(screen.getByRole("button", {name:"前半（1〜15日）"})).toHaveAttribute("aria-pressed","true");
   });
 });
