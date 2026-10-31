@@ -133,7 +133,7 @@ function readinessResponse(state: ShiftsFixtureState, scenario: string) {
 
 export const shiftsFixture: PreviewFixture<ShiftsFixtureState> = {
   id: "shifts", title: "シフト・シフトメモ", pathname: "/admin/shifts",
-  scenarios: { "plate-overlap": { label: "警告の重なり", description: "オイル/使用不可と日付・固定列の縦横スクロール" },  "period-roster": { label: "過去の所属", description: "8月は終了者（担当解除済）を表示、9月開始の人は非表示" }, normal: { label: "通常", description: "個人・共有メモを切り替え" }, empty: { label: "未設定", description: "ドライバー・配置なし" }, "long-name": { label: "長い名前", description: "長い名前の配置" }, large: { label: "多数", description: "48人の名簿" }, transfer: { label: "メモ受け渡し", description: "自作枠・未登録の名前札・別コースへの反映" }, conflict: { label: "同時変更", description: "セル編集とメモ反映の両方で後勝ちを止める" }, "shared-missed": { label: "通知なしの2タブ", description: "通知を止めて定期取得で復旧" }, "shared-slow": { label: "遅い保存", description: "保存中の追加編集を保持" }, "shared-lost-response": { label: "保存応答の喪失", description: "保存済み正本を再取得して照合" }, "shared-live": { label: "2タブ共同", description: "別タブとの参加・更新を試す" }, "shared-peers": { label: "共同編集者", description: "共有メモの参加者表示" }, "shared-disjoint": { label: "別の箇所", description: "他の人の変更も残す" }, "shared-conflict": { label: "共有メモ競合", description: "同じ箇所の変更を検出" }, "shared-save-error": { label: "共有メモ保存失敗", description: "保存失敗から再試行" }, "save-error": { label: "反映失敗", description: "最初の反映で失敗し、再確認後に成功" }, unmapped: { label: "名前の対応", description: "未登録の名前札はメモだけに残し、任意で登録ドライバーへ合わせる" }, readiness: { label: "未解決あり", description: "不足・未確認・原本不一致・期限切れの一覧" }, "readiness-light": { label: "未解決（期限内）", description: "期限切れなし・基準未設定だけの状態" }, "readiness-many": { label: "未解決が多数", description: "40件・長いコース名で高さと折り返しを見る" } },
+  scenarios: { "period-roster": { label: "過去の所属", description: "8月は終了者（担当解除済）を表示、9月開始の人は非表示" },  "memo-read": { label: "メモ画像の読み取り", description: "読み取り中・中止・未設定・休みとの重なりを確認" }, "plate-overlap": { label: "警告の重なり", description: "オイル/使用不可と日付・固定列の縦横スクロール" }, "memo-colors": { label: "メモの稼働日数・色", description: "同日の重複配置と曜日・日付の色、コンパクト出力" }, normal: { label: "通常", description: "個人・共有メモを切り替え" }, empty: { label: "未設定", description: "ドライバー・配置なし" }, "long-name": { label: "長い名前", description: "長い名前の配置" }, large: { label: "多数", description: "48人の名簿" }, transfer: { label: "メモ受け渡し", description: "自作枠・未登録の名前札・別コースへの反映" }, conflict: { label: "同時変更", description: "セル編集とメモ反映の両方で後勝ちを止める" }, "shared-live": { label: "2タブ共同", description: "別タブとの参加・更新を試す" }, "shared-missed": { label: "通知なしの2タブ", description: "通知を止めて定期取得で復旧" }, "shared-slow": { label: "遅い保存", description: "保存中の追加編集を保持" }, "shared-lost-response": { label: "保存応答の喪失", description: "保存済み正本を再取得して照合" }, "shared-peers": { label: "共同編集者", description: "共有メモの参加者表示" }, "shared-disjoint": { label: "別の箇所", description: "他の人の変更も残す" }, "shared-conflict": { label: "共有メモ競合", description: "同じ箇所の変更を検出" }, "shared-save-error": { label: "共有メモ保存失敗", description: "保存失敗から再試行" }, "save-error": { label: "反映失敗", description: "最初の反映で失敗し、再確認後に成功" }, unmapped: { label: "名前の対応", description: "未登録の名前札はメモだけに残し、任意で登録ドライバーへ合わせる" }, readiness: { label: "未解決あり", description: "不足・未確認・原本不一致・期限切れの一覧" }, "readiness-light": { label: "未解決（期限内）", description: "期限切れなし・基準未設定だけの状態" }, "readiness-many": { label: "未解決が多数", description: "40件・長いコース名で高さと折り返しを見る" } },
   createState: ({ scenario, driver }) => {
     // 本番利用者の保存キーには触れない。シナリオを開くたびに架空メモを初期化する。
     if (typeof localStorage !== "undefined") {
@@ -152,7 +152,26 @@ export const shiftsFixture: PreviewFixture<ShiftsFixtureState> = {
         widths: { day: 76, lane: 190, detail: 330 },
       }));
     }
-    return createData(scenario);
+    const state = createData(scenario);
+    if (["memo-colors","memo-read"].includes(scenario)) {
+      const today = new Date();const year = today.getFullYear(), month = today.getMonth();
+      const firstDay = today.getDate() <= 15 ? 1 : 16;
+      const endDay = firstDay === 1 ? 15 : new Date(year,month+1,0).getDate();
+      const dates = Array.from({length:endDay-firstDay+1},(_,i) => `${year}-${String(month+1).padStart(2,"0")}-${String(firstDay+i).padStart(2,"0")}`);
+      const lanes = [{id:`base-${id(101)}-1`,routeId:id(101),name:"C1",color:"#fbbf24",activeWeekdays:[1,2,3,4,5,6],requiredCount:2,custom:false},
+        {id:`base-${id(101)}-2`,routeId:id(101),name:"C2",color:"#fbbf24",activeWeekdays:[1,2,3,4,5,6],requiredCount:1,custom:false},
+        {id:`base-${id(102)}`,routeId:id(102),name:"吹田サンプル",color:"#38bdf8",activeWeekdays:[1,2,3,4,5,6],requiredCount:2,custom:false}];
+      const assignments: Record<string,unknown[]> = {};
+      for (const [index,date] of dates.entries()) for(const [li,lane] of lanes.entries()) {
+        if(new Date(`${date}T12:00:00`).getDay()===0) continue;
+        const di = li < 2 ? index%2 : (index%3)+2;
+        assignments[`${lane.id}|${date}`]=[{placementId:`sample-${index}-${li}`,personKey:`driver:${id(di+1)}`,driverId:id(di+1),name:names[di]}];
+      }
+      const board={version:1,lanes,laneOrder:lanes.map(l=>l.id),assignments,notes:{},extraPeople:["応援（仮）"],hiddenPeople:{[`driver:${id(5)}`]:true},hiddenLaneIds:[],hiddenRouteIds:[],routeOrder:[],backgroundColors:{"weekday:1":"yellow","weekday:5":"sky",[`date:${dates[3]}`]:"rose"}};
+      state.sharedBoard=board;
+      localStorage.setItem(`hakotora_personal_shift_memo_v1:${driver.id}`,JSON.stringify(board));
+    }
+    return state;
   },
   onReset: ({ scenario, driver }) => {
     sessionStorage.removeItem(`hakotora_shared_shift_memo_draft_v1:${driver.id}`);
@@ -200,8 +219,7 @@ export const shiftsFixture: PreviewFixture<ShiftsFixtureState> = {
           assignments[`${lane.id}|${day}`] = chosen.map(person => ({ placementId: `${lane.id}-${day}-${person.id}`, personKey: person.id, driverId: person.id, name: person.display_name || person.name }));
           const assignedDriverId = lane.routeId === state.courses[0].id ? state.drivers[2].id : state.drivers[3].id;
           // 通常シナリオの初日は片便だけ。全便追加と出力の C1 表示を確認できるようにする。
-          if (lane.routeId === state.courses[0].id && cycle === 2 &&
-            ((scenario === "normal" && day === start) || scenario === "period-roster")) continue;
+          if (lane.routeId === state.courses[0].id && cycle === 2 && ((scenario === "normal" && day === start) || scenario === "period-roster")) continue;
           // 車両は日付とレーンで回して、4色のプレートが一覧に混ざるようにする
           const vehicle = state.vehicles.length
             ? state.vehicles[(date.getUTCDate() + lanes.indexOf(lane)) % state.vehicles.length]
@@ -210,7 +228,7 @@ export const shiftsFixture: PreviewFixture<ShiftsFixtureState> = {
         }
       }
       if (scenario === "unmapped") assignments[`${lanes[0].id}|${start}`] = [{ placementId: "extra", personKey: "custom:応援", name: "応援" }];
-      if (typeof localStorage !== "undefined" && scenario !== "transfer") {
+      if (typeof localStorage !== "undefined" && scenario !== "transfer" && !["memo-colors","memo-read"].includes(scenario)) {
         const key = `hakotora_personal_shift_memo_v1:${driver.id}`;
         const old = JSON.parse(localStorage.getItem(key) ?? "{}");
         localStorage.setItem(key, JSON.stringify({ version: 1, lanes, laneOrder: lanes.map(lane => lane.id), hiddenLaneIds: [], assignments: { ...old.assignments, ...assignments }, extraPeople: [], notes: {} }));
@@ -221,7 +239,7 @@ export const shiftsFixture: PreviewFixture<ShiftsFixtureState> = {
     const drivers = scenario === "period-roster" ? state.drivers.filter(d => isMemberInPeriod(d, start, end) || assigned.has(d.id)) : state.drivers;
     const assignedCourses = new Set(shifts.map(s => s.course_id));
     const courses = scenario === "period-roster" ? state.courses.filter(c => !c.archived_at || assignedCourses.has(c.id)) : state.courses;
-    return { courses, drivers, shifts, requests: [], slots: [], vehicles: state.vehicles, vehicle_driver_links: [], vehicle_loans: [], recent_assignments: [], driver_leases: state.driverLeases };
+    return { courses, drivers, shifts, requests: ["memo-colors","memo-read"].includes(scenario) ? [{ driver_id:id(6),request_date:start,slot_id:null }] : [], slots: [], vehicles: state.vehicles, vehicle_driver_links: [], vehicle_loans: [], recent_assignments: [], driver_leases: state.driverLeases };
   },
   write(state, { path, body }, { role, scenario }) {
     if (path === "/api/admin/shifts/vehicle") {
@@ -240,6 +258,14 @@ export const shiftsFixture: PreviewFixture<ShiftsFixtureState> = {
     if (path === "/api/admin/shifts/memo/read") {
       if (role !== "admin") throw new Error("この操作の権限がありません。");
       const year = Number(body.year), month = Number(body.month);
+      if (scenario === "memo-read") {
+        let sunday = 17;
+        while(new Date(year,month-1,sunday).getDay() !== 0) sunday++;
+        return { period: {year,month}, rows: [
+          {name:"C1",days:[{day:16,names:["渡辺 直樹"]},{day:sunday,names:["佐藤 翔太"]}]},
+          {name:"臨時コース",days:[{day:16,names:["外部スタッフ"]}]},
+        ],warnings:[] };
+      }
       return { period: { year, month }, rows: [
         { name: "吹田サンプル", days: [{ day: 16, names: ["佐藤 翔太", "応援（仮）"] }, { day: 17, names: ["田中 美咲"] }] },
         { name: "臨時コース", days: [{ day: 16, names: ["外部スタッフ"] }] },
@@ -261,7 +287,7 @@ export const shiftsFixture: PreviewFixture<ShiftsFixtureState> = {
       if (scenario === "shared-conflict" && !state.sharedFailed) {
         state.sharedFailed = true;
         const first = changes[0];
-        state.sharedBoard = applyBoardChanges(state.sharedBoard, [{ ...first, value: first.field === "notes" ? "他の人のメモ" : [] }]);
+        state.sharedBoard = applyBoardChanges(state.sharedBoard, [{ ...first, value: first.field === "notes" ? "他の人のメモ" : first.field === "backgroundColors" ? first.value === "sky" ? "green" : "sky" : [] }]);
         state.sharedRevision++;
       }
       if (scenario === "shared-disjoint" && !state.sharedFailed) {
@@ -339,6 +365,7 @@ export const shiftsFixture: PreviewFixture<ShiftsFixtureState> = {
     if (role !== "admin") throw new Error("この操作の権限がありません。");
     const input = { mode: body.mode as ReflectInput["mode"], groups: body.groups as ReflectGroup[] };
     const result = reflectPreview(state, input);
+    if (scenario === "memo-read") result.warnings = input.groups.filter(group => group.date.endsWith("-16") && group.driverIds.includes(id(6))).map(group => ({date:group.date,driverId:id(6),courseName:"豊中サンプル",kind:"off" as const}));
     if (body.action === "preview") return result;
     if (scenario === "save-error" && state.revision === 0) { state.revision++; throw new Error("反映できませんでした。入力は残っています。変更内容を確認し直してください。"); }
     if (scenario === "conflict" && state.revision === 0) state.revision++;

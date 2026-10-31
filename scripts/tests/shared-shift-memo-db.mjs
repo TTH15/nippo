@@ -10,7 +10,7 @@ const require=createRequire(import.meta.url),{Pool}=require('pg');
 const root=resolve(import.meta.dirname,'../..');
 const fixture=mkdtempSync(join(tmpdir(),'hakotora-memo-fixture-'));
 let container,tunnel;
-const migration=readFileSync(join(root,'supabase/migrations/20261011125113_shared_shift_memo_hidden_people.sql'),'utf8');
+const migration=readFileSync(join(root,'supabase/migrations/20261011125113_shared_shift_memo_hidden_people.sql'),'utf8')+'\n'+readFileSync(join(root,'supabase/migrations/20261031100243_shift_memo_background_colors.sql'),'utf8');
 let running=false,pool,passed=0;
 const org='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',actor='aaaaaaaa-1111-4111-8111-111111111111',other='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const initial={version:1,lanes:[],laneOrder:[],assignments:{origin:[{placementId:'one',name:'甲'}],target:[{placementId:'remote',name:'乙'}]},notes:{},dayOverrides:{},requiredCountOverrides:{},extraPeople:[]};
@@ -23,11 +23,10 @@ const canonical=async()=> (await pool.query('select board,revision from shared_s
 try{
  container=execFileSync('docker',['run','-d','--rm','--network','none','--pull','never','-e','POSTGRES_HOST_AUTH_METHOD=trust','postgres:17'],{encoding:'utf8'}).trim();
  assert.match(container,/^[0-9a-f]{64}$/);running=true;
- let ready=false;for(let i=0;i<100;i++){try{execFileSync('docker',['exec',container,'pg_isready','-U','postgres'],{stdio:'ignore'});ready=true;break;}catch{await new Promise(r=>setTimeout(r,100));}}assert.ok(ready,'disposable postgres must become ready');
+ let ready=false;for(let i=0;i<100;i++){try{execFileSync('docker',['exec',container,'pg_isready','-h','127.0.0.1','-U','postgres'],{stdio:'ignore'});ready=true;break;}catch{await new Promise(r=>setTimeout(r,100));}}assert.ok(ready,'disposable postgres must become ready');
  tunnel=createServer(socket=>{const child=spawn('docker',['exec','-i',container,'bash','-c','exec 3<>/dev/tcp/127.0.0.1/5432; cat <&3 & cat >&3; wait'],{stdio:['pipe','pipe','ignore']});socket.pipe(child.stdin);child.stdout.pipe(socket);socket.on('close',()=>child.kill());child.on('exit',()=>socket.destroy());child.stdin.on('error',()=>socket.destroy());});
  await new Promise(r=>tunnel.listen(0,'127.0.0.1',r));
  pool=new Pool({host:'127.0.0.1',port:tunnel.address().port,database:'postgres',user:'postgres',max:4});
- let connected=false;for(let i=0;i<50;i++){try{await pool.query('select 1');connected=true;break;}catch{await new Promise(r=>setTimeout(r,200));}}assert.ok(connected,'disposable postgres must accept connections');
  await pool.query("create role anon;create role authenticated;create role service_role bypassrls;create role hakotora_runtime;create role hakotora_board_writer;create table organizations(id uuid primary key);create table drivers(id uuid primary key);insert into organizations values('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');insert into drivers values('aaaaaaaa-1111-4111-8111-111111111111');");
  await pool.query(readFileSync(join(root,'supabase/migrations/184_shared_shift_memo_board.sql'),'utf8'));
  const beforeLegacy=await metadata();await pool.query(migration);
@@ -51,6 +50,23 @@ try{
  await test('hidden candidate validation rejects nonboolean and unrelated key',async()=>{
   for(const value of [false,'true',[],{}]) await assert.rejects(save(c,[change('hiddenPeople','driver:甲',null,value)]),e=>e.code==='22023');
   await assert.rejects(save(c,[change('hiddenPeople','invalid',null,true)]),e=>e.code==='22023');
+ });
+ await test('old boards retain weekday and date colors, clear only the chosen key',async()=>{
+  let r=await save(c,[change('backgroundColors','weekday:1',null,'yellow')]);assert.equal(r.saved,true);
+  r=await save(c,[change('backgroundColors','date:2026-10-19',null,'none')]);assert.equal(r.saved,true);
+  r=await save(c,[change('backgroundColors','date:2026-10-19','none',null)]);assert.deepEqual(r.board.backgroundColors,{'weekday:1':'yellow'});
+  assert.deepEqual(r.board.assignments,initial.assignments);
+ });
+ await test('row, course and cell colors preserve every unrelated map entry',async()=>{
+  let r=await save(c,[change('backgroundColors','row:lane-a',null,'sky'),change('backgroundColors','course:course-a',null,'green'),change('backgroundColors','cell:lane-a|2026-10-25',null,'rose')]);
+  assert.equal(r.saved,true);assert.equal(r.board.backgroundColors['row:lane-a'],'sky');assert.equal(r.board.backgroundColors['cell:lane-a|2026-10-25'],'rose');assert.equal(r.board.backgroundColors['weekday:1'],'yellow');assert.deepEqual(r.board.assignments,initial.assignments);
+ });
+ await test('color validation rejects unrelated keys, CSS strings, booleans and invalid weekdays',async()=>{
+  for(const [key,value] of [['weekday:9','yellow'],['other','rose'],['weekday:1','#fff'],['date:2026-10-19',true]])
+   await assert.rejects(save(c,[change('backgroundColors',key,null,value)]),e=>e.code==='22023');
+ });
+ await test('same color key conflicts without overwriting the stored selection',async()=>{
+  const before=await canonical();const r=await save(c,[change('backgroundColors','weekday:1',null,'sky')]);assert.equal(r.saved,false);assert.deepEqual(await canonical(),before);
  });
  await test('runtime capability and organization guards remain enforced',async()=>{
   await context(c,false);await assert.rejects(save(c,[change('hiddenPeople','custom:甲',null,true)]),e=>e.code==='42501');

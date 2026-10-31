@@ -1,3 +1,4 @@
+import { isMemoBackground, isMemoBackgroundKey, readBackgroundColors } from "@/lib/shiftMemo/board";
 import { NextRequest, NextResponse } from "next/server";
 import { isAuthError, requirePermission } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
@@ -28,6 +29,7 @@ export async function PATCH(req: NextRequest) {
   const mapFields = new Set<string>(BOARD_MAP_FIELDS);
   const valueFields = new Set<string>(BOARD_VALUE_FIELDS);
   const validValue = (change: BoardChange) => {
+    if (change.field === "backgroundColors") return isMemoBackgroundKey(change.key ?? "") && (change.value === null || isMemoBackground(change.value));
     if (change.value === null) return mapFields.has(change.field);
     if (change.field === "hiddenPeople") return change.value === true && /^(driver|custom):.+$/.test(change.key ?? "");
     if (change.field === "notes") return typeof change.value === "string" && change.value.length <= 2000;
@@ -40,6 +42,7 @@ export async function PATCH(req: NextRequest) {
     || !Array.isArray(initialBoard.lanes) || !Array.isArray(initialBoard.laneOrder)
     || !initialBoard.assignments || typeof initialBoard.assignments !== "object" || Array.isArray(initialBoard.assignments)
     || (initialBoard.hiddenPeople !== undefined && (!initialBoard.hiddenPeople || typeof initialBoard.hiddenPeople !== "object" || Array.isArray(initialBoard.hiddenPeople) || Object.entries(initialBoard.hiddenPeople).some(([key,value]) => value !== true || key.length > 200 || !/^(driver|custom):.+$/.test(key))))
+    || (initialBoard.backgroundColors !== undefined && JSON.stringify(readBackgroundColors(initialBoard.backgroundColors)) !== JSON.stringify(initialBoard.backgroundColors))
     || JSON.stringify(initialBoard).length > 1048576)
     || !Array.isArray(changes) || changes.length < 1 || changes.length > 1000 || JSON.stringify(changes).length > 1048576
     || changes.some((change) => !change || typeof change !== "object" || !Object.hasOwn(change, "expected") || !Object.hasOwn(change, "value")

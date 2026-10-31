@@ -7,6 +7,7 @@ import { faList, faRotateLeft, faTriangleExclamation } from "@fortawesome/free-s
 import { AdminPreviewLayout } from "@/app/preview/driver-leases/AdminPreviewLayout";
 import { buildPreviewHref, PREVIEW_ROLES, PREVIEW_ROLE_ORDER, type PreviewRole } from "@/lib/preview/scenario";
 import { usePreviewRuntime, useStoreRevision } from "./runtime";
+import { PreviewNavigation } from "@/app/preview/driver-leases/layout-adapters";
 import { PREVIEW_PREFIX } from "./paths";
 
 const pill = "rounded-full border px-2 py-0.5 text-[11px] font-bold leading-4 transition-colors";
@@ -65,9 +66,9 @@ export function ScenarioBar() {
 }
 
 export function AdminLayout({ children }: { children: React.ReactNode }) {
-  const { store, pathname } = usePreviewRuntime();
+  const { store, pathname, navigate } = usePreviewRuntime();
   return (
-    <AdminPreviewLayout
+    <PreviewNavigation.Provider value={navigate}><AdminPreviewLayout
       pathname={pathname}
       onReset={() => store.reset()}
       viewer={{ name: store.driver.name, role: store.driver.role, capabilities: store.driver.capabilities }}
@@ -75,6 +76,6 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
     >
       <ScenarioBar />
       {children}
-    </AdminPreviewLayout>
+    </AdminPreviewLayout></PreviewNavigation.Provider>
   );
 }

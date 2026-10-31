@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useLayoutEffect, useState, useMemo, useCallback, useRef } from "react";
+import { Fragment, useContext, useEffect, useLayoutEffect, useState, useMemo, useCallback, useRef } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { forecastOilChangesByVehicle, type OilForecast } from "@/lib/oil/oilForecast";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -18,6 +18,7 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import { isJapanPublicHolidayYmd } from "@/lib/japanHolidays";
 import { todayJST } from "@/lib/date";
+import { ShiftWorkspaceContext, useShiftPeriod, useMemoNavigationGuard } from "@/lib/shiftMemo/workspace";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { CustomSelect } from "@/lib/components/CustomSelect";
 import { MonthYearPicker } from "@/lib/components/MonthYearPicker";
@@ -44,12 +45,13 @@ import { cn } from "@/lib/ui/utils";
 import { TimePicker } from "@/lib/ui/time-picker";
 import { Check, ChevronDown } from "lucide-react";
 import { DatePicker } from "@/lib/components/DatePicker";
+import { ShiftPeriodControl } from "@/lib/components/ShiftPeriodControl";
 import { ShiftDisplayPanel } from "@/lib/components/ShiftDisplayPanel";
 import { ShiftDisplayOptions } from "@/lib/components/ShiftDisplayOptions";
 import { ShiftLeaseFilters, ShiftLeaseBadge } from "@/lib/components/ShiftLeaseFilters";
 import { indexShiftLeases, shiftLeaseMode, shiftLeaseGroups, SHIFT_LEASE_NAMES, type ShiftLease, type ShiftLeaseFilter } from "@/lib/shiftLease";
-import { DEFAULT_SHIFT_DISPLAY, SHIFT_DISPLAY_KEY, readShiftDisplay, type ShiftDisplay } from "@/lib/shiftDisplay";
 import { activeCourseCycleNos, displayCourseCycleNos } from "@/lib/shiftDisplayCycles";
+import { DEFAULT_SHIFT_DISPLAY, SHIFT_DISPLAY_KEY, readShiftDisplay, type ShiftDisplay } from "@/lib/shiftDisplay";
 import { ImageExportDialog } from "@/lib/components/ImageExportDialog";
 import { ShiftDriverOrderDialog, type ShiftDriverOrderItem } from "@/lib/components/ShiftDriverOrderDialog";
 import { captureDispatchImage } from "@/lib/captureDispatchImage";
@@ -598,11 +600,12 @@ function CellPeersBadge({ peers }: { peers?: CellPeer[] }) {
 }
 
 export default function ShiftsPage() {
-  const [workspaceView, setWorkspaceView] = useState<"shift" | "memo">("shift");
+  const workspaceView = useContext(ShiftWorkspaceContext);
   const [memoMode, setMemoMode] = useState<"personal" | "shared">("personal");
   const [sharedMemoPending, setSharedMemoPending] = useState(false);
   const canLeaveSharedMemo = () => memoMode !== "shared" || !sharedMemoPending
     || window.confirm("共有メモに保存前の変更があります。破棄して切り替えますか？");
+  useMemoNavigationGuard(workspaceView === "memo" && memoMode === "shared" && sharedMemoPending);
   const [canWrite, setCanWrite] = useState(false);
   // 配車（車両割当）はシフト編集と独立の can_dispatch でゲート（A1）。
   const [canDispatch, setCanDispatch] = useState(false);
@@ -671,9 +674,7 @@ export default function ShiftsPage() {
       window.removeEventListener("drop", onDrop);
     };
   }, [canWrite, workspaceView]);
-  const [yearMonth, setYearMonth] = useState(currentYearMonth());
-  // デフォルトは「今日」を含む期間（1〜15日=前半 / 16日〜=後半）
-  const [period, setPeriod] = useState<Period>(() => (new Date().getDate() >= 16 ? "second" : "first"));
+  const { yearMonth, setYearMonth, period, setPeriod } = useShiftPeriod(currentYearMonth(), new Date().getDate() >= 16 ? "second" : "first");
   const [courses, setCourses] = useState<Course[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [shifts, setShifts] = useState<Shift[]>([]);
@@ -2452,6 +2453,45 @@ export default function ShiftsPage() {
   }, [activeMobileDate, mobileFilter, exportRows.length, loading, display, shifts, localShifts, localVehicleByDriverDay, localExternalByDriverDay, spotJobsByDate, leaseIndex, leaseFilter, groupByLease]);
   const handleMobileDayExport = () => { setExportMenuOpen(false); setImageExportOpen(true); };
 
+  const periodControl = (
+          <div role="group" aria-label="表示する年月と期間" data-shared-refresh className={cn("items-center gap-1 [&_button]:!pointer-events-auto", workspaceView === "shift" ? "hidden md:flex" : "flex")}>
+            {/* PC: 半月単位のステッパー（月またぎも1クリック。8月前半→7月後半 等） */}
+            <button
+              type="button"
+              onClick={() => stepPeriod(-1)}
+              title={`${prevHalfLabel}を表示`} aria-label={`${prevHalfLabel}を表示`}
+              className="inline-flex h-11 w-9 shrink-0 items-center justify-center rounded-lg text-xs text-slate-600 max-[359px]:w-6 hover:bg-slate-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-amber-500"
+            >
+              <FontAwesomeIcon icon={faChevronLeft} className="h-3 w-3" />
+            </button>
+            <div className={cn("shrink-0 [&_button]:px-3 [&_button]:text-xs [&_button]:font-semibold",workspaceView === "memo" ? "[&_button]:h-11 [&_button]:w-[132px]" : "[&_button]:h-11 [&_button]:w-[144px]")}>
+              <MonthYearPicker value={yearMonth} onChange={handleYearMonthChange} className="gap-1.5 border-transparent bg-transparent shadow-none hover:bg-slate-100 focus-visible:ring-amber-500 [&_svg]:mr-0" placeholder="年月を選択" />
+            </div>
+            <ShiftPeriodControl compact={workspaceView === "memo"} year={yearMonth.year} month={yearMonth.month} value={period} onChange={switchPeriod}/>
+            <button
+              type="button"
+              onClick={() => stepPeriod(1)}
+              title={`${nextHalfLabel}を表示`} aria-label={`${nextHalfLabel}を表示`}
+              className="inline-flex h-11 w-9 shrink-0 items-center justify-center rounded-lg text-xs text-slate-600 max-[359px]:w-6 hover:bg-slate-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-amber-500"
+            >
+              <FontAwesomeIcon icon={faChevronRight} className="h-3 w-3" />
+            </button>
+          </div>
+  );
+
+  const memoModeControl = (
+    <div role="group" aria-label="シフトメモの保存先" className="inline-flex shrink-0 overflow-hidden rounded-lg border border-slate-300 bg-white">
+            {([["personal", "個人"], ["shared", "共有"]] as const).map(([mode, label]) => (
+              <button key={mode} type="button" data-shared-refresh style={{pointerEvents:"auto"}} aria-pressed={memoMode === mode} onClick={() => {
+                if (memoMode === "shared" && mode !== "shared" && !canLeaveSharedMemo()) return;
+                setSharedMemoPending(false);
+                setMemoMode(mode);
+              }}
+                className={cn("min-h-11 px-2.5 text-xs font-semibold", memoMode === mode ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-slate-50")}>{label}</button>
+            ))}
+          </div>
+  );
+
   return (
     <AdminLayout>
       {driverOrderOpen && <ShiftDriverOrderDialog
@@ -2480,92 +2520,17 @@ export default function ShiftsPage() {
       <div className="max-w-full">
         {/* ツールバーは PC のみ固定。スマホで固定するのは日付ナビ＋タブだけにして、
             固定領域が画面を占有して一覧が隠れるのを防ぐ */}
-        <div
-          className="md:sticky z-30 -mx-3 px-3 md:-mx-6 md:px-6 bg-slate-50 pt-2 -mt-1 md:border-b md:border-slate-200/80"
+        {workspaceView === "shift" && <div
+          className="md:sticky z-30 -mx-3 flex flex-wrap items-center gap-x-3 gap-y-1 bg-slate-50 px-3 pb-1 pt-2 -mt-1 md:-mx-6 md:px-6"
           style={{ top: "var(--admin-header-h, 0px)" }}
         >
         {/* 年月と前後半は同じ操作群に置き、表示項目・軸は共通の開閉パネルへ。 */}
-        <div className="mb-2 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 md:flex">
-          <h1 className="order-1 shrink-0 text-lg font-bold text-slate-900 md:order-none md:text-xl">シフト管理</h1>
-          <div className="order-3 col-span-2 flex w-full overflow-hidden rounded-lg border border-slate-300 bg-white md:order-none md:col-span-1 md:w-auto">
-            <button
-              type="button"
-              aria-pressed={workspaceView === "shift"}
-              onClick={() => { if (canLeaveSharedMemo()) setWorkspaceView("shift"); }}
-              className={cn(
-                "min-w-0 flex-1 whitespace-nowrap px-3 py-1.5 text-xs font-semibold transition-colors md:flex-none",
-                workspaceView === "shift" ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-slate-50",
-              )}
-            >
-              シフト表
-            </button>
-            <button
-              type="button"
-              aria-pressed={workspaceView === "memo"}
-              onClick={() => setWorkspaceView("memo")}
-              className={cn(
-                "min-w-0 flex-1 whitespace-nowrap border-l border-slate-300 px-3 py-1.5 text-xs font-semibold transition-colors md:flex-none",
-                workspaceView === "memo" ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-slate-50",
-              )}
-            >
-              シフトメモ
-            </button>
-          </div>
-        </div>
-        <ShiftDisplayPanel toolbar={trigger => <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
-          <div role="group" aria-label="表示する年月と期間" className={cn("items-center gap-2 flex-wrap", workspaceView === "shift" ? "hidden md:flex" : "flex")}>
-            {/* PC: 半月単位のステッパー（月またぎも1クリック。8月前半→7月後半 等） */}
-            <button
-              type="button"
-              onClick={() => stepPeriod(-1)}
-              title={`${prevHalfLabel}を表示`} aria-label={`${prevHalfLabel}を表示`}
-              className="hidden md:flex h-9 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
-            >
-              <FontAwesomeIcon icon={faChevronLeft} className="h-3 w-3" />
-            </button>
-            <div className="shrink-0 [&_button]:h-9 [&_button]:w-[154px] [&_button]:px-3 [&_button]:text-xs [&_button]:font-semibold">
-              <MonthYearPicker value={yearMonth} onChange={handleYearMonthChange} placeholder="年月を選択" />
-            </div>
-            {/* 期間タブ（スマホは短いラベルで幅を節約） */}
-            <div className="flex rounded-lg border border-slate-300 overflow-hidden bg-white">
-              <button
-                type="button"
-                onClick={() => switchPeriod("first")}
-                aria-pressed={period === "first"}
-                className={`px-3 md:px-4 py-1.5 md:py-2 text-sm font-medium transition-colors ${
-                  period === "first"
-                    ? "bg-slate-800 text-white"
-                    : "text-slate-600 hover:bg-slate-50"
-                }`}
-              >
-                前半<span className="hidden md:inline">（1〜15日）</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => switchPeriod("second")}
-                aria-pressed={period === "second"}
-                className={`px-3 md:px-4 py-1.5 md:py-2 text-sm font-medium transition-colors border-l border-slate-300 ${
-                  period === "second"
-                    ? "bg-slate-800 text-white"
-                    : "text-slate-600 hover:bg-slate-50"
-                }`}
-              >
-                後半<span className="hidden md:inline">（16日〜）</span>
-              </button>
-            </div>
-            <button
-              type="button"
-              onClick={() => stepPeriod(1)}
-              title={`${nextHalfLabel}を表示`} aria-label={`${nextHalfLabel}を表示`}
-              className="hidden md:flex h-9 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
-            >
-              <FontAwesomeIcon icon={faChevronRight} className="h-3 w-3" />
-            </button>
-          </div>
-          {workspaceView === "shift" && trigger}
+        <h1 className="shrink-0 text-lg font-bold text-slate-900">シフト表</h1>
+        <ShiftDisplayPanel toolbar={trigger => <div className={"flex min-w-0 flex-1 flex-wrap items-center gap-2"}>
+          {periodControl}
           {/* 操作ボタン群（エクスポート／更新／設定）は右寄せで1行にまとめる。
               シフト表の AI 取り込みはボタンではなく、画面へのファイルドロップが入口。 */}
-          {workspaceView === "shift" && <div className="flex items-center gap-2 shrink-0">
+          {workspaceView === "shift" && <div className="ml-auto flex items-center gap-2 shrink-0">
             <div className="relative">
               {/* スマホは省スペースのためアイコンのみ（PC は従来のラベル付き） */}
               <button
@@ -2629,9 +2594,10 @@ export default function ShiftsPage() {
             >
               <FontAwesomeIcon icon={faGear} className="w-4 h-4" />
             </button>
+            {trigger}
           </div>}
         </div>}>
-          {workspaceView === "shift" && <ShiftDisplayOptions value={display} onChange={changeDisplay} axis={viewAxis} onAxisChange={setViewAxis}>
+          {workspaceView === "shift" && <ShiftDisplayOptions soft value={display} onChange={changeDisplay} axis={viewAxis} onAxisChange={setViewAxis}>
             <ShiftLeaseFilters value={leaseFilter} onChange={setLeaseFilter} grouped={groupByLease} onGroupedChange={setGroupByLease}
               ready={leaseIndex !== null} loading={loading} retrying={refreshing} axis={viewAxis} startDate={displayDates[0] ?? ""} dailyDate={activeMobileDate}
               onRetry={async () => { setRefreshing(true); try { await load(); } finally { setRefreshing(false); } }} />
@@ -2654,25 +2620,16 @@ export default function ShiftsPage() {
           </div>
         )}
 
-        </div>
+        </div>}
 
         {workspaceView === "shift" && <ShiftReadinessPanel />}
         {shiftsError && <p role="alert" className="mb-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">シフトを読み込めませんでした。<button type="button" onClick={() => void load()} className="ml-2 min-h-11 underline underline-offset-2">再読込</button></p>}
         {workspaceView === "memo" ? (
           <>
-          <div role="group" aria-label="シフトメモの保存先" className="mb-3 inline-flex overflow-hidden rounded-lg border border-slate-300 bg-white">
-            {([["personal", "個人"], ["shared", "共有"]] as const).map(([mode, label]) => (
-              <button key={mode} type="button" aria-pressed={memoMode === mode} onClick={() => {
-                if (memoMode === "shared" && mode !== "shared" && !canLeaveSharedMemo()) return;
-                setSharedMemoPending(false);
-                setMemoMode(mode);
-              }}
-                className={cn("min-h-10 px-4 text-xs font-semibold", memoMode === mode ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-slate-50")}>{label}</button>
-            ))}
-          </div>
           <PersonalShiftMemoBoard
             key={`${memoMode}:${displayDates[0] ?? ""}:${displayDates.at(-1) ?? ""}`}
             mode={memoMode}
+            toolbarLeading={<><h1 className="shrink-0 text-base font-bold text-slate-900 md:text-lg">シフトメモ</h1>{periodControl}{memoModeControl}</>}
             canEdit={memoMode === "personal" || canWrite}
             onPendingChange={setSharedMemoPending}
             dates={displayDates}

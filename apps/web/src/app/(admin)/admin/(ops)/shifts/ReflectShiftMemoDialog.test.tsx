@@ -5,7 +5,7 @@ import { apiFetch } from "@/lib/api";
 
 vi.mock("@/lib/api", () => ({ apiFetch: vi.fn() }));
 const lane = { id: "base-course", routeId: "course", name: "豊中", activeWeekdays: [1, 2, 3, 4, 5, 6] };
-const props = { dates: ["2026-09-16"], courses: [{ id: "course", name: "豊中" }], drivers: [{ id: "driver", name: "佐藤" }], lanes: [lane], assignments: { "base-course|2026-09-16": [{ personKey: "driver", driverId: "driver", name: "佐藤" }] }, dayOverrides: {}, onClose: vi.fn(), onApplied: vi.fn().mockResolvedValue(undefined) };
+const props = { dates: ["2026-09-16"], courses: [{ id: "course", name: "豊中" }], drivers: [{ id: "driver", name: "佐藤" }], lanes: [lane], assignments: { "base-course|2026-09-16": [{ personKey: "driver", driverId: "driver", name: "佐藤" }] }, dayOverrides: {}, onClose: vi.fn(), onActivateDay: vi.fn(), onApplied: vi.fn().mockResolvedValue(undefined) };
 const result = { revision: "a".repeat(32), changes: [{ date: "2026-09-16", courseId: "course", cycleNo: 0, addIds: ["driver"], removeIds: [], keepIds: [] }], warnings: [], added: 1, removed: 0, kept: 0, applied: false };
 const click = (name: string) => fireEvent.click(screen.getByRole("button", { name }));
 beforeEach(() => { vi.mocked(apiFetch).mockReset().mockResolvedValue(result); props.onApplied.mockClear(); props.onClose.mockClear(); });
@@ -49,4 +49,40 @@ it("反映後の再読込失敗を保存失敗にせず、再読込だけを再�
   await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
   expect(apiFetch).toHaveBeenCalledTimes(2);
   expect(props.onApplied).toHaveBeenCalledTimes(2);
+});
+
+it("休みの担当枠で止まる理由を示し、同じ画面から稼働へ直せる",async()=>{
+ const onActivateDay=vi.fn();
+ const view=render(<ReflectShiftMemoDialog {...props} dayOverrides={{"base-course|2026-09-16":"off"}} onActivateDay={onActivateDay}/>);
+ expect(screen.getByRole("status")).toHaveTextContent("担当枠を選んでください");
+ fireEvent.click(screen.getByRole("checkbox",{name:"豊中"}));
+ expect(screen.getByRole("status")).toHaveTextContent("休みの担当枠に配置があります");
+ expect(screen.getByRole("button",{name:"変更内容を確認"})).toBeDisabled();
+ fireEvent.click(screen.getByRole("button",{name:"9月16日（水） 豊中を稼働に変更"}));
+ expect(onActivateDay).toHaveBeenCalledWith("base-course","2026-09-16");
+ view.rerender(<ReflectShiftMemoDialog {...props} onActivateDay={onActivateDay}/>);
+ expect(screen.getByRole("button",{name:"変更内容を確認"})).toBeEnabled();
+});
+it("希望休との重なりは警告として確認でき、消さずに反映へ進める",async()=>{
+ vi.mocked(apiFetch).mockResolvedValue({...result,warnings:[{date:"2026-09-16",driverId:"driver",courseName:"豊中",kind:"off"}]});
+ render(<ReflectShiftMemoDialog {...props}/>);
+ fireEvent.click(screen.getByRole("checkbox",{name:"豊中"})); click("変更内容を確認");
+ await screen.findByText(/希望休あり/);
+ expect(screen.getByRole("button",{name:"この内容で反映"})).toBeEnabled();
+ click("この内容で反映"); click("シフトへ反映する");
+ await screen.findByText("シフト表で確認できます。メモはそのまま残っています。");
+ expect(JSON.parse(vi.mocked(apiFetch).mock.calls[1][1]!.body as string)).toMatchObject({action:"apply",groups:[{driverIds:["driver"]}]});
+});
+it("便未設定と未登録の名前札を、理由のある同じ画面で選び直せる",()=>{
+ const course={id:"course",name:"豊中",uses_cycles:true,course_cycles:[{cycle_no:1,label:"C1"}]};
+ render(<ReflectShiftMemoDialog {...props} courses={[course]} assignments={{"base-course|2026-09-16":[{personKey:"custom:応援",name:"応援"}]}}/>);
+ fireEvent.click(screen.getByRole("checkbox",{name:"豊中"}));
+ expect(screen.getByRole("status")).toHaveTextContent("反映先のコース・便");
+ fireEvent.click(screen.getByRole("button",{name:"豊中の反映先の便"}));
+ click("C1");
+ expect(screen.getByRole("status")).toHaveTextContent("登録ドライバーを選んでください");
+ fireEvent.click(screen.getByRole("button",{name:"応援の登録ドライバー"}));
+ click("佐藤（佐藤）");
+ expect(screen.getByRole("button",{name:"変更内容を確認"})).toBeEnabled();
+ expect(apiFetch).not.toHaveBeenCalled();
 });

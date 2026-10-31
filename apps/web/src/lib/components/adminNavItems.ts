@@ -13,7 +13,6 @@ import {
   faFileInvoice,
   faFileLines,
   faGear,
-  faImage,
   faListUl,
   faMobileScreenButton,
   faMoneyBill1Wave,
@@ -35,7 +34,8 @@ export const adminNavItems: NavItem[] = [
   { href: "/admin", label: "ダッシュボード", icon: faChartLine },
   {
     label: "シフト", icon: faCalendar, children: [
-      { href: "/admin/shifts", label: "シフト", icon: faCalendar, cap: "can_view_shifts" },
+      { href: "/admin/shifts", label: "シフト表", icon: faCalendar, cap: "can_view_shifts" },
+      { href: "/admin/shift-memos", label: "シフトメモ", icon: faFileLines, cap: "can_view_shifts" },
       { href: "/admin/spot-jobs", label: "単発案件", icon: faBriefcase, cap: "can_view_shifts", beta: true },
     ],
   },
@@ -55,7 +55,6 @@ export const adminNavItems: NavItem[] = [
     label: "報告", icon: faFileLines, children: [
       { href: "/admin/daily", label: "日報", icon: faFileLines, cap: "can_view_reports" },
       { href: "/admin/records", label: "記録・報告", icon: faFileLines, cap: "can_access_records" },
-      { href: "/admin/report-images", label: "画像の確認", icon: faImage, cap: "can_view_reports", beta: true },
       { href: "/admin/delivery", label: "配達実績", icon: faBoxesStacked, cap: "can_view_reports" },
     ],
   },
@@ -93,4 +92,9 @@ export function activeAdminNavHref(pathname: string): string | null {
   return navLinks
     .filter((item) => pathname === item.href || item.href !== "/admin" && pathname.startsWith(`${item.href}/`))
     .sort((a, b) => b.href.length - a.href.length)[0]?.href ?? null;
+}
+
+export function activeAdminNavGroup(pathname: string): string | null {
+  const active = activeAdminNavHref(pathname);
+  return adminNavItems.find(item => item.children?.some(child => child.href === active))?.label ?? null;
 }

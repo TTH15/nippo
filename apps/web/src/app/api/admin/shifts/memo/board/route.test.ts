@@ -45,3 +45,17 @@ it("rejects arbitrary keys and malformed initial candidate map", async () => {
   expect((await PATCH(request({ initialBoard: { version: 1, lanes: [], laneOrder: [], assignments: {}, hiddenPeople: { "driver:one": false } }, changes }))).status).toBe(400);
   expect(m.rpc).not.toHaveBeenCalled();
 });
+it.each(["none", "yellow", "rose", "sky", "green", "violet", null])("accepts validated background color %s without changing actor binding", async value => {
+  const colors = [{ field: "backgroundColors", key: "date:2026-10-31", expected: null, value }];
+  expect((await PATCH(request({ initialBoard: null, changes: colors }))).status).toBe(200);
+  expect(m.rpc).toHaveBeenCalledWith("save_shared_shift_memo_board", expect.objectContaining({ p_org_id: "org-a", p_actor_id: "actor-a", p_changes: colors }));
+});
+it.each(["red", "#ffffff", true, {}, []])("rejects unrecognized color %s before the RPC", async value => {
+  expect((await PATCH(request({ initialBoard: null, changes: [{ field: "backgroundColors", key: "date:2026-10-31", expected: null, value }] }))).status).toBe(400);
+  expect(m.rpc).not.toHaveBeenCalled();
+});
+it("rejects malformed background maps and keys", async () => {
+  expect((await PATCH(request({ initialBoard: { version: 1, lanes: [], laneOrder: [], assignments: {}, backgroundColors: { "weekday:8": "rose" } }, changes }))).status).toBe(400);
+  expect((await PATCH(request({ initialBoard: null, changes: [{ field: "backgroundColors", key: "orgId", expected: null, value: "rose" }] }))).status).toBe(400);
+  expect(m.rpc).not.toHaveBeenCalled();
+});

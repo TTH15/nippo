@@ -9,7 +9,8 @@ import { CustomSelect } from "@/lib/components/CustomSelect";
 import { SmoothCollapse } from "@/lib/components/SmoothCollapse";
 import { getDisplayName } from "@/lib/displayName";
 import { buildReflectGroups, laneCourseDefault, laneCycleDefault, type ReflectCourse, type ReflectInput, type ReflectLane, type ReflectPerson, type ReflectPreview } from "@/lib/shiftMemo/reflect";
-import type { DayOverride } from "@/lib/shiftMemo/board";
+import { useDialogTabLoop } from "@/lib/hooks/useDialogTabLoop";
+import { resolveDayActivity, type DayOverride } from "@/lib/shiftMemo/board";
 
 const dateLabel = (date: string) => {
   const d = new Date(`${date}T12:00:00`);
@@ -18,11 +19,12 @@ const dateLabel = (date: string) => {
 const button = "min-h-11 rounded-lg border border-slate-300 bg-white px-4 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40";
 const primary = "min-h-11 rounded-lg bg-slate-900 px-4 text-xs font-semibold text-white hover:bg-slate-700 disabled:opacity-40";
 
-export function ReflectShiftMemoDialog({ dates, courses, drivers, lanes, assignments, dayOverrides, onClose, onApplied, onLaneTargetChange }: {
+export function ReflectShiftMemoDialog({ dates, courses, drivers, lanes, assignments, dayOverrides, onClose, onApplied, onLaneTargetChange, onActivateDay }: {
   dates: string[]; courses: ReflectCourse[]; drivers: { id: string; name: string; display_name?: string | null }[];
   lanes: ReflectLane[]; assignments: Record<string, ReflectPerson[]>; dayOverrides: Record<string, DayOverride>;
   onClose: () => void; onApplied: () => Promise<unknown>;
   onLaneTargetChange?: (laneId: string, courseId: string) => void;
+  onActivateDay: (laneId: string, date: string) => void;
 }) {
   const [start, setStart] = useState(dates[0]);
   const [end, setEnd] = useState(dates.at(-1)!);
@@ -48,22 +50,7 @@ export function ReflectShiftMemoDialog({ dates, courses, drivers, lanes, assignm
     // 選択リストをスクロールした後でも、差分の件数・失敗理由を先頭から読めるようにする。
     if (contentRef.current?.parentElement) contentRef.current.parentElement.scrollTop = 0;
   }, [review, finished, error]);
-  // 共通モーダルのPortal内でフォーカスを保つ。選択肢のPortalも含むため、可視のボタンから判定する。
-  useEffect(() => {
-    const keepFocus = (event: KeyboardEvent) => {
-      if (event.key !== "Tab") return;
-      const dialogs = document.querySelectorAll<HTMLElement>('[role="dialog"]');
-      const dialog = dialogs[dialogs.length - 1];
-      if (!dialog) return;
-      const controls = [...dialog.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), [tabindex="0"]')].filter(el => !el.closest('[inert]') && el.getClientRects().length > 0);
-      const first = controls[0], last = controls.at(-1);
-      if (!first || !last) return;
-      if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog)) { event.preventDefault(); last.focus(); }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-    };
-    document.addEventListener("keydown", keepFocus);
-    return () => document.removeEventListener("keydown", keepFocus);
-  }, []);
+  useDialogTabLoop();
   const selectedDates = dates.filter(date => date >= start && date <= end);
   const groupResult = useMemo(() => buildReflectGroups({ dates: selectedDates, lanes, courses, selectedLaneIds, assignments, dayOverrides,
     laneCycles, laneCourseIds, personMappings, driverIds: drivers.map(d => d.id), includeEmpty: mode === "replace" && includeEmpty }),
@@ -73,7 +60,19 @@ export function ReflectShiftMemoDialog({ dates, courses, drivers, lanes, assignm
   const name = (id: string) => { const d = drivers.find(d => d.id === id); return d ? getDisplayName(d) : "登録外のドライバー"; };
   const courseName = (id: string) => courses.find(c => c.id === id)?.summary_title || courses.find(c => c.id === id)?.name || "コース";
   const cycleLabel = (id: string, cycle: number) => cycle ? courses.find(c => c.id === id)?.course_cycles?.find(c => c.cycle_no === cycle)?.label || `C${cycle}` : "";
-  const invalid = !selectedLaneIds.length || !selectedDates.length || !groupResult.groups.length || !!groupResult.errors.length;
+  const inactivePlacements = lanes.filter(lane => selectedLaneIds.includes(lane.id)).flatMap(lane => selectedDates.filter(date =>
+    (assignments[`${lane.id}|${date}`]?.length ?? 0) > 0 && !resolveDayActivity(lane.activeWeekdays,new Date(`${date}T12:00:00`).getDay(),dayOverrides[`${lane.id}|${date}`]).active,
+  ).map(date => ({ lane, date })));
+  const blockedReason = !selectedLaneIds.length ? "担当枠を選んでください" : !selectedDates.length ? "反映する期間を確認してください"
+    : inactivePlacements.length ? "休みの担当枠に配置があります" : groupResult.errors.length ? "反映先のコース・便を選んでください"
+    : !groupResult.groups.length ? unknownPeople.length ? "反映する登録ドライバーを選んでください" : "この期間に反映する配置がありません" : "";
+  const invalid = !!blockedReason;
+  const targetErrors = groupResult.errors.filter(message => !message.includes("休みの日に配置"));
+  const goToIssue = () => {
+    const target = contentRef.current?.querySelector<HTMLElement>("[data-reflect-issue]") ?? contentRef.current;
+    target?.scrollIntoView({ block: "start" });
+    target?.querySelector<HTMLElement>('button:not(:disabled), input:not(:disabled)')?.focus();
+  };
 
   const preview = async () => {
     if (busyRef.current || invalid) return;
@@ -106,10 +105,14 @@ export function ReflectShiftMemoDialog({ dates, courses, drivers, lanes, assignm
   return <>
     <EditorModal title={finished ? "シフトへ反映しました" : "シフトへ反映"} variant="shift" onClose={() => { if (!busyRef.current) onClose(); }} footer={
       finished ? <button type="button" onClick={onClose} className={`${primary} w-full`}>閉じる</button> :
-      <div className="flex flex-wrap justify-end gap-2">
+      <div className="space-y-2">
+        {!review && invalid && <div role="status" id="reflect-blocked-reason" className="flex flex-wrap items-center gap-2 text-xs text-rose-700"><span>{blockedReason}</span><button type="button" onClick={goToIssue} className="min-h-11 font-semibold underline underline-offset-2">確認箇所へ</button></div>}
+        {review && review.result.added + review.result.removed === 0 && <p role="status" className="text-xs text-slate-600">変更する配置はありません。</p>}
+        <div className="flex flex-wrap justify-end gap-2">
         <button type="button" disabled={busy} onClick={() => review ? (setReview(null), setError("")) : onClose()} className={button}>{review ? "対象を選び直す" : "キャンセル"}</button>
         {review ? <button type="button" disabled={busy || review.result.added + review.result.removed === 0} onClick={() => setConfirm(true)} className={primary}>{busy ? "反映中…" : "この内容で反映"}</button>
-          : <button type="button" disabled={busy || invalid} onClick={() => void preview()} className={primary}>{busy ? "確認中…" : "変更内容を確認"}</button>}
+          : <button type="button" disabled={busy || invalid} aria-describedby={invalid ? "reflect-blocked-reason" : undefined} onClick={() => void preview()} className={primary}>{busy ? "確認中…" : "変更内容を確認"}</button>}
+        </div>
       </div>
     }>
       <div ref={contentRef} className="space-y-4 text-xs">
@@ -127,7 +130,7 @@ export function ReflectShiftMemoDialog({ dates, courses, drivers, lanes, assignm
             <h3 className="mb-2 font-semibold text-amber-900">予定を確認してください</h3>
             <ul className="space-y-1 text-amber-900">{review.result.warnings.map((w, i) => <li key={i}>{dateLabel(w.date)} {name(w.driverId)}：{w.kind === "off" ? "希望休あり" : `${w.courseName}にも配置`}</li>)}</ul>
           </section>}
-          {review.result.added + review.result.removed === 0 ? <p className="py-4 text-center text-slate-600">変更する配置はありません。</p> :
+          {review.result.added + review.result.removed === 0 ? null :
             <div className="divide-y divide-slate-200 rounded-lg border border-slate-200">{review.result.changes.filter(c => c.addIds.length + c.removeIds.length > 0).map(change => <section key={`${change.date}|${change.courseId}|${change.cycleNo}`} className="space-y-2 p-3">
               <h3 className="break-words font-semibold text-slate-800">{dateLabel(change.date)} {courseName(change.courseId)} {cycleLabel(change.courseId, change.cycleNo)}</h3>
               {change.addIds.length > 0 && <p className="break-words leading-5 text-emerald-800">追加：{change.addIds.map(name).join("、")}</p>}
@@ -135,7 +138,7 @@ export function ReflectShiftMemoDialog({ dates, courses, drivers, lanes, assignm
             </section>)}</div>}
         </> : <fieldset disabled={busy} className="min-w-0 space-y-4">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div><p className="mb-1 font-semibold">開始日</p><CustomSelect clearable={false} ariaLabel="反映の開始日" value={start} onChange={setStart} options={dates.map(date => ({ value: date, label: dateLabel(date) }))}/></div>
+            <div><p className="mb-1 font-semibold">開始日</p><CustomSelect clearable={false} ariaLabel="反映の開始日" value={start} onChange={value => { setStart(value); if(value > end) setEnd(value); }} options={dates.map(date => ({ value: date, label: dateLabel(date) }))}/></div>
             <div><p className="mb-1 font-semibold">終了日</p><CustomSelect clearable={false} ariaLabel="反映の終了日" value={end} onChange={setEnd} options={dates.filter(date => date >= start).map(date => ({ value: date, label: dateLabel(date) }))}/></div>
           </div>
           {start > end && <p role="alert" className="text-rose-700">終了日を開始日以降にしてください。</p>}
@@ -146,14 +149,14 @@ export function ReflectShiftMemoDialog({ dates, courses, drivers, lanes, assignm
             <p className="leading-5 text-amber-900">対象の日・コース・便では、選んだ担当枠にいない人の配置を解除します。同じ便の担当枠はまとめて選んでください。</p>
             <CheckboxField label="配置のない日も空にする" checked={includeEmpty} onCheckedChange={setIncludeEmpty}/>
           </div></SmoothCollapse>
-          <section className="space-y-2">
+          <section data-reflect-issue={!selectedLaneIds.length ? true : undefined} className="space-y-2">
             <h3 className="font-semibold">担当枠・反映先</h3>
             <input aria-label="担当枠を検索" placeholder="コース・担当枠を検索" value={search} onChange={e => setSearch(e.target.value)} className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm"/>
             {lanes.length === 0 && <p className="text-slate-500">反映できる担当枠がありません。</p>}
             {lanes.filter(lane => `${lane.name} ${courseName(lane.routeId)}`.includes(search)).map(lane => {
               const course = courses.find(c => c.id === laneCourseIds[lane.id]);
               const selected = selectedLaneIds.includes(lane.id);
-              return <div key={lane.id} className="rounded-lg border border-slate-200 p-2">
+              return <div key={lane.id} data-reflect-issue={selected && (!course || (course.uses_cycles && !laneCycles[lane.id])) ? true : undefined} className="rounded-lg border border-slate-200 p-2">
                 <CheckboxField label={courseName(lane.routeId) === lane.name ? lane.name : `${courseName(lane.routeId)} / ${lane.name}`} checked={selected} onCheckedChange={checked => setSelectedLaneIds(ids => checked ? [...ids, lane.id] : ids.filter(id => id !== lane.id))}/>
                 <SmoothCollapse open={selected} speed="quick"><div className="space-y-2 px-2 pb-2">
                   <CustomSelect clearable={false} ariaLabel={`${lane.name}の反映先コース`} value={laneCourseIds[lane.id]} placeholder="反映先コースを選択" onChange={value => {
@@ -171,12 +174,15 @@ export function ReflectShiftMemoDialog({ dates, courses, drivers, lanes, assignm
             })}
             <p className="text-slate-500">選択中 {selectedLaneIds.length}枠</p>
           </section>
-          {unknownPeople.length > 0 && <section className="space-y-3 rounded-lg border border-amber-200 p-3">
-            <h3 className="font-semibold">メモだけに残す名前札</h3>
-            {unknownPeople.map(person => <div key={person.personKey}><p className="mb-1 break-words">{person.name}</p><CustomSelect ariaLabel={`${person.name}の登録ドライバー`} value={personMappings[person.personKey]} onChange={value => setPersonMappings(current => ({ ...current, [person.personKey]: value }))} placeholder="正式シフトに反映しない" options={drivers.map(driver => ({ value: driver.id, label: `${getDisplayName(driver)}（${driver.name}）` }))}/></div>)}
+          {inactivePlacements.length > 0 && <section data-reflect-issue className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
+            <h3 className="font-semibold text-amber-900">担当枠が休みの日</h3>
+            {inactivePlacements.map(({lane,date}) => <div key={`${lane.id}|${date}`} className="flex items-center justify-between gap-2"><span>{dateLabel(date)} {lane.name}</span><button type="button" aria-label={`${dateLabel(date)} ${lane.name}を稼働に変更`} onClick={() => onActivateDay(lane.id,date)} className={`${button} shrink-0`}>稼働へ</button></div>)}
           </section>}
-          {groupResult.errors.length > 0 && <ul className="space-y-1 leading-5 text-rose-700">{groupResult.errors.map(message => <li key={message}>{message}</li>)}</ul>}
-          {selectedLaneIds.length > 0 && !groupResult.groups.length && !groupResult.errors.length && <p className="text-slate-500">この期間に反映する配置がありません。</p>}
+          {unknownPeople.length > 0 && <section data-reflect-issue={!groupResult.groups.length ? true : undefined} className="space-y-3 rounded-lg border border-amber-200 p-3">
+            <h3 className="font-semibold">名前札と登録ドライバー</h3>
+            {unknownPeople.map(person => <div key={person.personKey}><p className="mb-1 break-words">{person.name}</p><CustomSelect ariaLabel={`${person.name}の登録ドライバー`} value={personMappings[person.personKey]} onChange={value => setPersonMappings(current => ({ ...current, [person.personKey]: value }))} placeholder="メモだけに残す" options={drivers.map(driver => ({ value: driver.id, label: `${getDisplayName(driver)}（${driver.name}）` }))}/></div>)}
+          </section>}
+          {targetErrors.length > 0 && <ul className="space-y-1 leading-5 text-rose-700">{targetErrors.map(message => <li key={message}>{message}</li>)}</ul>}
         </fieldset>}
       </div>
     </EditorModal>

@@ -5,7 +5,7 @@ import { createContext, useContext, type AnchorHTMLAttributes, type ImgHTMLAttri
 export const PreviewNavigation = createContext<(href: string) => void>(() => {});
 export function PreviewLink({ href = "/admin", onClick, ...props }: AnchorHTMLAttributes<HTMLAnchorElement>) {
   const navigate = useContext(PreviewNavigation);
-  return <a {...props} href="#" onClick={event => { event.preventDefault(); onClick?.(event); navigate(href); }} />;
+  return <a {...props} data-preview-href={href} href="#" onClick={event => { event.preventDefault(); onClick?.(event); navigate(href); }} />;
 }
 export function PreviewImage({ priority: _priority, ...props }: ImgHTMLAttributes<HTMLImageElement> & { priority?: boolean }) {
   // eslint-disable-next-line @next/next/no-img-element

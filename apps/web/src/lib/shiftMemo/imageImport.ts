@@ -1,4 +1,5 @@
 import type { ShiftMemoBoardData, TransferLane, TransferPerson } from "./transfer";
+import { cellKey, resolveDayActivity } from "./board";
 
 export type ImageMemoRow = { name: string; days: { day: number; names: string[] }[] };
 export type ImageMemoRead = {
@@ -54,18 +55,42 @@ export function imageRowDefaultTarget(name: string, lanes: TransferLane[], cours
   return routes.length === 1 ? `course:${routes[0].id}` : "";
 }
 
+/** 保存時と確認画面で、同じ読み込み先の条件を使う。 */
+export function imageMemoTargetIssues(read: ImageMemoRead, targets: string[], lanes: TransferLane[], courses: { id: string }[]) {
+  const issues: { row: number; message: string }[] = [];
+  const occupied = new Map<string, number>();
+  read.rows.forEach((row, index) => {
+    const target = targets[index] ?? "";
+    if (target === "skip") return;
+    const lane = target.startsWith("lane:") ? lanes.find(lane => lane.id === target.slice(5)) : undefined;
+    const course = target.startsWith("course:") && courses.some(course => course.id === target.slice(7));
+    if (!lane && !course) { issues.push({ row: index, message: "読み込み先を選んでください" }); return; }
+    if (lane) for (const day of row.days) {
+      const key = `${lane.id}|${day.day}`;
+      const previous = occupied.get(key);
+      if (previous !== undefined) issues.push({ row: index, message: `${read.period.month}月${day.day}日の読み込み先が「${read.rows[previous].name}」と重複しています` });
+      occupied.set(key, index);
+    }
+  });
+  return issues;
+}
+
 export function mergeImageMemoRead(
   board: ShiftMemoBoardData,
   read: ImageMemoRead,
   targets: string[],
   courses: ImageMemoCourse[],
   drivers: ImageMemoDriver[],
+  options: { activateDays?: boolean } = {},
 ): ShiftMemoBoardData {
   if (targets.length !== read.rows.length) throw new Error("担当枠の反映先を選び直してください");
   if (targets.every(target => target === "skip")) throw new Error("読み込む担当枠を選んでください");
+  const issues = imageMemoTargetIssues(read, targets, board.lanes, courses);
+  if (issues.length) throw new Error(`「${read.rows[issues[0].row].name}」の反映先：${issues[0].message}`);
   const lanes = [...board.lanes];
   const laneOrder = [...board.laneOrder];
   const assignments = { ...board.assignments };
+  const dayOverrides = { ...board.dayOverrides };
   const extraPeople = new Set(board.extraPeople);
   const occupied = new Set<string>();
   read.rows.forEach((row, index) => {
@@ -90,6 +115,7 @@ export function mergeImageMemoRead(
       const key = `${lane.id}|${date}`;
       if (occupied.has(key)) throw new Error(`「${row.name}」の読み込み先と日付が重複しています`);
       occupied.add(key);
+      if (options.activateDays && !resolveDayActivity(lane.activeWeekdays, new Date(`${date}T12:00:00`).getDay(), dayOverrides[cellKey(lane.id, date)]).active) dayOverrides[key] = "on";
       assignments[key] = day.names.map((name): TransferPerson => {
         const matches = drivers.filter(driver => [driver.name, driver.display_name ?? ""].some(label => normalize(label) === normalize(name)));
         const driver = matches.length === 1 ? matches[0] : undefined;
@@ -99,5 +125,5 @@ export function mergeImageMemoRead(
       });
     }
   });
-  return { ...board, lanes, laneOrder, assignments, extraPeople: [...extraPeople] };
+  return { ...board, lanes, laneOrder, assignments, dayOverrides, extraPeople: [...extraPeople] };
 }

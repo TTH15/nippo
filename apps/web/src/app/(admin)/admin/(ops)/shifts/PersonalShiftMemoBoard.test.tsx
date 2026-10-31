@@ -16,7 +16,11 @@ const people = [{ placementId: "p1", personKey: "d1", driverId: "d1", name: "配
 const props = { dates: ["2026-09-01", "2026-09-02"], courses: [{ id: "course", name: "豊中", color: "#fbbf24", max_drivers: 2 }], drivers: [{ id: "d3", name: "追加候補", display_name: "追加候補" }], today: "2026-09-01", storageNamespace: "required-count-test" };
 const stored = () => JSON.parse(localStorage.getItem(storageKey)!);
 const trigger = (count: number) => screen.getAllByRole("button", { name: `9月1日の豊中1の必要人数を変更（現在${count}人）` })[0];
-const click = (name: string) => fireEvent.click(screen.getByRole("button", { name }));
+const click = (name: string) => {
+  if (!screen.queryByRole("button", {name}) && name.startsWith("背景色を")) fireEvent.click(screen.getByRole("button", {name:"塗りつぶし"}));
+  if (!screen.queryByRole("button", {name}) && name === "稼働日数") fireEvent.click(screen.getByRole("button", {name:"その他の操作"}));
+  fireEvent.click(screen.getByRole("button", {name}));
+};
 
 beforeEach(() => {
   URL.createObjectURL = vi.fn(() => "blob:preview");
@@ -80,8 +84,8 @@ it("旧メモへ日別人数を追加して再読込でき、通常へ戻して�
   render(<PersonalShiftMemoBoard {...props} />);
   await waitFor(() => expect(trigger(3)).toBeVisible());
   click("9月1日の豊中1を休みにする");
-  fireEvent.click(trigger(3)); // 休みの日は日別配置カードから開ける
-  click("必要人数をリセット");
+  fireEvent.click(document.querySelector(`[data-shared-cell="${key}"]`)!);
+  fireEvent.click(within(screen.getByRole("region", { name: "選択範囲の操作" })).getByRole("button", { name: "必要人数を減らす" }));
   await waitFor(() => expect(stored().requiredCountOverrides).toEqual({}));
   expect(stored().assignments).toEqual({ [key]: people, [nextKey]: people });
   expect(stored().dayOverrides).toEqual({ [key]: "off" });
@@ -91,7 +95,7 @@ it("旧メモへ日別人数を追加して再読込でき、通常へ戻して�
 it("名前を選択中でも人数ボタンのキー操作では配置せず、0人への変更も名前札を保持する", async () => {
   render(<PersonalShiftMemoBoard {...props} />);
   const button = await screen.findAllByRole("button", { name: /9月1日の豊中1の必要人数を変更/ }).then(buttons => buttons[0]);
-  fireEvent.click(screen.getByText("追加候補").closest("button")!);
+  fireEvent.click(within(screen.getByRole("region", { name: "候補の名前札" })).getByRole("button", { name: "追加候補" }));
   fireEvent.keyDown(button, { key: " " });
   fireEvent.click(button);
   const dialog = screen.getByRole("dialog");
@@ -158,6 +162,33 @@ describe("共有メモの保存と同期", () => {
     });
   });
   afterEach(() => { cleanup(); vi.useRealTimers(); sessionStorage.clear(); });
+
+  it("共有メモへのファイルD&Dは読み取りや共有保存を実行しない",async()=>{
+    vi.mocked(apiUpload).mockClear(); await mount();
+    fireEvent.drop(screen.getByTestId("memo-file-drop"),{dataTransfer:{types:["Files"],files:[new File(["sample"],"memo.png",{type:"image/png"})]}});
+    expect(screen.getByRole("alert")).toHaveTextContent("個人メモを開いて");
+    expect(apiUpload).not.toHaveBeenCalled(); expect(patches()).toHaveLength(0);
+  });
+
+  it("背景色の保存とGETが失敗しても入力を残し、再試行で色だけを保存する", async () => {
+    await mount();patch=async()=>{throw Error("offline");};get=async()=>{throw Error("offline");};
+    fireEvent.click(screen.getByRole("button", {name:/^1日 （火）/}));click("背景色を赤にする");await flush(1000);
+    expect(screen.getByRole("alert")).toHaveTextContent("入力は残っています");
+    expect(screen.getByRole("button",{name:"背景色を赤にする"})).toHaveAttribute("aria-pressed","true");
+    get=async()=>canonical;patch=async body=>({board:applyBoardChanges(canonical.board,body.changes) as ReturnType<typeof board>,revision:2});
+    click("同期を再試行");await flush(1000);
+    expect(JSON.parse(String(patches().at(-1)![1]?.body)).changes).toEqual([{field:"backgroundColors",key:"date:2026-09-01",expected:null,value:"rose"}]);
+    expect(screen.getByRole("status")).toHaveTextContent("同期済み");
+  });
+
+  it("色の競合は日本語で表示し、選ぶまで他の色を上書きしない", async () => {
+    await mount();fireEvent.click(screen.getByRole("button", {name:/^1日 （火）/}));click("背景色を赤にする");
+    canonical={board:{...canonical.board,backgroundColors:{"date:2026-09-01":"sky"}} as ReturnType<typeof board>,revision:2};
+    click("更新");await flush();
+    expect(screen.getByRole("region",{name:"共有メモの変更を確認"})).toHaveTextContent("背景色:自分「赤」／共有「青」");
+    await flush(1000);expect(patches()).toHaveLength(0);
+    click("自分の変更を保存");await flush(80);expect(patches()).toHaveLength(1);
+  });
 
   it("coursesやpendingコールバックの更新では初期取得を繰り返さず入力を保持する", async () => {
     const result = await mount();
@@ -353,4 +384,174 @@ describe("共有メモの保存と同期", () => {
     expect(screen.getByRole("status")).toHaveTextContent("同期済み");
   });
 
+});
+
+it("曜日・日付の背景色を保存し、色なし・再読込でも配置を維持する", async () => {
+  const view=render(<PersonalShiftMemoBoard {...props}/>);
+  await screen.findByText("この端末に自動保存済み");
+  fireEvent.click(screen.getByRole("button", {name:/^1日 （火）/}));
+  if (!screen.queryByRole("checkbox",{name:"毎週火曜日"})) click("塗りつぶし");
+  fireEvent.click(screen.getByRole("checkbox",{name:"毎週火曜日"}));
+  click("背景色を黄にする");
+  await waitFor(()=>expect(stored().backgroundColors).toEqual({"weekday:2":"yellow"}));
+  if (!screen.queryByRole("checkbox",{name:"毎週火曜日"})) click("塗りつぶし");
+  fireEvent.click(screen.getByRole("checkbox",{name:"毎週火曜日"}));
+  click("背景色を色なしにする");
+  await waitFor(()=>expect(stored().backgroundColors["date:2026-09-01"]).toBe("none"));
+  expect(screen.queryByRole("button",{name:"この指定を解除"})).not.toBeInTheDocument();
+  expect(screen.queryByRole("button",{name:"曜日の色に戻す"})).not.toBeInTheDocument();
+  expect(screen.getByRole("button",{name:"背景色を色なしにする"})).not.toHaveTextContent("色なし");
+  expect(stored().assignments).toEqual({[key]:people,[nextKey]:people});
+  view.unmount();render(<PersonalShiftMemoBoard {...props}/>);
+  await screen.findByText("この端末に自動保存済み");
+  fireEvent.click(screen.getByRole("button", {name:/^1日 （火）/}));click("稼働日数");
+  expect(screen.getByRole("region",{name:"表示期間の稼働日数"})).toHaveTextContent("配置済み2日");
+  expect(stored().backgroundColors).toEqual({"weekday:2":"yellow","date:2026-09-01":"none"});
+});
+
+it("列・セル・行の選択を分け、作業領域から休み・必要人数・色を変更する", async () => {
+ render(<PersonalShiftMemoBoard {...props}/>);await screen.findByText("この端末に自動保存済み");
+ expect(screen.queryByRole("button",{name:"背景色"})).toBeNull();
+ expect(screen.queryByRole("button",{name:"色を付ける範囲"})).toBeNull();
+ expect(screen.queryByRole("region",{name:"選択範囲の操作"})).toBeNull();
+ fireEvent.click(screen.getByRole("button",{name:/^1日 （火）/}));
+ expect(screen.getByRole("heading",{name:"9月1日（火）・1列"})).toBeInTheDocument();
+ click("背景色を黄にする");
+ const cell=document.querySelector(`[data-export-row]`)!.parentElement!.querySelector(`[data-shared-cell="${key}"]`)!;
+ fireEvent.click(cell);
+ expect(screen.getByRole("heading",{name:"豊中 豊中1・9月1日"})).toBeInTheDocument();
+ expect(cell).toHaveAttribute("data-shift-export-selected","true");
+ expect(document.querySelector(`[data-shared-cell="${nextKey}"]`)).not.toHaveAttribute("data-shift-export-selected");
+ click("背景色を赤にする");fireEvent.click(screen.getByRole("switch",{name:"稼働"}));
+ await waitFor(()=>expect(stored().backgroundColors[`cell:${key}`]).toBe("rose"));
+ expect(stored().dayOverrides[key]).toBe("off");expect(stored().assignments[key]).toEqual(people);
+ fireEvent.click(screen.getByRole("switch",{name:"稼働"}));click("必要人数を増やす");
+ await waitFor(()=>expect(stored().requiredCountOverrides[key]).toBe(3));
+ click("豊中 豊中1の行を選択");click("背景色を青にする");
+ await waitFor(()=>expect(stored().backgroundColors["row:base-course"]).toBe("sky"));
+ expect(stored().backgroundColors[`cell:${key}`]).toBeUndefined();
+ expect(document.querySelector(`[data-shared-cell="${nextKey}"]`)).toHaveAttribute("data-shift-export-selected","true");
+ click("豊中の行を選択");click("背景色を紫にする");
+ await waitFor(()=>expect(stored().backgroundColors["course:course"]).toBe("violet"));
+ expect(screen.getByRole("region",{name:"選択範囲の操作"})).toHaveTextContent("担当枠を追加");
+});
+it("矢印キーでセルを移動しEscapeで解除する。選択だけでは配置を変えない", async () => {
+ render(<PersonalShiftMemoBoard {...props}/>);await screen.findByText("この端末に自動保存済み");
+ const cell=document.querySelector(`[data-shared-cell="${key}"]`)!;
+ fireEvent.click(cell);fireEvent.keyDown(cell,{key:"ArrowRight"});
+ const next=document.querySelector(`[data-shared-cell="${nextKey}"]`)!;
+ expect(next).toHaveAttribute("data-shift-export-selected","true");
+ fireEvent.keyDown(next,{key:"Escape"});expect(next).not.toHaveAttribute("data-shift-export-selected");
+ expect(stored().assignments).toEqual({[key]:people,[nextKey]:people});
+});
+
+it("非稼働行に希望休と文字札を含め、非表示を除き、配置・解除へ日別に追従する", async () => {
+  localStorage.setItem(storageKey, JSON.stringify({ ...stored(), extraPeople: ["応援"], hiddenPeople: { "driver:d4": true } }));
+  render(<PersonalShiftMemoBoard {...props} drivers={[
+    ...props.drivers, { id: "d1", name: "配置済み" }, { id: "d4", name: "隠した人" },
+  ]} shiftRequests={[{ driver_id: "d3", request_date: props.dates[0], slot_id: null }]} />);
+  await screen.findByText("この端末に自動保存済み");
+  const first = screen.getByRole("group", { name: "9月1日の非稼働" });
+  const second = screen.getByRole("group", { name: "9月2日の非稼働" });
+  expect(first).toHaveTextContent("追加候補休応援");
+  expect(first).not.toHaveTextContent("配置済み");
+  expect(first).not.toHaveTextContent("隠した人");
+  expect(within(first).getByRole("button", { name: /^追加候補\s*休$/ })).toHaveAttribute("title", expect.stringContaining("希望休"));
+  expect(screen.queryByText("この日の配置")).not.toBeInTheDocument();
+  expect(screen.queryByText("このセルの配置")).not.toBeInTheDocument();
+  const target = document.querySelector(`[data-shared-cell="${key}"]`)!;
+  fireEvent.drop(target, { dataTransfer: { getData: () => JSON.stringify({ personKey: "driver:d3", driverId: "d3", name: "追加候補" }) } });
+  await waitFor(() => expect(stored().assignments[key]).toHaveLength(3));
+  expect(first).not.toHaveTextContent("追加候補");
+  expect(second).toHaveTextContent("追加候補");
+  fireEvent.keyDown(within(target as HTMLElement).getByRole("button", { name: /^追加候補\s*休$/ }), { key: "Delete" });
+  await waitFor(() => expect(stored().assignments[key]).toHaveLength(2));
+  expect(first).toHaveTextContent("追加候補休");
+  expect(Object.keys(stored().assignments)).toEqual([key, nextKey]);
+});
+
+it("作業バーの稼働スイッチと人数を直接変更し、セル切替・人数の上下限でも配置を保つ", async () => {
+  render(<PersonalShiftMemoBoard {...props} />);
+  await screen.findByText("この端末に自動保存済み");
+  fireEvent.click(document.querySelector(`[data-shared-cell="${key}"]`)!);
+  const toolbar = within(screen.getByRole("region", { name: "選択範囲の操作" }));
+  const activity = toolbar.getByRole("switch", { name: "稼働" });
+  expect(activity).toHaveAttribute("aria-checked", "true");
+  fireEvent.click(activity);
+  expect(activity).toHaveAttribute("aria-checked", "false");
+  expect(activity).toHaveTextContent("休み");
+  await waitFor(() => expect(stored().dayOverrides).toEqual({ [key]: "off" }));
+  const minus = toolbar.getByRole("button", { name: "必要人数を減らす" });
+  const plus = toolbar.getByRole("button", { name: "必要人数を増やす" });
+  fireEvent.click(minus); fireEvent.click(minus);
+  expect(minus).toBeDisabled();
+  expect(toolbar.getByLabelText("この日の必要人数")).toHaveTextContent("0人");
+  for (let i = 0; i < 10; i++) fireEvent.click(plus);
+  expect(plus).toBeDisabled();
+  await waitFor(() => expect(stored().requiredCountOverrides).toEqual({ [key]: 10 }));
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  fireEvent.click(document.querySelector(`[data-shared-cell="${nextKey}"]`)!);
+  expect(toolbar.getByLabelText("この日の必要人数")).toHaveTextContent("2人");
+  expect(activity).toHaveAttribute("aria-checked", "true");
+  fireEvent.click(document.querySelector(`[data-shared-cell="${key}"]`)!);
+  expect(activity).toHaveAttribute("aria-checked", "false");
+  for (let i = 0; i < 8; i++) fireEvent.click(minus);
+  await waitFor(() => expect(stored().requiredCountOverrides).toEqual({}));
+  await waitFor(() => expect(stored().dayOverrides).toEqual({ [key]: "off" }));
+  expect(stored().assignments).toEqual({ [key]: people, [nextKey]: people });
+  expect(stored().lanes[0].requiredCount).toBe(2);
+});
+
+it("ファイルD&Dで読み取り中を表示し、中止した応答と連続ドロップで結果を上書きしない", async () => {
+  const upload = vi.mocked(apiUpload); upload.mockReset();
+  let finishFirst!: (value: unknown) => void;
+  const firstResult = {period:{year:2026,month:9},rows:[{name:"古い読み取り",days:[{day:1,names:["旧"]}]}],warnings:[]};
+  const secondResult = {period:{year:2026,month:9},rows:[{name:"豊中1",days:[{day:1,names:["最新"]}]}],warnings:[]};
+  upload.mockImplementationOnce(() => new Promise(resolve => { finishFirst = resolve; }));
+  upload.mockResolvedValueOnce(secondResult);
+  render(<PersonalShiftMemoBoard {...props}/>); await screen.findByText("この端末に自動保存済み");
+  const drop = (name: string) => fireEvent.drop(screen.getByTestId("memo-file-drop"),{dataTransfer:{types:["Files"],files:[new File(["image"],name,{type:"image/png"})]}});
+  fireEvent.dragEnter(screen.getByTestId("memo-file-drop"),{dataTransfer:{types:["Files"],files:[]}});
+  expect(screen.getByText("ここにドロップして読み込む")).toBeInTheDocument();
+  drop("first.png");
+  expect(screen.queryByText("ここにドロップして読み込む")).not.toBeInTheDocument();
+  expect(screen.getByRole("dialog",{name:"シフトメモを読み取り中"})).toHaveTextContent("first.png");
+  drop("duplicate.png"); expect(upload).toHaveBeenCalledTimes(1);
+  const signal = upload.mock.calls[0][2]!;
+  click("中止"); expect(signal.aborted).toBe(true);
+  drop("second.png");
+  const dialog = await screen.findByRole("dialog",{name:"読み取り結果を確認"});
+  expect(dialog).toHaveTextContent("最新");
+  await act(async()=>finishFirst(firstResult));
+  expect(dialog).not.toHaveTextContent("古い読み取り");
+  expect(stored().assignments).toEqual({[key]:people,[nextKey]:people});
+});
+
+it("複数ファイルのD&Dを拒否し、読取エラーはファイルを選び直さず再試行できる", async () => {
+  const upload = vi.mocked(apiUpload); upload.mockReset().mockRejectedValueOnce(new Error("読み取りに失敗しました"));
+  upload.mockResolvedValueOnce({period:{year:2026,month:9},rows:[{name:"豊中1",days:[{day:1,names:["応援"]}]}],warnings:[]});
+  render(<PersonalShiftMemoBoard {...props}/>); await screen.findByText("この端末に自動保存済み");
+  const file = new File(["image"],"retry.png",{type:"image/png"});
+  fireEvent.drop(screen.getByTestId("memo-file-drop"),{dataTransfer:{types:["Files"],files:[file,file]}});
+  expect(upload).not.toHaveBeenCalled(); expect(screen.getByRole("alert")).toHaveTextContent("1つずつ");
+  fireEvent.drop(document.body,{dataTransfer:{types:["Files"],files:[file]}});
+  await screen.findByRole("button",{name:"読み直す"});
+  click("読み直す");
+  expect(await screen.findByRole("dialog",{name:"読み取り結果を確認"})).toHaveTextContent("応援");
+  expect(upload).toHaveBeenCalledTimes(2);
+});
+
+
+it("画像の保存失敗を確認画面内で示し、入力を残して再試行する",async()=>{
+ vi.mocked(apiUpload).mockReset().mockResolvedValueOnce({period:{year:2026,month:9},rows:[{name:"豊中1",days:[{day:1,names:["応援"]}]}],warnings:[]});
+ render(<PersonalShiftMemoBoard {...props}/>);await screen.findByText("この端末に自動保存済み");
+ fireEvent.change(screen.getByLabelText("読み込むシフトメモを選ぶ"),{target:{files:[new File(["sample"],"memo.png",{type:"image/png"})]}});
+ const dialog=await screen.findByRole("dialog",{name:"読み取り結果を確認"});
+ const save=vi.spyOn(localStorage,"setItem").mockImplementationOnce(()=>{throw new Error("保存に失敗しました");});
+ fireEvent.click(within(dialog).getByRole("button",{name:"メモに読み込む"}));
+ expect(within(dialog).getByRole("alert")).toHaveTextContent("保存に失敗しました");
+ expect(stored().assignments[key]).toEqual(people);
+ save.mockRestore();fireEvent.click(within(dialog).getByRole("button",{name:"メモに読み込む"}));
+ await waitFor(()=>expect(stored().assignments[key][0].name).toBe("応援"));
+ expect(screen.queryByRole("dialog",{name:"読み取り結果を確認"})).not.toBeInTheDocument();
 });

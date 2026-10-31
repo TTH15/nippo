@@ -104,3 +104,13 @@ describe("shared board changes", () => {
     expect(session.pending).toBe(false);
   });
 });
+
+it("曜日と日付の色は独立して同期し、同じ色指定だけを競合として残す", () => {
+  const initial={...base,backgroundColors:{"weekday:1":"yellow"}};
+  const local={...initial,backgroundColors:{...initial.backgroundColors,"date:2026-10-25":"rose"}};
+  const remote={...initial,backgroundColors:{...initial.backgroundColors,"weekday:5":"sky"}};
+  const result=mergeBoardChanges(initial,local,remote);
+  expect(result.conflicts).toEqual([]);
+  expect(result.board.backgroundColors).toEqual({...local.backgroundColors,"weekday:5":"sky"});
+  expect(mergeBoardChanges(initial,local,{...initial,backgroundColors:{"date:2026-10-25":"green"}}).conflicts).toHaveLength(1);
+});

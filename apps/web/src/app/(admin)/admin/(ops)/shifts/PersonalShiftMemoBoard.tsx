@@ -24,6 +24,7 @@ import {
   faFileCode,
   faFileCsv,
   faFileImport,
+  faFillDrip,
   faFilePdf,
   faGripLines,
   faImage,
@@ -32,6 +33,7 @@ import {
   faMinus,
   faPlus,
   faRotateLeft,
+  faSlash,
   faTriangleExclamation,
   faTruck,
   faXmark,
@@ -39,15 +41,20 @@ import {
 import { apiFetch, apiUpload, getStoredDriver } from "@/lib/api";
 import { getDisplayName } from "@/lib/displayName";
 import { pngToPdf } from "@/lib/pdfExport";
+import { Popover, PopoverContent, PopoverTrigger } from "@/lib/ui/popover";
+import { CourseChip } from "@/lib/components/CourseChip";
+import { CheckboxField } from "@/lib/components/CheckboxField";
 import { SmoothCollapse } from "@/lib/components/SmoothCollapse";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { useCellCursors } from "@/lib/realtime/cellCursors";
+import { useSelectedColumnAnchor } from "@/lib/shiftMemo/useSelectedColumnAnchor";
 import { useSharedBoard } from "@/lib/shiftMemo/useSharedBoard";
 import { readHiddenPeople, type Board } from "@/lib/shiftMemo/sharedBoardSync";
 import { exportShiftMemo, exportShiftMemoCsv, parseShiftMemoTransfer, type ShiftMemoBoardData, type TransferLane, type TransferPerson } from "@/lib/shiftMemo/transfer";
 import { imageRowDefaultTarget, mergeImageMemoRead, parseImageMemoRead, type ImageMemoRead } from "@/lib/shiftMemo/imageImport";
 import {
   exportBodySlices,
+  exportRangeFromHeader,
   exportDateLabel,
   exportDateRangeFromColumns,
   exportEdgeVelocity,
@@ -55,6 +62,7 @@ import {
   selectedShortageCount,
 } from "@/lib/shiftMemoExport";
 import {
+  MEMO_BACKGROUND_COLORS, readBackgroundColors, memoBackgroundColor, paintMemoBackground, memoWorkDays, memoUnassignedPeople, type MemoBackground,
   activityLabel,
   cellKey,
   fullDayOffByDate,
@@ -69,6 +77,7 @@ import {
 } from "@/lib/shiftMemo/board";
 import { cn } from "@/lib/ui/utils";
 import { ReflectShiftMemoDialog } from "./ReflectShiftMemoDialog";
+import { MemoReadProgressDialog } from "./MemoReadProgressDialog";
 import { ImageMemoImportDialog } from "./ImageMemoImportDialog";
 
 type MemoCourse = {
@@ -130,6 +139,23 @@ type ExportSelection = {
 type ExportArtifacts = { png: Blob; pdf: Blob; filename: string };
 type ExportCellAnchor = { dayIndex: number; rowIndex: number };
 
+type MemoSelection = { kind: "column"; date: string } | { kind: "cell"; date: string; laneId: string } | { kind: "row"; laneId: string } | { kind: "course"; routeId: string };
+
+// 選択範囲の外周だけを描き、セル同士の境目に枠を重ねない。
+function memoGridStyle(selected: boolean, edges: { top?: boolean; right?: boolean; bottom?: boolean; left?: boolean } = {}): React.CSSProperties {
+  const shadows: string[] = [];
+  const edgeColor = "rgba(99,102,241,0.65)";
+  if (selected) {
+    if (edges.top) shadows.push(`inset 0 1px 0 ${edgeColor}`);
+    if (edges.right) shadows.push(`inset -1px 0 0 ${edgeColor}`);
+    if (edges.bottom) shadows.push(`inset 0 -1px 0 ${edgeColor}`);
+    if (edges.left) shadows.push(`inset 1px 0 0 ${edgeColor}`);
+  }
+  if (!selected || !edges.right) shadows.push("inset -1px 0 0 #edf0f5");
+  if (selected) shadows.push("inset 0 0 0 9999px rgba(99,102,241,0.10)");
+  return { boxShadow: shadows.join(", ") };
+}
+
 type StoredBoard = ShiftMemoBoardData;
 
 const WEEKDAY_OPTIONS = [
@@ -144,6 +170,7 @@ const WEEKDAY_OPTIONS = [
 const MON_TO_SAT = [1, 2, 3, 4, 5, 6];
 const PERSON_COLORS = ["#06b6d4", "#8b5cf6", "#f97316", "#22c55e", "#3b82f6", "#ec4899"];
 const PERSON_DRAG_TYPE = "application/x-hakotora-personal-shift-memo-person";
+const EMPTY_SHIFT_REQUESTS: ShiftRequestLike[] = [];
 const LANE_DRAG_TYPE = "application/x-hakotora-personal-shift-memo-lane";
 
 function newId(prefix: string): string {
@@ -256,6 +283,7 @@ function PersonSlip({
   code,
   selected,
   dayOff,
+  workDays,
   onSelect,
   onRemove,
 }: {
@@ -264,6 +292,7 @@ function PersonSlip({
   selected: boolean;
   /** その日に全休の希望を出している人。置けなくはしないが、気づけるようにする */
   dayOff?: boolean;
+  workDays?: number;
   onSelect: () => void;
   onRemove?: () => void;
 }) {
@@ -273,7 +302,8 @@ function PersonSlip({
       type="button"
       draggable
       aria-pressed={selected}
-      title={`${token.name}${code ? `（${code}）` : ""}${dayOff ? " ・この日は希望休" : ""}`}
+      aria-description={workDays !== undefined ? `表示期間の稼働${workDays}日` : undefined}
+      title={`${token.name}${code ? `（${code}）` : ""}${dayOff ? " ・この日は希望休" : ""}${workDays !== undefined ? ` ・稼働${workDays}日` : ""}`}
       onClick={(event) => {
         event.stopPropagation();
         onSelect();
@@ -297,6 +327,7 @@ function PersonSlip({
     >
       <span data-shift-export-slip-text="true" className="min-w-0 truncate px-2 py-1">{token.name}</span>
       {dayOff && <span data-shift-export-slip-off="true" className="shrink-0 border-l border-rose-200 px-1 py-1 text-[8px] font-bold text-rose-600">休</span>}
+      {workDays !== undefined && <span aria-hidden="true" className="shrink-0 border-l border-slate-100 px-1.5 py-1 text-[9px] tabular-nums text-slate-500">{workDays}日</span>}
       {code && !token.sourceKey && <span className="shrink-0 border-l border-slate-100 px-1.5 py-1 font-mono text-[8px] text-slate-400">{code}</span>}
     </button>
   );
@@ -307,8 +338,9 @@ export default function PersonalShiftMemoBoard({
   courses,
   drivers,
   today,
-  shiftRequests = [],
+  shiftRequests = EMPTY_SHIFT_REQUESTS,
   storageNamespace,
+  toolbarLeading,
   mode = "personal",
   canEdit = true,
   onPendingChange,
@@ -323,6 +355,7 @@ export default function PersonalShiftMemoBoard({
   shiftRequests?: ShiftRequestLike[];
   /** 保存先を分けたいとき（プレビューで本物の下書きを汚さない）に指定する */
   storageNamespace?: string;
+  toolbarLeading?: React.ReactNode;
   mode?: "personal" | "shared";
   canEdit?: boolean;
   onPendingChange?: (pending: boolean) => void;
@@ -338,6 +371,7 @@ export default function PersonalShiftMemoBoard({
   const [hydrated, setHydrated] = useState(false);
   // 日付の選択は外すこともできる（表の外を押すと青い枠が消える）
   const [selectedDate, setSelectedDate] = useState<string | null>(dates.includes(today) ? today : dates[0] ?? null);
+  useEffect(() => { setSelectedDate(current => current === null || dates.includes(current) ? current : dates[0] ?? null); },[dates]);
   const [dayWidth, setDayWidth] = useState(76);
   const [laneWidth, setLaneWidth] = useState(190);
   const [detailWidth, setDetailWidth] = useState(330);
@@ -355,6 +389,11 @@ export default function PersonalShiftMemoBoard({
   // 曜日の設定に対する「この日だけ休み／稼働」。イレギュラーな休みをここで持つ
   const [dayOverrides, setDayOverrides] = useState<Record<string, DayOverride>>({});
   const [requiredCountOverrides, setRequiredCountOverrides] = useState<Record<string, number>>({});
+  const [backgroundColors, setBackgroundColors] = useState<Record<string, MemoBackground>>({});
+  const [selection, setSelection] = useState<MemoSelection | null>(null);
+  const [colorScope, setColorScope] = useState("date");
+  const [workDaysOpen, setWorkDaysOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveRevision, setSaveRevision] = useState(0);
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -387,6 +426,7 @@ export default function PersonalShiftMemoBoard({
   const exportPointerRef = useRef<{ clientX: number; clientY: number } | null>(null);
   const exportAutoScrollFrameRef = useRef<number | null>(null);
   const exportArtifactsRef = useRef<ExportArtifacts | null>(null);
+  const exportGenerationRef = useRef(0);
   const [exportMode, setExportMode] = useState(false);
   const [exportSelection, setExportSelection] = useState<ExportSelection | null>(null);
   const [exportPreviewUrl, setExportPreviewUrl] = useState<string | null>(null);
@@ -401,11 +441,21 @@ export default function PersonalShiftMemoBoard({
   const [backupAvailable, setBackupAvailable] = useState(false);
   const [restorePending, setRestorePending] = useState(false);
   const [imageReadBusy, setImageReadBusy] = useState(false);
+  const [readingFileName, setReadingFileName] = useState("");
+  const [failedReadFile, setFailedReadFile] = useState<File | null>(null);
+  const readAbortRef = useRef<AbortController | null>(null);
+  const fileDragDepth = useRef(0);
+  const [fileDragOver, setFileDragOver] = useState(false);
+  useEffect(() => () => { const controller = readAbortRef.current; readAbortRef.current = null; controller?.abort(); }, []);
+  const cancelImageRead = () => {
+    readAbortRef.current?.abort(); readAbortRef.current = null;
+    setImageReadBusy(false);
+  };
   const [pendingImage, setPendingImage] = useState<{ file: File; read: ImageMemoRead; targets: string[] } | null>(null);
 
   const currentBoard = (): StoredBoard => ({
     version: 1, lanes, laneOrder, hiddenLaneIds, routeOrder, hiddenRouteIds,
-    assignments, extraPeople, hiddenPeople, notes, dayOverrides, requiredCountOverrides,
+    assignments, extraPeople, hiddenPeople, notes, dayOverrides, requiredCountOverrides, backgroundColors,
     widths: { day: dayWidth, lane: laneWidth, detail: detailWidth },
   });
 
@@ -427,18 +477,23 @@ export default function PersonalShiftMemoBoard({
   };
 
   const receiveMemoData = async (file: File | undefined) => {
-    if (!file) return;
-    setTransferError("");
+    if (!file || readAbortRef.current) return;
+    if (mode !== "personal") { setTransferError("個人メモを開いて読み込んでください"); return; }
+    if (exportMode) { setTransferError("エクスポートを終了してから読み込んでください"); return; }
+    if (pendingImage || pendingTransfer || reflectOpen || activePanel) { setTransferError("確認中の画面を閉じてから読み込んでください"); return; }
+    const controller = new AbortController(); readAbortRef.current = controller;
+    setTransferError(""); setFailedReadFile(null);
     try {
       if (/\.(png|pdf)$/i.test(file.name)) {
         if (mode !== "personal") throw new Error("画像・PDFは個人メモで読み込んでください");
         if (file.size > 8 * 1024 * 1024) throw new Error("画像・PDFが大きすぎます");
-        setImageReadBusy(true);
+        setReadingFileName(file.name); setImageReadBusy(true);
         const form = new FormData();
         form.set("file", file);
         form.set("year", String(Number(dates[0].slice(0, 4))));
         form.set("month", String(Number(dates[0].slice(5, 7))));
-        const result = await apiUpload<ImageMemoRead>("/api/admin/shifts/memo/read", form);
+        const result = await apiUpload<ImageMemoRead>("/api/admin/shifts/memo/read", form, controller.signal);
+        if (controller.signal.aborted) return;
         const read = parseImageMemoRead(result, { year: Number(dates[0].slice(0, 4)), month: Number(dates[0].slice(5, 7)) });
         setPendingImage({ file, read, targets: read.rows.map(row => imageRowDefaultTarget(row.name, lanes, courses)) });
         return;
@@ -448,19 +503,41 @@ export default function PersonalShiftMemoBoard({
       const parsed = parseShiftMemoTransfer(await file.text(), {
         courseIds: courses.map((course) => course.id), driverIds: drivers.map((driver) => driver.id),
       });
-      setPendingTransfer({ ...parsed, fileName: file.name });
+      if (!controller.signal.aborted) setPendingTransfer({ ...parsed, fileName: file.name });
     } catch (error) {
-      setTransferError(error instanceof Error ? error.message : "メモを読み取れませんでした");
+      if (!controller.signal.aborted) { setTransferError(error instanceof Error ? error.message : "メモを読み取れませんでした"); if (/\.(png|pdf)$/i.test(file.name)) setFailedReadFile(file); }
     } finally {
-      setImageReadBusy(false);
+      if (readAbortRef.current === controller) { readAbortRef.current = null; setImageReadBusy(false); }
       if (transferInputRef.current) transferInputRef.current.value = "";
     }
   };
 
-  const applyImageMemo = () => {
+  const isFileDrag = (event: DragEvent) => event.dataTransfer.types?.includes("Files") || !!event.dataTransfer.files?.length;
+  const receiveMemoFiles = (files: FileList) => {
+    fileDragDepth.current = 0; setFileDragOver(false);
+    if (files.length !== 1) { setTransferError("ファイルを1つずつ読み込んでください"); return; }
+    void receiveMemoData(files[0]);
+  };
+  const fileDropReceiverRef = useRef(receiveMemoFiles);
+  fileDropReceiverRef.current = receiveMemoFiles;
+  useEffect(() => {
+    const over = (event: globalThis.DragEvent) => { if(event.dataTransfer?.types.includes("Files")) event.preventDefault(); };
+    const drop = (event: globalThis.DragEvent) => {
+      if (!event.dataTransfer?.files.length) return;
+      event.preventDefault(); fileDropReceiverRef.current(event.dataTransfer.files);
+    };
+    window.addEventListener("dragover",over); window.addEventListener("drop",drop);
+    return () => { window.removeEventListener("dragover",over); window.removeEventListener("drop",drop); };
+  }, []);
+  const dropMemoFile = (event: DragEvent) => {
+    if (!isFileDrag(event)) return;
+    event.preventDefault(); event.stopPropagation(); receiveMemoFiles(event.dataTransfer.files);
+  };
+
+  const applyImageMemo = (activateDays: boolean) => {
     if (!pendingImage) return;
     try {
-      const next = mergeImageMemoRead(currentBoard(), pendingImage.read, pendingImage.targets, courses, drivers);
+      const next = mergeImageMemoRead(currentBoard(), pendingImage.read, pendingImage.targets, courses, drivers, { activateDays });
       localStorage.setItem(backupKey, JSON.stringify(currentBoard()));
       localStorage.setItem(storageKey, JSON.stringify(next));
       applyBoard(next);
@@ -532,6 +609,16 @@ export default function PersonalShiftMemoBoard({
     setLiveMessage(`${dateInfo(date).monthDay}の${lane.name}を${nextActive ? "稼働" : "休み"}にしました`);
   };
 
+  useEffect(() => {
+    setSelection(current => {
+      if (!current) return null;
+      if ((current.kind === "column" || current.kind === "cell") && !dates.includes(current.date)) return dates[0] ? {kind:"column",date:dates[0]} : null;
+      if ((current.kind === "cell" || current.kind === "row") && !lanes.some(lane => lane.id === current.laneId && !hiddenLaneIds.includes(lane.id) && !hiddenRouteIds.includes(lane.routeId))) return null;
+      if (current.kind === "course" && (!courses.some(course => course.id === current.routeId) || hiddenRouteIds.includes(current.routeId))) return null;
+      return current;
+    });
+  },[dates,lanes,courses,hiddenLaneIds,hiddenRouteIds]);
+
   // 日付 → その日に全休の希望を出している人。正式シフト表と同じく便指定は含めない
   const dayOffByDate = useMemo(() => fullDayOffByDate(shiftRequests), [shiftRequests]);
   const dayOffOn = (date: string | null) => (date ? dayOffByDate.get(date) : undefined);
@@ -576,6 +663,7 @@ export default function PersonalShiftMemoBoard({
       notes: saved.notes && typeof saved.notes === "object" ? saved.notes : {},
       dayOverrides: saved.dayOverrides && typeof saved.dayOverrides === "object" ? saved.dayOverrides : {},
       requiredCountOverrides: readRequiredCountOverrides(saved.requiredCountOverrides),
+      backgroundColors: readBackgroundColors(saved.backgroundColors),
       widths: { day: Math.max(56, Math.min(140, saved.widths?.day || 76)),
         lane: Math.max(150, Math.min(300, saved.widths?.lane || 190)),
         detail: Math.max(280, Math.min(520, saved.widths?.detail || 330)) },
@@ -586,6 +674,7 @@ export default function PersonalShiftMemoBoard({
     setLanes(board.lanes); setLaneOrder(board.laneOrder); setHiddenLaneIds(board.hiddenLaneIds);
     setRouteOrder(board.routeOrder ?? []); setHiddenRouteIds(board.hiddenRouteIds ?? []);
     setAssignments(board.assignments); setExtraPeople(board.extraPeople); setHiddenPeople(board.hiddenPeople ?? {}); setNotes(board.notes);
+    setBackgroundColors(board.backgroundColors ?? {});
     setDayOverrides(board.dayOverrides ?? {}); setRequiredCountOverrides(board.requiredCountOverrides ?? {});
     setDayWidth(board.widths?.day ?? 76); setLaneWidth(board.widths?.lane ?? 190); setDetailWidth(board.widths?.detail ?? 330);
   }, [normalizeBoard]);
@@ -633,7 +722,7 @@ export default function PersonalShiftMemoBoard({
       } catch { setSaveError("端末へ保存できませんでした。ブラウザの保存容量を確認してください"); }
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [saveRevision, assignments, requiredCountOverrides, dayOverrides, dayWidth, detailWidth, extraPeople, hiddenPeople, hiddenLaneIds, hiddenRouteIds, hydrated, laneOrder, laneWidth, lanes, notes, routeOrder, storageKey, mode]);
+  }, [saveRevision, backgroundColors, assignments, requiredCountOverrides, dayOverrides, dayWidth, detailWidth, extraPeople, hiddenPeople, hiddenLaneIds, hiddenRouteIds, hydrated, laneOrder, laneWidth, lanes, notes, routeOrder, storageKey, mode]);
 
   useEffect(() => {
     if (!activePanel) return;
@@ -662,18 +751,18 @@ export default function PersonalShiftMemoBoard({
 
   // メモ盤の外を押したら日付の選択を外す（選んだ列の青い枠を残さない）
   useEffect(() => {
-    if (!selectedDate || reflectOpen) return;
+    if ((!selectedDate && !selection) || reflectOpen) return;
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target as Element | null;
       if (!target) return;
       // 盤・右パネル・浮いているパネル（body 直下に出る）の中は対象外
       if (rootRef.current?.contains(target)) return;
-      if (target.closest?.("[role='dialog']")) return;
-      setSelectedDate(null);
+      if (target.closest?.("[role='dialog'], [data-custom-select-popup]")) return;
+      setSelectedDate(null);setSelection(null);
     };
     document.addEventListener("pointerdown", onPointerDown, true);
     return () => document.removeEventListener("pointerdown", onPointerDown, true);
-  }, [selectedDate, reflectOpen]);
+  }, [selectedDate, selection, reflectOpen]);
 
   const orderedLanes = useMemo(() => {
     const byId = new Map(lanes.map((lane) => [lane.id, lane]));
@@ -707,8 +796,41 @@ export default function PersonalShiftMemoBoard({
     ...drivers.map(driver => ({ personKey: `driver:${driver.id}`, driverId: driver.id, name: getDisplayName(driver) })),
     ...extraPeople.map(name => ({ personKey: `custom:${name}`, name })),
   ];
+  const unassignedByDate = memoUnassignedPeople(candidates, lanes.filter(lane => courses.some(course => course.id === lane.routeId)), assignments, dates, hiddenPeople);
   const hiddenCandidates = candidates.filter(token => hiddenPeople[token.personKey]);
   const visibleCustomPeople = extraPeople.filter(name => !hiddenPeople[`custom:${name}`]);
+  const workDays = useMemo(() => memoWorkDays(lanes.filter(lane => courses.some(course => course.id === lane.routeId)),assignments,dates,dayOverrides),[lanes,courses,assignments,dates,dayOverrides]);
+  const workDayPeople = [...candidates, ...[...workDays].filter(([key]) => !candidates.some(person => person.personKey === key)).map(([personKey,entry]) => ({ personKey,name: entry.name }))];
+  const selectedLane = selection && (selection.kind === "row" || selection.kind === "cell") ? lanes.find(lane => lane.id === selection.laneId) : undefined;
+  const selectedRoute = selection?.kind === "course" ? routeGroups.find(route => route.id === selection.routeId) : undefined;
+  const selectionCourse = selectedLane ? routeGroups.find(route => route.id === selectedLane.routeId) : selectedRoute;
+  const laneLabel = (lane: AssignmentLane) => {
+    const parent = routeGroups.find(route => route.id === lane.routeId)?.name;
+    return parent && parent !== lane.name ? `${parent} ${lane.name}` : lane.name;
+  };
+  const selectionLabel = !selection ? "" : selection.kind === "column" ? `${dateInfo(selection.date).monthDay}（${dateInfo(selection.date).weekday}）・1列`
+    : selection.kind === "cell" ? `${selectedLane ? laneLabel(selectedLane) : "担当枠"}・${dateInfo(selection.date).monthDay}`
+    : selection.kind === "row" ? `${selectedLane ? laneLabel(selectedLane) : "担当枠"}・${dates.length}日分` : `${selectedRoute?.name ?? "コース"}の行`;
+  const selectedCellRequiredCount = selection?.kind === "cell" && selectedLane ? requiredCountOverrides[cellKey(selectedLane.id, selection.date)] ?? selectedLane.requiredCount : 0;
+  const colorKey = !selection ? null : selection.kind === "column" ? colorScope === "weekday" ? `weekday:${dateInfo(selection.date).weekdayNo}` : `date:${selection.date}`
+    : selection.kind === "cell" ? `cell:${cellKey(selection.laneId,selection.date)}` : selection.kind === "row" ? `row:${selection.laneId}` : `course:${selection.routeId}`;
+  const changeBackground = (value: MemoBackground | null) => {
+    if (!colorKey || !editable) return;
+    setBackgroundColors(current => paintMemoBackground(current,colorKey,value,lanes.filter(lane => courses.some(course => course.id === lane.routeId)),dates));
+  };
+  const selectColumn = (date: string) => {if (exportMode) {selectExportHeader("column",date);return;}setSelectedDate(date);setSelection({kind:"column",date});setColorScope("date");};
+  const selectCell = (laneId: string,date: string) => {setSelectedDate(date);setSelection({kind:"cell",laneId,date});setColorScope("date");};
+  const selectRow = (laneId: string) => {if (exportMode) {selectExportHeader("row",laneId);return;}setSelectedDate(null);setSelection({kind:"row",laneId});};
+  const selectCourse = (routeId: string) => {if (exportMode) {selectExportHeader("course",routeId);return;}setSelectedDate(null);setSelection({kind:"course",routeId});};
+  const isRowSelected = (lane: AssignmentLane) => exportMode ? !!exportSelection?.laneIds.includes(lane.id) : selection?.kind === "row" && selection.laneId === lane.id || selection?.kind === "course" && selection.routeId === lane.routeId;
+  const isCellSelected = (lane: AssignmentLane,date: string) => !exportMode && (isRowSelected(lane) || selection?.kind === "column" && selection.date === date || selection?.kind === "cell" && selection.date === date && selection.laneId === lane.id);
+  const isColumnSelected = (date: string) => exportMode
+    ? !!exportSelection && dates.indexOf(date) >= Math.round((exportSelection.x - laneWidth) / dayWidth) && dates.indexOf(date) < Math.round((exportSelection.x - laneWidth + exportSelection.width) / dayWidth)
+    : selection?.kind === "column" && selection.date === date;
+  const isCourseSelected = (routeId: string) => exportMode ? !!exportSelection?.routeIds.includes(routeId) : selection?.kind === "course" && selection.routeId === routeId;
+  useSelectedColumnAnchor(boardScrollerRef,
+    !exportMode && selection?.kind === "column" ? dates.indexOf(selection.date) : -1,
+    dayWidth, laneWidth, boardHydrated, detailWidth);
   const selectedCandidate = selectedToken && !selectedToken.sourceKey && candidates.find(token => token.personKey === selectedToken.personKey);
   const editable = mode !== "shared" || canEdit;
   const boardWidth = laneWidth + dayWidth * dates.length;
@@ -798,7 +920,7 @@ export default function PersonalShiftMemoBoard({
       top: element.offsetTop,
       bottom: element.offsetTop + element.offsetHeight,
     }));
-    return exportBodySlices(exportRows(), headers, selection.y, selection.y + selection.height);
+    return exportBodySlices(exportRows(), headers, selection.y, selection.y + selection.height).filter(slice => slice.kind === "row");
   };
 
   const updateExportSelectionAt = (clientX: number, clientY: number) => {
@@ -863,6 +985,7 @@ export default function PersonalShiftMemoBoard({
         return lane ? shortageFor(lane, date, assignments[cellKey(lane.id, date)] ?? []) : 0;
       }),
     ]));
+    await document.fonts?.ready;
     const source = await html2canvas(boardRef.current, {
       backgroundColor: "#ffffff",
       scale: 2,
@@ -873,6 +996,11 @@ export default function PersonalShiftMemoBoard({
       windowWidth: boardRef.current.scrollWidth,
       windowHeight: boardRef.current.scrollHeight,
       onclone: (clonedDocument) => {
+        clonedDocument.querySelectorAll<HTMLElement>("[data-export-row-label='true']").forEach(label => {
+          Object.assign(label.style, { display: "block", height: "18px", lineHeight: "12px", padding: "0 0 6px", top: "6px", overflow: "visible" });
+        });
+        clonedDocument.querySelectorAll<HTMLElement>("[data-export-row-name='duplicate']").forEach(label => { label.style.display = "none"; });
+        clonedDocument.querySelectorAll<HTMLElement>("[data-export-row], [data-shared-cell]").forEach(cell => { cell.style.borderBottomColor = "transparent"; });
         const setExportPillLabel = (pill: HTMLElement, text: string) => {
           const label = clonedDocument.createElement("span");
           label.textContent = text;
@@ -903,6 +1031,13 @@ export default function PersonalShiftMemoBoard({
           });
         });
         clonedDocument.querySelectorAll<HTMLElement>("[data-shift-export-slip='true']").forEach((slip) => {
+          slip.classList.remove("ring-2", "ring-indigo-500");
+          const off = slip.querySelector<HTMLElement>("[data-shift-export-slip-off='true']");
+          const name = slip.querySelector<HTMLElement>("[data-shift-export-slip-text='true']");
+          if (off && name) {
+            name.textContent = `${name.textContent ?? ""} 休`;
+            off.remove();
+          }
           Object.assign(slip.style, {
             display: "block",
             position: "relative",
@@ -945,9 +1080,14 @@ export default function PersonalShiftMemoBoard({
           Object.assign(trigger.style, { boxShadow: "none", outline: "none", border: "0" });
           trigger.querySelectorAll<HTMLElement>("span").forEach((label) => { label.style.textDecoration = "none"; });
         });
-        // 選んでいる日の青い枠は下書き用の目印。画像には残さない
+        // html2canvasは内側の影を再現しないため、出力の列境界を実線へ置き換える。
+        clonedDocument.querySelectorAll<HTMLElement>("[data-memo-grid='true']").forEach((element) => {
+          Object.assign(element.style, { boxShadow: "none", borderRight: "1px solid #edf0f5", boxSizing: "border-box" });
+        });
+        // 編集中の選択色と外枠は画像へ残さず、保存した背景色は維持する。
         clonedDocument.querySelectorAll<HTMLElement>("[data-shift-export-selected='true']").forEach((element) => {
-          element.classList.remove("bg-indigo-50", "bg-indigo-50/45", "text-indigo-700", "ring-2", "ring-inset", "ring-indigo-500");
+          element.classList.remove("text-indigo-700");
+          element.style.boxShadow = "none";
         });
         clonedDocument.querySelectorAll<HTMLElement>("[data-shift-export-meta='true']").forEach((meta) => {
           Object.assign(meta.style, { lineHeight: "10px", paddingTop: "0" });
@@ -1062,6 +1202,8 @@ export default function PersonalShiftMemoBoard({
   };
 
   const refreshExportPreview = async (selection: ExportSelection) => {
+    const generation = ++exportGenerationRef.current;
+    setExportPreviewUrl(null);
     setExportBusy(true);
     setExportError("");
     exportArtifactsRef.current = null;
@@ -1074,21 +1216,36 @@ export default function PersonalShiftMemoBoard({
       const range = exportDateRange(selection, laneWidth, dayWidth, dates);
       const filename = `シフトメモ_${range.start}${range.end === range.start ? "" : `_${range.end}`}`;
       const pdf = await pngToPdf(imageUrl, canvas.width, canvas.height);
+      if (generation !== exportGenerationRef.current) return;
       exportArtifactsRef.current = { png, pdf, filename };
       setExportPreviewUrl(imageUrl);
     } catch (error) {
+      if (generation !== exportGenerationRef.current) return;
       console.error(error);
       exportArtifactsRef.current = null;
       setExportPreviewUrl(null);
       setExportError("プレビューを作成できませんでした");
     } finally {
-      setExportBusy(false);
+      if (generation === exportGenerationRef.current) setExportBusy(false);
     }
   };
+
+  const selectExportHeader = (kind: "column" | "row" | "course", key: string) => {
+    const range = exportRangeFromHeader(exportRows(), dates, laneWidth, dayWidth, {kind,key});
+    if (!range) return;
+    setExportSelection(range);
+    void refreshExportPreview(range);
+  };
+
+  useEffect(() => {
+    exportGenerationRef.current += 1;
+    exportArtifactsRef.current = null;setExportPreviewUrl(null);setExportSelection(null);setExportBusy(false);
+  },[dates,courses,assignments,lanes,laneOrder,routeOrder,hiddenLaneIds,hiddenRouteIds,backgroundColors,dayOverrides,requiredCountOverrides,dayWidth,laneWidth,drivers,extraPeople,hiddenPeople,shiftRequests]);
 
   const startExport = () => {
     stopExportAutoScroll();
     closeActivePanel(false);
+    setSelectedToken(null);
     setExportMode(true);
     setExportSelection(null);
     setExportPreviewUrl(null);
@@ -1097,6 +1254,8 @@ export default function PersonalShiftMemoBoard({
   };
 
   const closeExport = () => {
+    exportGenerationRef.current += 1;
+    setExportBusy(false);
     stopExportAutoScroll();
     exportSelectionStartRef.current = null;
     setExportMode(false);
@@ -1290,14 +1449,17 @@ export default function PersonalShiftMemoBoard({
     setActivePanel({ kind: "required", laneId: lane.id, date, anchor: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom } });
   };
 
+  const changeCellRequiredCount = (lane: AssignmentLane, date: string, delta: number | null) => {
+    const key = cellKey(lane.id, date);
+    setRequiredCountOverrides((current) => {
+      const count = current[key] ?? lane.requiredCount;
+      return updateRequiredCountOverride(current, key, lane.requiredCount, delta === null ? null : Math.max(0, Math.min(MAX_REQUIRED_COUNT, count + delta)));
+    });
+  };
+
   const changeDailyRequiredCount = (delta: number | null) => {
     if (activePanel?.kind !== "required" || !requiredLane) return;
-    const { date } = activePanel;
-    const key = cellKey(requiredLane.id, date);
-    setRequiredCountOverrides((current) => {
-      const count = current[key] ?? requiredLane.requiredCount;
-      return updateRequiredCountOverride(current, key, requiredLane.requiredCount, delta === null ? null : Math.max(0, Math.min(MAX_REQUIRED_COUNT, count + delta)));
-    });
+    changeCellRequiredCount(requiredLane, activePanel.date, delta);
   };
 
   const saveLaneSettings = (laneId: string) => {
@@ -1324,7 +1486,7 @@ export default function PersonalShiftMemoBoard({
   };
 
   const selectedAssignments = selectedDate
-    ? visibleLanes.map((lane) => ({ lane, people: assignments[cellKey(lane.id, selectedDate)] ?? [] }))
+    ? visibleLanes.filter(lane => selection?.kind !== "cell" || lane.id === selection.laneId).map((lane) => ({ lane, people: assignments[cellKey(lane.id, selectedDate)] ?? [] }))
     : [];
   const selectedShortages = selectedDate
     ? selectedAssignments
@@ -1336,51 +1498,55 @@ export default function PersonalShiftMemoBoard({
     return sum + shortageFor(lane, date, people);
   }, 0);
 
+  const describeSharedValue = (field: string, value: unknown) => field === "backgroundColors" ? MEMO_BACKGROUND_COLORS.find(item => item.value === value)?.label ?? "指定なし" : shared.describe(value);
+
   if (!boardHydrated) {
     return <div className="h-64 animate-pulse rounded-xl border border-slate-200 bg-slate-100" />;
   }
 
   return (
-    <div ref={rootRef}
+    <div ref={rootRef} data-testid="memo-file-drop"
+      onDragEnterCapture={event => { if (isFileDrag(event)) { event.preventDefault(); event.stopPropagation(); fileDragDepth.current++; setFileDragOver(true); } }}
+      onDragLeaveCapture={event => { if (isFileDrag(event)) { fileDragDepth.current = Math.max(0,fileDragDepth.current-1); if (!fileDragDepth.current) setFileDragOver(false); } }}
+      onDragOverCapture={event => { if (isFileDrag(event)) { event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = mode === "personal" && !imageReadBusy && !exportMode ? "copy" : "none"; } }}
+      onDropCapture={dropMemoFile}
       onFocusCapture={(event) => { if (mode === "shared" && !(event.target as Element).closest("[data-shared-cell], #shift-memo-notes")) cursors.reportCell(null); }}
       onBlurCapture={(event) => { if (mode === "shared" && !event.currentTarget.contains(event.relatedTarget as Node | null)) cursors.reportCell(null); }}
       onClickCapture={(event) => { if (mode === "shared" && !canEdit && !(event.target as Element).closest("[data-shared-refresh]")) { event.preventDefault(); event.stopPropagation(); } }}
       onKeyDownCapture={(event) => { if (mode === "shared" && !canEdit && (event.key === "Enter" || event.key === " ") && !(event.target as Element).closest("[data-shared-refresh]")) { event.preventDefault(); event.stopPropagation(); } }}
       onBeforeInputCapture={(event) => { if (mode === "shared" && !canEdit) event.preventDefault(); }}
       onDragStartCapture={(event) => { if (mode === "shared" && !canEdit) event.preventDefault(); }}
-      className={cn("space-y-3 pb-8 text-slate-900", mode === "shared" && !canEdit && "[&_button]:pointer-events-none [&_input]:pointer-events-none [&_textarea]:pointer-events-none")}>
+      className={cn("space-y-2 pb-8 text-slate-900", mode === "shared" && !canEdit && "[&_button]:pointer-events-none [&_input]:pointer-events-none [&_textarea]:pointer-events-none")}>
       <p className="sr-only" aria-live="polite">{liveMessage}</p>
       {mode === "shared" && shared.conflict && <section role="region" aria-label="共有メモの変更を確認" className="break-words rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-slate-700">
         <p>別の変更と重なっています。更新しても入力は残ります。今回の変更をまとめて選んでください。</p>
         <ul className="mt-2 space-y-1">{shared.conflicts.map(change => <li key={`${change.field}:${change.key ?? ""}`}>
-          {change.field === "notes" && change.key ? `${dateInfo(change.key).monthDay}のメモ` : change.field === "assignments" ? "名前札の配置" : change.field === "hiddenPeople" ? "候補の名前札の表示" : "担当枠の設定"}:
-          <span className="ml-1">自分「{shared.describe(change.value)}」／共有「{shared.describe(shared.remoteValue(change))}」</span>
+          {change.field === "notes" && change.key ? `${dateInfo(change.key).monthDay}のメモ` : change.field === "assignments" ? "名前札の配置" : change.field === "hiddenPeople" ? "候補の名前札の表示" : change.field === "backgroundColors" ? "背景色" : "担当枠の設定"}:
+          <span className="ml-1">自分「{describeSharedValue(change.field,change.value)}」／共有「{describeSharedValue(change.field,shared.remoteValue(change))}」</span>
         </li>)}</ul>
         {canEdit && <div className="mt-2 flex flex-wrap gap-2">
           <button type="button" onClick={() => shared.resolve(true)} className="min-h-11 rounded-lg bg-slate-900 px-3 font-semibold text-white">自分の変更を保存</button>
           <button type="button" onClick={() => { if (window.confirm("今回の未保存の変更を取り消して、共有の内容を使いますか？")) shared.resolve(false); }} className="min-h-11 rounded-lg border border-slate-300 bg-white px-3 font-semibold">共有の内容を使う</button>
         </div>}
       </section>}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-700">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 bg-slate-50 py-1">
+        {toolbarLeading}
+        {!toolbarLeading && <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-700">
           <FontAwesomeIcon icon={faLock} className="h-3 w-3" />{mode === "shared" ? "共有メモ" : "個人メモ"}
-        </span>
+        </span>}
         {mode === "shared" && cursors.peers.length > 0 && <span className="text-[11px] text-slate-600">参加中: {cursors.peers.map((peer) => peer.name).join("、")}</span>}
-        {canReflect && onReflected && <button type="button" disabled={!boardHydrated || exportMode} onClick={() => setReflectOpen(true)} className="min-h-11 rounded-lg bg-slate-900 px-3 text-[11px] font-bold text-white hover:bg-slate-700 disabled:opacity-40">シフトへ反映</button>}
+        {canReflect && onReflected && <button type="button" disabled={!boardHydrated || exportMode} onClick={() => setReflectOpen(true)} className="min-h-11 rounded-lg bg-slate-900 px-2.5 text-[11px] font-bold text-white hover:bg-slate-700 disabled:opacity-40">シフトへ反映</button>}
         {mode === "personal" && <>
           <input ref={transferInputRef} type="file" accept=".json,application/json,.png,image/png,.pdf,application/pdf" className="sr-only" aria-label="読み込むシフトメモを選ぶ" onChange={(event) => void receiveMemoData(event.target.files?.[0])}/>
-          <button type="button" disabled={!boardHydrated || imageReadBusy || exportMode} onClick={() => transferInputRef.current?.click()} className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40">
-            <FontAwesomeIcon icon={faFileImport} className="h-3 w-3" />{imageReadBusy ? "読み取り中" : "読み込む"}
-          </button>
           {backupAvailable && <button type="button" onClick={() => setRestorePending(true)} className="min-h-11 px-2 text-[11px] font-semibold text-slate-600 underline underline-offset-2">読み込み前に戻す</button>}
         </>}
-        <span className="text-[11px] text-slate-500" role="status">
+        <span className={cn("text-[11px] text-slate-500", toolbarLeading && !displaySaveError && !(mode === "shared" && (shared.pending || shared.slow)) && "max-sm:sr-only")} role="status">
           {displaySaveError ? <span role="alert" className="text-rose-600">{displaySaveError}
             {!shared.conflict && <button type="button" data-shared-refresh style={{ pointerEvents: "auto" }}
               onClick={() => mode === "shared" ? shared.refresh() : setSaveRevision(value => value + 1)}
               className="ml-2 min-h-11 underline underline-offset-2">{mode === "shared" ? "同期を再試行" : "保存を再試行"}</button>}
           </span> : mode === "shared" ? shared.saving ? shared.slow ? <span className="text-amber-700">保存に時間がかかっています。入力は残っています</span> : "保存中" : shared.pending ? "未同期" : shared.syncing ? "同期を確認中" : "同期済み"
-            : savedAt ? "この端末に自動保存済み" : "この端末に保存"}
+            : savedAt ? toolbarLeading ? "保存済み" : "この端末に自動保存済み" : toolbarLeading ? "保存待ち" : "この端末に保存"}
           {mode === "shared" && !cursors.connected && <span className="ml-2">再接続中</span>}
         </span>
         {mode === "shared" && <button type="button" data-shared-refresh style={{ pointerEvents: "auto" }} disabled={shared.syncing}
@@ -1388,20 +1554,30 @@ export default function PersonalShiftMemoBoard({
           className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 text-[11px] font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40">
           <FontAwesomeIcon icon={faRotateLeft} className="h-3 w-3" />更新
         </button>}
+
         <button
           type="button"
           onClick={exportMode ? closeExport : startExport}
           aria-pressed={exportMode}
+          aria-label={exportMode ? "選択を終了" : "エクスポート"}
           className={cn(
-            "ml-auto inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-[11px] font-bold transition",
+            "ml-auto inline-flex min-h-11 items-center gap-1.5 rounded-lg border px-3 text-[11px] font-bold transition",
             exportMode
               ? "border-amber-400 bg-amber-50 text-amber-800"
               : "border-slate-200 bg-white text-slate-700 hover:border-slate-400",
           )}
         >
           <FontAwesomeIcon icon={exportMode ? faXmark : faDownload} className="h-3 w-3" />
-          {exportMode ? "選択を終了" : "エクスポート"}
+          <span className="hidden sm:inline">{exportMode ? "選択を終了" : "エクスポート"}</span>
         </button>
+        <Popover open={moreOpen} onOpenChange={setMoreOpen}><PopoverTrigger asChild><button type="button" data-shared-refresh style={{pointerEvents:"auto"}} aria-label="その他の操作" className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"><FontAwesomeIcon icon={faEllipsis}/></button></PopoverTrigger>
+          <PopoverContent align="end" data-memo-popover className="flex w-48 flex-col gap-1 p-2">
+            {mode === "personal" && (<button type="button" disabled={!boardHydrated || imageReadBusy || exportMode} onClick={() => {setMoreOpen(false);transferInputRef.current?.click();}} className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40">
+            <FontAwesomeIcon icon={faFileImport} className="h-3 w-3" />{imageReadBusy ? "読み取り中" : "読み込む"}
+          </button>)}
+        <button type="button" data-shared-refresh style={{pointerEvents:"auto"}} aria-expanded={workDaysOpen} aria-controls="memo-work-days" onClick={() => {setWorkDaysOpen(open => !open);setMoreOpen(false);}} className="min-h-11 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold">稼働日数</button>
+          </PopoverContent>
+        </Popover>
         {hiddenLanes.length + hiddenRoutes.length > 0 && (
           <button type="button" onClick={() => setHiddenOpen((open) => !open)} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-[11px] font-medium text-slate-600 hover:border-slate-400">
             <FontAwesomeIcon icon={faEye} className="h-3 w-3" />非表示 {hiddenLanes.length + hiddenRoutes.length}件
@@ -1410,19 +1586,66 @@ export default function PersonalShiftMemoBoard({
         )}
       </div>
 
-      {transferError && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{transferError}</p>}
+
+      <SmoothCollapse open={!!selection && editable && !exportMode} id="memo-selection-workspace" speed="quick">
+        <section aria-label="選択範囲の操作" onKeyDown={event => {if(event.key === "Escape") setSelection(null);}} className="grid grid-cols-[minmax(0,1fr)_auto_auto_2.75rem] items-center gap-x-2 rounded-lg bg-slate-100/60 px-2 py-0.5 lg:grid-cols-[15rem_7rem_minmax(0,1fr)_2.75rem]">
+          <h3 aria-label={selectionLabel} className="col-start-1 row-start-1 flex min-w-0 items-center gap-1.5 text-xs font-semibold text-slate-800">
+            {selectionCourse ? <>
+              <CourseChip name={selectionCourse.name} color={selectionCourse.color} truncate />
+              {selectedLane && selectedLane.name !== selectionCourse.name && <span title={selectedLane.name} className="max-w-[50%] shrink-0 truncate">{selectedLane.name}</span>}
+            </> : <span className="truncate">{selection?.kind === "column" ? `${dateInfo(selection.date).monthDay}（${dateInfo(selection.date).weekday}）` : selectionLabel}</span>}
+          </h3>
+          <span className="col-start-2 row-start-1 whitespace-nowrap text-[11px] font-medium tabular-nums text-slate-600">
+            {selection?.kind === "cell" ? `${dateInfo(selection.date).monthDay}（${dateInfo(selection.date).weekday}）` : selection?.kind === "row" ? `${dates.length}日分` : selection?.kind === "column" ? "1列" : ""}
+          </span>
+          <div className={cn("col-span-4 row-start-2 flex min-h-11 items-center gap-2 lg:gap-4 lg:col-span-1 lg:col-start-3 lg:row-start-1", selection?.kind === "column" && "col-span-1 col-start-3 row-start-1")}>
+            {selection?.kind === "cell" && selectedLane && <>
+              <button type="button" role="switch" aria-label="稼働" aria-checked={activeOn(selectedLane, selection.date)} onClick={() => toggleDayActivity(selectedLane, selection.date)} className="inline-flex min-h-11 w-16 shrink-0 items-center justify-center gap-1.5 rounded-md text-xs font-medium text-slate-600 hover:bg-slate-200/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400">
+                <span aria-hidden="true" className={cn("relative h-4 w-7 shrink-0 rounded-full", activeOn(selectedLane, selection.date) ? "bg-slate-600" : "bg-slate-300")}><span className={cn("absolute top-0.5 h-3 w-3 rounded-full bg-white", activeOn(selectedLane, selection.date) ? "left-3.5" : "left-0.5")} /></span>
+                <span className="w-6">{activeOn(selectedLane, selection.date) ? "稼働" : "休み"}</span>
+              </button>
+              <div role="group" aria-label="必要人数" className="inline-flex shrink-0 items-center">
+                <span className="text-xs text-slate-500">必要</span>
+                <button type="button" aria-label="必要人数を減らす" disabled={selectedCellRequiredCount === 0} onClick={() => changeCellRequiredCount(selectedLane, selection.date, -1)} className="inline-flex min-h-11 w-11 items-center justify-center rounded-md text-slate-500 hover:bg-slate-200/50 hover:text-slate-700 disabled:opacity-30"><FontAwesomeIcon icon={faMinus} className="h-2.5 w-2.5" /></button>
+                <output aria-label="この日の必要人数" aria-live="polite" className="w-8 whitespace-nowrap text-center text-xs font-semibold tabular-nums text-slate-800">{selectedCellRequiredCount}人</output>
+                <button type="button" aria-label="必要人数を増やす" disabled={selectedCellRequiredCount === MAX_REQUIRED_COUNT} onClick={() => changeCellRequiredCount(selectedLane, selection.date, 1)} className="inline-flex min-h-11 w-11 items-center justify-center rounded-md text-slate-500 hover:bg-slate-200/50 hover:text-slate-700 disabled:opacity-30"><FontAwesomeIcon icon={faPlus} className="h-2.5 w-2.5" /></button>
+              </div>
+            </>}
+            {selection?.kind === "row" && selectedLane && <button type="button" onClick={event => openLaneSettings(selectedLane,event)} className="min-h-11 rounded-md px-2 text-xs font-medium text-slate-600 hover:bg-slate-200/50">担当枠の設定</button>}
+            {selection?.kind === "course" && selectedRoute && <button type="button" onClick={event => openAddLane(selectedRoute,event)} className="min-h-11 rounded-md px-2 text-xs font-medium text-slate-600 hover:bg-slate-200/50">担当枠を追加</button>}
+          <Popover><PopoverTrigger asChild><button type="button" aria-label="塗りつぶし" className="inline-flex min-h-11 w-11 shrink-0 items-center justify-center rounded-md text-xs text-slate-500 hover:bg-slate-200/50 hover:text-slate-700"><FontAwesomeIcon icon={faFillDrip}/></button></PopoverTrigger>
+            <PopoverContent align="start" data-memo-popover className="w-[296px] max-w-[calc(100vw-24px)] space-y-2 p-2">
+          <div role="group" aria-label="背景の色" className="grid grid-cols-6 gap-px">{MEMO_BACKGROUND_COLORS.map(item => <button type="button" key={item.value} aria-label={`背景色を${item.label}にする`} aria-pressed={!!colorKey && backgroundColors[colorKey] === item.value} onClick={() => changeBackground(item.value)} className={cn("min-h-11 min-w-11 rounded-md border px-0.5 text-[11px] font-semibold text-slate-700",colorKey && backgroundColors[colorKey] === item.value ? "border-slate-800 ring-1 ring-slate-800" : "border-slate-200")} style={{backgroundColor:item.color}} title={item.label}>{item.value === "none" ? <FontAwesomeIcon icon={faSlash} className="text-red-500" style={{width:24,height:24}} /> : item.label}</button>)}</div>
+          {selection?.kind === "column" && <CheckboxField label={`毎週${dateInfo(selection.date).weekday}曜日`} checked={colorScope === "weekday"} onCheckedChange={checked => setColorScope(checked ? "weekday" : "date")}/>}
+            </PopoverContent>
+          </Popover>
+          </div>
+          <button type="button" aria-label="選択を解除" onClick={() => setSelection(null)} className="col-start-4 row-start-1 inline-flex min-h-11 w-11 items-center justify-center rounded-md text-slate-500 hover:bg-slate-200/50 hover:text-slate-700"><FontAwesomeIcon icon={faXmark}/></button>
+        </section>
+      </SmoothCollapse>
+      <SmoothCollapse id="memo-work-days" open={workDaysOpen}>
+        <section aria-label="表示期間の稼働日数" className="rounded-lg border border-slate-200 bg-white p-3">
+          <h3 className="mb-2 text-xs font-semibold text-slate-500">{exportPeriodLabel(dates)}・全コース</h3>
+          <ul className="flex flex-wrap gap-2">{workDayPeople.map(person => <li key={person.personKey} className="flex items-center gap-3 rounded-md bg-slate-50 px-3 py-2 text-xs"><span>{person.name}</span><span className="font-bold tabular-nums">{workDays.get(person.personKey)?.days ?? 0}日</span></li>)}</ul>
+        </section>
+      </SmoothCollapse>
+      {transferError && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{transferError}{failedReadFile && <button type="button" onClick={() => void receiveMemoData(failedReadFile)} className="ml-3 min-h-11 font-semibold underline underline-offset-2">読み直す</button>}</p>}
       <ConfirmDialog open={!!pendingTransfer} title="この端末のメモを置き換えますか？"
         message={pendingTransfer ? `${pendingTransfer.fileName}\n担当枠 ${pendingTransfer.board.lanes.length}件・配置 ${pendingTransfer.placementCount}件${pendingTransfer.unregisteredNames.length ? `\n未登録の名前札 ${pendingTransfer.unregisteredNames.length}人はメモに残ります。` : ""}\n読み込み前のメモには戻せます。` : ""}
         confirmLabel="メモを読み込む" tone="neutral" onConfirm={applyReceivedMemo} onClose={() => setPendingTransfer(null)}/>
       <ConfirmDialog open={restorePending} title="読み込み前のメモに戻しますか？"
         message="読み込み後の変更は失われます。" confirmLabel="読み込み前に戻す" tone="danger" onConfirm={restoreBeforeImport} onClose={() => setRestorePending(false)}/>
+      {fileDragOver && <div aria-hidden="true" className="pointer-events-none fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/40 p-4"><div className="rounded-xl border-2 border-dashed border-slate-400 bg-white px-8 py-10 text-center text-sm font-semibold text-slate-800"><FontAwesomeIcon icon={faFileImport} className="mb-3 text-slate-500" /><p>{mode !== "personal" ? "個人メモで読み込んでください" : imageReadBusy ? "読み取り中です" : exportMode ? "エクスポートを終了してください" : "ここにドロップして読み込む"}</p></div></div>}
+      {imageReadBusy && <MemoReadProgressDialog fileName={readingFileName} onCancel={cancelImageRead}/>}
       {pendingImage && <ImageMemoImportDialog file={pendingImage.file} read={pendingImage.read} lanes={lanes} courses={courses}
-        targets={pendingImage.targets} onTargetChange={(index, target) => setPendingImage(current => current ? { ...current, targets: current.targets.map((value, i) => i === index ? target : value) } : null)}
+        drivers={drivers} dayOverrides={dayOverrides} dayOffByDate={dayOffByDate} error={transferError}
+        targets={pendingImage.targets} onTargetChange={(index, target) => { setTransferError(""); setPendingImage(current => current ? { ...current, targets: current.targets.map((value, i) => i === index ? target : value) } : null); }}
         onClose={() => setPendingImage(null)} onConfirm={applyImageMemo}/>}
 
       {reflectOpen && onReflected && <ReflectShiftMemoDialog dates={dates} courses={courses} drivers={drivers}
         lanes={lanes.filter(lane => courses.some(course => course.id === lane.routeId))} assignments={assignments} dayOverrides={dayOverrides}
         onClose={() => setReflectOpen(false)} onApplied={onReflected}
+        onActivateDay={(laneId,date) => setDayOverrides(current => ({ ...current, [cellKey(laneId,date)]: "on" }))}
         onLaneTargetChange={(laneId, courseId) => setLanes(current => current.map(lane => lane.id === laneId ? { ...lane, reflectCourseId: courseId } : lane))}/>}
 
       {hiddenOpen && hiddenLanes.length + hiddenRoutes.length > 0 && (
@@ -1444,34 +1667,30 @@ export default function PersonalShiftMemoBoard({
       )}
 
       <div
-        inert={activePanel !== null || pendingDuplicate !== null || reflectOpen ? true : undefined}
-        aria-hidden={activePanel !== null || pendingDuplicate !== null || reflectOpen ? true : undefined}
-        className="grid min-h-[680px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm lg:h-[calc(100dvh-250px)] lg:grid-cols-[minmax(0,1fr)_7px_var(--memo-detail-width)]"
+        inert={activePanel !== null || pendingDuplicate !== null || reflectOpen || imageReadBusy || pendingImage !== null ? true : undefined}
+        aria-hidden={activePanel !== null || pendingDuplicate !== null || reflectOpen || imageReadBusy || pendingImage !== null ? true : undefined}
+        className="grid min-h-[680px] overflow-hidden rounded-xl border border-slate-200/60 bg-white lg:h-[calc(100dvh-250px)] lg:grid-cols-[minmax(0,1fr)_7px_var(--memo-detail-width)]"
         style={{ "--memo-detail-width": `${detailWidth}px` } as React.CSSProperties}
       >
         <section ref={boardScrollerRef} data-shift-export-scroller="true" className="min-h-[480px] min-w-0 overflow-auto bg-white lg:min-h-0">
           <div ref={boardRef} className="relative grid min-h-full content-start" style={{ gridTemplateColumns: `${laneWidth}px repeat(${dates.length}, ${dayWidth}px)`, width: boardWidth }}>
-            <div data-shift-export-sticky="true" className="sticky left-0 top-0 z-50 flex h-16 items-center border-b border-r border-slate-200 bg-slate-50 px-3">
+            <div data-shift-export-sticky="true" data-memo-grid="true" style={memoGridStyle(false)} className="sticky left-0 top-0 z-50 flex h-16 items-center bg-slate-50 px-3">
               <span className="text-xs font-bold text-slate-600">町名・担当枠</span>
-              <button data-html2canvas-ignore="true" type="button" onPointerDown={(event) => startResize(event, laneWidth, setLaneWidth, 150, 300)} className="absolute -right-1 top-0 z-10 h-full w-2 cursor-col-resize hover:bg-indigo-200/70" aria-label={`担当枠列の幅を変更（現在${laneWidth}px）`} />
+              <button data-html2canvas-ignore="true" type="button" onPointerDown={(event) => startResize(event, laneWidth, setLaneWidth, 150, 300)} className="absolute right-0 top-0 z-10 h-full w-2 cursor-col-resize hover:bg-indigo-200/70" aria-label={`担当枠列の幅を変更（現在${laneWidth}px）`} />
             </div>
             {dates.map((date) => {
               const info = dateInfo(date);
               const shortage = dayShortage(date);
               return (
-                <div key={date} data-shift-export-sticky="true" data-shift-export-selected={selectedDate === date ? "true" : undefined} className={cn("sticky top-0 z-40 h-16 border-b border-r border-slate-200 bg-slate-50 text-xs font-bold", selectedDate === date && "bg-indigo-50 text-indigo-700 ring-2 ring-inset ring-indigo-500", selectedDate !== date && info.weekdayNo === 6 && "text-blue-600", selectedDate !== date && info.weekdayNo === 0 && "text-rose-600")}>
-                  <button data-shift-export-day="true" type="button" onClick={() => setSelectedDate(date)} className="flex h-full w-full flex-col items-center justify-center">
+                <div key={date} data-memo-grid="true" style={{backgroundColor:memoBackgroundColor(backgroundColors,date), ...memoGridStyle(isColumnSelected(date),{top:true,left:true,right:true})}} data-shift-export-sticky="true" data-shift-export-selected={isColumnSelected(date) ? "true" : undefined} className={cn("sticky top-0 z-40 h-16 bg-slate-50 text-xs font-bold", isColumnSelected(date) && "text-indigo-700", selectedDate !== date && info.weekdayNo === 6 && "text-blue-600", selectedDate !== date && info.weekdayNo === 0 && "text-rose-600")}>
+                  <button data-shift-export-day="true" type="button" aria-pressed={isColumnSelected(date)} onClick={() => selectColumn(date)} className="flex h-full w-full flex-col items-center justify-center">
                     <span data-shift-export-day-number="true" className="text-sm">{info.day}日</span><span data-shift-export-day-weekday="true" className="text-[10px]">（{info.weekday}）</span>
                     {shortage > 0 && <span data-shift-export-pill="true" data-shift-export-day-shortage={date} className="mt-0.5 rounded-full bg-amber-100 px-1.5 text-[8px] font-bold leading-4 text-amber-700">不足{shortage}</span>}
                   </button>
-                  <button data-html2canvas-ignore="true" type="button" onPointerDown={(event) => startResize(event, dayWidth, setDayWidth, 56, 140)} className="absolute -right-1 top-0 z-10 h-full w-2 cursor-col-resize" aria-label={`日付列の幅を変更（現在${dayWidth}px）`} />
+                  <button data-html2canvas-ignore="true" type="button" onPointerDown={(event) => startResize(event, dayWidth, setDayWidth, 56, 140)} className="absolute right-0 top-0 z-10 h-full w-2 cursor-col-resize" aria-label={`日付列の幅を変更（現在${dayWidth}px）`} />
                 </div>
               );
             })}
-
-            {selectedDate && dates.includes(selectedDate) && (
-              <div data-html2canvas-ignore="true" aria-hidden="true" className="pointer-events-none absolute bottom-0 top-16 z-20 border-x-2 border-indigo-500" style={{ left: laneWidth + dates.indexOf(selectedDate) * dayWidth, width: dayWidth }} />
-            )}
 
             {visibleRoutes.map((route) => {
               const routeLanes = visibleLanes.filter((lane) => lane.routeId === route.id);
@@ -1479,35 +1698,45 @@ export default function PersonalShiftMemoBoard({
                 <div key={route.id} className="contents">
                   <div
                     data-export-route-header={route.id}
+                    data-memo-grid="true"
+                    style={memoGridStyle(isCourseSelected(route.id),{top:true,left:true,bottom:routeLanes.length === 0})}
+                    data-shift-export-selected={isCourseSelected(route.id) ? "true" : undefined}
                     data-shift-export-sticky="true"
                     className={cn(
-                      "sticky left-0 z-30 flex h-11 items-center gap-2 border-b border-r border-slate-200 bg-slate-100 px-3",
+                      "sticky left-0 z-30 flex h-11 items-center gap-2 bg-slate-100 px-3",
                       exportMode && exportSelection?.routeIds.includes(route.id) && "border-l-2 border-l-amber-500 bg-amber-50",
                     )}
                   >
                     <FontAwesomeIcon icon={faTruck} className="h-3 w-3 shrink-0 text-slate-400" />
-                    <div className="min-w-0 flex-1 leading-tight"><div className="truncate text-[9px] text-slate-400">{route.carrier}</div><div className="truncate text-xs font-bold text-slate-700">{route.name}</div></div>
+                    <button type="button" aria-label={`${route.name}の行を選択`} aria-pressed={isCourseSelected(route.id)} onClick={() => selectCourse(route.id)} className="min-h-11 min-w-0 flex-1 text-left leading-tight"><span className="block truncate text-[9px] text-slate-400">{route.carrier}</span><span className="block truncate text-xs font-bold text-slate-700">{route.name}</span></button>
                     <button data-html2canvas-ignore="true" type="button" onClick={() => moveRouteToTop(route.id)} disabled={visibleRoutes[0]?.id === route.id} className="inline-flex h-7 w-5 shrink-0 items-center justify-center rounded-md text-slate-400 hover:bg-white hover:text-slate-700 disabled:opacity-30 disabled:hover:bg-transparent" aria-label={`${route.name}を一番上へ`} title="一番上へ"><FontAwesomeIcon icon={faArrowUp} className="h-3 w-3" /></button>
                     <button data-html2canvas-ignore="true" type="button" onClick={() => setHiddenRouteIds((ids) => ids.includes(route.id) ? ids : [...ids, route.id])} className="inline-flex h-7 w-5 shrink-0 items-center justify-center rounded-md text-slate-400 hover:bg-white hover:text-slate-700" aria-label={`${route.name}を非表示にする`} title="このコースを非表示"><FontAwesomeIcon icon={faEyeSlash} className="h-3 w-3" /></button>
                     <button data-html2canvas-ignore="true" type="button" data-route-add={route.id} onClick={(event) => openAddLane(route, event)} className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:bg-white hover:text-slate-700" aria-label={`${route.name}に担当枠を追加`} aria-haspopup="dialog"><FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" /></button>
                   </div>
-                  <div className="h-11 border-b border-slate-200 bg-slate-100/80" style={{ gridColumn: `span ${dates.length}` }} />
+                  {dates.map((date) => {
+                    const selected = !exportMode && (isCourseSelected(route.id) || isColumnSelected(date));
+                    return <div key={date} data-memo-grid="true" data-shift-export-selected={selected ? "true" : undefined} className="h-11 bg-slate-100/80" style={memoGridStyle(selected, {top:selection?.kind === "course",left:selection?.kind === "column",right:selection?.kind === "column" || date === dates.at(-1),bottom:routeLanes.length === 0 && selection?.kind === "course"})} />;
+                  })}
 
                   {routeLanes.map((lane) => (
                     <div key={lane.id} className="contents">
                       <div
                         data-export-row={lane.id}
+                        data-memo-grid="true"
+                        data-shift-export-selected={isRowSelected(lane) ? "true" : undefined}
+                        style={{backgroundColor:memoBackgroundColor(backgroundColors,undefined,lane.id,lane.routeId), ...memoGridStyle(isRowSelected(lane),{left:true,top:selection?.kind === "row",bottom:selection?.kind === "row" || lane.id === routeLanes.at(-1)?.id})}}
                         data-export-route-id={lane.routeId}
                         data-shift-export-sticky="true"
-                        draggable
+                        draggable={!exportMode}
                         onDragStart={(event) => event.dataTransfer.setData(LANE_DRAG_TYPE, lane.id)}
                         onDragOver={(event) => event.preventDefault()}
                         onDrop={(event) => reorderLane(event.dataTransfer.getData(LANE_DRAG_TYPE), lane.id)}
-                        className="sticky left-0 z-30 flex min-h-28 items-center gap-2 border-b border-r border-slate-200 bg-white px-2.5"
+                        className="sticky left-0 z-30 flex min-h-28 items-center gap-2 bg-white px-2.5"
                       >
+                        <span data-export-row-label="true" className="absolute left-3 right-3 top-2 hidden truncate text-[9px] font-medium text-slate-500">{route.name}</span>
                         <span data-html2canvas-ignore="true" className="inline-flex"><FontAwesomeIcon icon={faGripLines} className="h-3 w-3 shrink-0 cursor-grab text-slate-300" /></span>
                         <span className="h-12 w-1 shrink-0 rounded-full" style={{ backgroundColor: lane.color }} />
-                        <div className="min-w-0 flex-1"><div className="text-xs font-bold leading-snug text-slate-700">{lane.name}</div><div className="mt-1 text-[9px] text-slate-400">{weekdaySummary(lane.activeWeekdays)}・{lane.requiredCount}人</div></div>
+                        <button type="button" aria-label={`${laneLabel(lane)}の行を選択`} aria-pressed={isRowSelected(lane)} onClick={() => selectRow(lane.id)} className="min-h-11 min-w-0 flex-1 text-left focus-visible:outline focus-visible:outline-1 focus-visible:outline-amber-500"><div data-export-row-name={route.name === lane.name ? "duplicate" : "distinct"} className="text-xs font-bold leading-snug text-slate-700">{lane.name}</div><div className="mt-1 text-[9px] text-slate-400">{weekdaySummary(lane.activeWeekdays)}・{lane.requiredCount}人</div></button>
                         <button data-html2canvas-ignore="true" type="button" onClick={(event) => openLaneSettings(lane, event)} className="absolute right-1.5 top-1.5 inline-flex h-7 w-7 items-center justify-center rounded-md bg-white text-slate-400 shadow-sm ring-1 ring-slate-200 hover:text-slate-700" aria-label={`${lane.name}を編集`} aria-haspopup="dialog"><FontAwesomeIcon icon={faEllipsis} className="h-3 w-3" /></button>
                       </div>
                       {dates.map((date) => {
@@ -1522,9 +1751,24 @@ export default function PersonalShiftMemoBoard({
                           <div
                             key={key}
                             role="group"
-                            data-shift-export-selected={selectedDate === date && active ? "true" : undefined}
-                            tabIndex={active ? 0 : undefined}
+                            data-memo-grid="true"
+                            data-shift-export-selected={isCellSelected(lane,date) ? "true" : undefined}
+                            aria-label={`${laneLabel(lane)}・${dateInfo(date).monthDay}のセル`}
+                            aria-description={isCellSelected(lane,date) ? "選択中" : undefined}
+                            tabIndex={0}
                             onKeyDown={(event) => {
+                              if (event.target === event.currentTarget && ["ArrowLeft","ArrowRight","ArrowUp","ArrowDown"].includes(event.key)) {
+                                event.preventDefault();
+                                const nextDate = dates[dates.indexOf(date) + (event.key === "ArrowLeft" ? -1 : event.key === "ArrowRight" ? 1 : 0)];
+                                const nextLane = visibleLanes[visibleLanes.findIndex(item => item.id === lane.id) + (event.key === "ArrowUp" ? -1 : event.key === "ArrowDown" ? 1 : 0)];
+                                if(nextDate && nextLane) {
+                                  selectCell(nextLane.id,nextDate);
+                                  const target = Array.from(boardRef.current?.querySelectorAll<HTMLElement>("[data-shared-cell]") ?? []).find(item => item.dataset.sharedCell === cellKey(nextLane.id,nextDate));
+                                  target?.focus();
+                                }
+                              }
+                              if (event.target === event.currentTarget && event.key === "Escape") setSelection(null);
+                              if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) selectCell(lane.id,date);
                               if (event.target === event.currentTarget && active && selectedToken && (event.key === "Enter" || event.key === " ")) {
                                 event.preventDefault();
                                 requestPlacement(selectedToken, key);
@@ -1533,12 +1777,19 @@ export default function PersonalShiftMemoBoard({
                             onDragOver={(event) => { if (active) event.preventDefault(); }}
                             onDrop={(event) => { if (active) dropPerson(event, key); }}
                             data-shared-cell={key}
-                            onClick={() => { setSelectedDate(date); if (mode === "shared") cursors.reportCell(key); }}
+                            onClick={() => { selectCell(lane.id,date); if (mode === "shared") cursors.reportCell(key); }}
                             onFocus={() => { if (mode === "shared") cursors.reportCell(key); }}
-                            className={cn("group relative flex min-h-28 flex-col content-start items-start gap-1.5 border-b border-r border-slate-200 p-1.5 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500", dayWidth < 72 ? "pt-12" : "pt-7", active ? "hover:bg-slate-50" : "bg-slate-100/80", selectedDate === date && active && "bg-indigo-50/45")}
+                            className={cn("group relative flex min-h-28 flex-col content-start items-start gap-1.5 p-1.5 outline-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-amber-500 focus-visible:-outline-offset-2", dayWidth < 72 ? "pt-12" : "pt-7", active ? "hover:bg-slate-50" : "bg-slate-100/80")}
                             // その日だけの指定で動かしている枠は破線で囲む（曜日どおりの枠と見分ける）
                             title={activity.spot ? (active ? "この日だけ稼働にしています" : "この日だけ休みにしています") : undefined}
                             style={{
+                              backgroundColor: memoBackgroundColor(backgroundColors,date,lane.id,lane.routeId),
+                              ...memoGridStyle(isCellSelected(lane,date), {
+                                top: selection?.kind === "cell" || selection?.kind === "row",
+                                bottom: selection?.kind === "cell" || selection?.kind === "row" || (selection?.kind === "course" ? lane.id === routeLanes.at(-1)?.id : false),
+                                left: selection?.kind === "cell" || selection?.kind === "column",
+                                right: selection?.kind === "cell" || selection?.kind === "column" || date === dates.at(-1),
+                              }),
                               ...(active ? {} : { backgroundImage: "repeating-linear-gradient(135deg, transparent, transparent 8px, rgba(148,163,184,0.08) 8px, rgba(148,163,184,0.08) 10px)" }),
                               ...(activity.spot ? { outline: "1px dashed #64748b", outlineOffset: "-3px" } : {}),
                             }}
@@ -1576,7 +1827,7 @@ export default function PersonalShiftMemoBoard({
                             </button> : <span data-shift-export-meta="true" className={cn("absolute right-1 top-1.5 text-[9px]", activity.spot ? "font-bold text-slate-600" : "text-slate-400")}>{activityLabel(activity)}</span>}
                             {people.map((person) => {
                               const token: PersonToken = { personKey: person.personKey, driverId: person.driverId, name: person.name, sourceKey: key, placementId: person.placementId };
-                              return <PersonSlip key={person.placementId} token={token} dayOff={!!person.driverId && offToday?.has(person.driverId)} selected={selectedToken?.placementId === person.placementId} onSelect={() => selectToken(token)} onRemove={() => removePerson(key, person.placementId, person.name)} />;
+                              return <PersonSlip key={person.placementId} token={token} dayOff={!!person.driverId && offToday?.has(person.driverId)} selected={selectedToken?.placementId === person.placementId} onSelect={() => {selectCell(lane.id,date);selectToken(token);}} onRemove={() => removePerson(key, person.placementId, person.name)} />;
                             })}
                             {active && people.length === 0 && <span className="m-auto text-base font-light text-slate-300">＋</span>}
                             {hasRequiredOverride && <span data-shift-export-meta="true" className="mt-auto self-end whitespace-nowrap text-[9px] text-slate-600">必要{requiredCount}人</span>}
@@ -1587,6 +1838,20 @@ export default function PersonalShiftMemoBoard({
                   ))}
                 </div>
               );
+            })}
+
+            <div data-export-row="unassigned" data-memo-grid="true" data-shift-export-sticky="true" style={memoGridStyle(false)} className="sticky left-0 z-30 flex min-h-28 items-start bg-slate-50 px-3 py-3">
+              {exportMode ? <button type="button" aria-pressed={!!exportSelection?.laneIds.includes("unassigned")} onClick={() => selectExportHeader("row","unassigned")} className="min-h-11 w-full text-left text-xs font-bold text-slate-600">非稼働</button> : <span className="text-xs font-bold text-slate-600">非稼働</span>}
+            </div>
+            {dates.map(date => {
+              const selected = !exportMode && isColumnSelected(date);
+              const people = unassignedByDate.get(date) ?? [];
+              return <div key={`unassigned:${date}`} role="group" aria-label={`${dateInfo(date).monthDay}の非稼働`} data-memo-grid="true" data-shift-export-selected={selected ? "true" : undefined}
+                className="relative flex min-h-28 flex-col items-start gap-1.5 bg-slate-50 p-1.5 pt-3"
+                style={{backgroundColor:memoBackgroundColor(backgroundColors,date), ...memoGridStyle(selected,{left:true,right:true,bottom:true})}}>
+                {people.map(token => <PersonSlip key={token.personKey} token={token} dayOff={!!token.driverId && dayOffByDate.get(date)?.has(token.driverId)} selected={selectedToken?.personKey === token.personKey && !selectedToken.sourceKey} onSelect={() => {selectColumn(date);selectToken(token);}} />)}
+                {people.length === 0 && <span className="text-xs text-slate-300">—</span>}
+              </div>;
             })}
 
             {exportMode && (
@@ -1780,7 +2045,7 @@ export default function PersonalShiftMemoBoard({
         ) : (
         <aside className="min-h-0 border-t border-slate-200 bg-slate-50/70 lg:overflow-y-auto lg:border-l lg:border-t-0">
           <div className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur">
-            <h2 className="text-lg font-black text-slate-900">{selectedDate ? `${dateInfo(selectedDate).monthDay}（${dateInfo(selectedDate).weekday}）` : "日付を選ぶ"}</h2>
+            <h2 className="text-lg font-black text-slate-900">{selection?.kind === "row" || selection?.kind === "course" ? "行の操作" : selectedDate ? `${dateInfo(selectedDate).monthDay}（${dateInfo(selectedDate).weekday}）` : "範囲を選ぶ"}</h2>
           </div>
           <div className="space-y-4 p-3.5">
             {selectedDate && selectedShortages.length > 0 && (
@@ -1793,13 +2058,13 @@ export default function PersonalShiftMemoBoard({
               <div className="flex min-h-11 max-h-36 flex-wrap gap-1.5 overflow-y-auto rounded-lg border border-dashed border-slate-200 bg-slate-50/60 p-1.5">
                 {filteredDrivers.map((driver) => {
                   const token: PersonToken = { personKey: `driver:${driver.id}`, driverId: driver.id, name: getDisplayName(driver) };
-                  return <PersonSlip key={driver.id} token={token} code={driver.driver_code} dayOff={dayOffOn(selectedDate)?.has(driver.id)} selected={selectedToken?.personKey === token.personKey && !selectedToken.sourceKey} onSelect={() => selectToken(token)} />;
+                  return <PersonSlip key={driver.id} token={token} workDays={workDays.get(token.personKey)?.days ?? 0} code={driver.driver_code} dayOff={dayOffOn(selectedDate)?.has(driver.id)} selected={selectedToken?.personKey === token.personKey && !selectedToken.sourceKey} onSelect={() => selectToken(token)} />;
                 })}
                 {visibleCustomPeople.map((name) => {
                   const token: PersonToken = { personKey: `custom:${name}`, name };
                   return (
                     <span key={token.personKey} className="inline-flex items-center">
-                      <PersonSlip token={token} selected={selectedToken?.personKey === token.personKey && !selectedToken.sourceKey} onSelect={() => selectToken(token)} />
+                      <PersonSlip token={token} workDays={workDays.get(token.personKey)?.days ?? 0} selected={selectedToken?.personKey === token.personKey && !selectedToken.sourceKey} onSelect={() => selectToken(token)} />
                       <button type="button" onClick={() => removeCustomPerson(name)} aria-label={`${name}の札を消す`} title={`${name}の札を消す`} className="-ml-px inline-flex h-7 w-5 items-center justify-center rounded-r-md border border-l-0 border-slate-200 bg-white text-slate-400 hover:bg-rose-50 hover:text-rose-600"><FontAwesomeIcon icon={faXmark} className="h-2.5 w-2.5" /></button>
                     </span>
                   );
@@ -1822,9 +2087,7 @@ export default function PersonalShiftMemoBoard({
               <div className="mt-2 flex h-8 items-center rounded-lg border border-dashed border-slate-300 pl-2.5"><input value={customName} onChange={(event) => setCustomName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing) addCustomPerson(); }} placeholder="応援1名・未定など" className="min-w-0 flex-1 text-xs outline-none" /><button type="button" onClick={addCustomPerson} className="inline-flex h-full items-center gap-1 px-2 text-[10px] font-medium text-slate-600 hover:bg-slate-50"><FontAwesomeIcon icon={faPlus} className="h-2.5 w-2.5" />文字札</button></div>
             </section>
 
-            {!selectedDate ? (
-              <p className="rounded-xl border border-dashed border-slate-200 bg-white/70 p-3 text-[11px] text-slate-500">日付を選ぶと、その日の配置とメモが出ます</p>
-            ) : (
+            {selectedDate && (
             <>
             {(dayOffOn(selectedDate)?.size ?? 0) > 0 && (
               <section className="rounded-xl border border-slate-200 bg-white p-3">
@@ -1836,29 +2099,6 @@ export default function PersonalShiftMemoBoard({
                 </div>
               </section>
             )}
-
-            <section className="space-y-2">
-              <div className="flex items-center justify-between"><h3 className="text-xs font-bold text-slate-600">この日の配置</h3><span className="text-[10px] text-slate-400">{selectedAssignments.reduce((sum, entry) => sum + entry.people.length, 0)}枚</span></div>
-              {selectedAssignments.map(({ lane, people }) => {
-                const key = cellKey(lane.id, selectedDate);
-                const activity = dayActivity(lane, selectedDate);
-                const active = activity.active;
-                const stateLabel = activityLabel(activity);
-                const { shortage, requiredCount } = staffingOn(lane, selectedDate, people);
-                return (
-                  <div key={lane.id} role="group" data-shared-cell={key} onFocus={() => { if (mode === "shared") cursors.reportCell(key); }} onClick={() => { if (mode === "shared") cursors.reportCell(key); }} tabIndex={active ? 0 : undefined} onKeyDown={(event) => { if (event.target === event.currentTarget && active && selectedToken && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); requestPlacement(selectedToken, key); } }} onDragOver={(event) => { if (active) event.preventDefault(); }} onDrop={(event) => { if (active) dropPerson(event, key); }} className={cn("rounded-lg border p-2.5 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500", active ? "border-slate-200 bg-white" : "border-slate-200 bg-slate-100/80")}>
-                    <div className="mb-2 flex items-center gap-2"><span className="h-4 w-1 rounded-full" style={{ backgroundColor: lane.color }} /><div className="min-w-0 flex-1"><div className="truncate text-[9px] text-slate-400">{routeGroups.find((route) => route.id === lane.routeId)?.name}</div><h4 className="truncate text-[11px] font-bold text-slate-700">{lane.name}</h4></div>{stateLabel ? <span className={cn("shrink-0 rounded px-1 text-[9px] font-bold leading-4", activity.spot ? "border border-dashed border-slate-400 text-slate-600" : "text-slate-400")}>{stateLabel}</span> : shortage > 0 ? <span className="rounded-full bg-amber-100 px-1.5 text-[9px] font-bold leading-4 text-amber-700">あと{shortage}</span> : null}</div>
-                    <div className="mb-2 flex items-center justify-between gap-2">
-                      <button type="button" onClick={(event) => openDailyRequiredCount(lane, selectedDate, event)} aria-haspopup="dialog" aria-label={`${dateInfo(selectedDate).monthDay}の${lane.name}の必要人数を変更（現在${requiredCount}人）`} className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-slate-200 px-2 text-[11px] text-slate-700 hover:bg-slate-50">
-                        必要{requiredCount}人{requiredCountOverrides[key] !== undefined && <span className="text-[9px] text-slate-500">この日だけ</span>}<FontAwesomeIcon icon={faChevronDown} className="h-2.5 w-2.5 text-slate-400" />
-                      </button>
-                      <button type="button" onClick={() => toggleDayActivity(lane, selectedDate)} className="inline-flex min-h-11 shrink-0 items-center rounded-md px-2 text-[10px] font-medium text-slate-500 hover:bg-slate-50">{active ? "この日を休みに" : "この日を稼働に"}</button>
-                    </div>
-                    <div className="flex min-h-8 flex-wrap gap-1.5 rounded-md border border-dashed border-slate-200 bg-slate-50/50 p-1.5">{people.map((person) => { const token: PersonToken = { personKey: person.personKey, driverId: person.driverId, name: person.name, sourceKey: key, placementId: person.placementId }; return <PersonSlip key={person.placementId} token={token} dayOff={!!person.driverId && dayOffOn(selectedDate)?.has(person.driverId)} selected={selectedToken?.placementId === person.placementId} onSelect={() => selectToken(token)} onRemove={() => removePerson(key, person.placementId, person.name)} />; })}</div>
-                  </div>
-                );
-              })}
-            </section>
 
             <section className="rounded-xl border border-slate-200 bg-white p-3"><label htmlFor="shift-memo-notes" className="mb-1.5 block text-xs font-bold text-slate-700">この日のメモ</label>{mode === "shared" && cursors.cellPeers[`notes:${selectedDate}`]?.map(peer => <span key={peer.id} data-html2canvas-ignore="true" className="mb-1 mr-1 inline-block rounded px-1.5 py-1 text-[10px] font-bold text-white" style={{ backgroundColor: peer.color }}>{peer.name}が編集中</span>)}<textarea id="shift-memo-notes" value={notes[selectedDate] ?? ""} maxLength={2000} onFocus={() => { if (mode === "shared") cursors.reportCell(`notes:${selectedDate}`); }} onBlur={() => { if (mode === "shared") cursors.reportCell(null); }} onChange={(event) => { const date = selectedDate; setNotes((current) => ({ ...current, [date]: event.target.value })); }} rows={4} className="w-full resize-y rounded-lg border border-slate-200 px-2.5 py-2 text-xs leading-relaxed outline-none focus:border-slate-400" /></section>
             </>
