@@ -7,7 +7,7 @@ import { isSideAngle, isLandscapePhoto, type CaptureRotation } from "../capture/
 import type { CaptureStep } from "../capture/steps";
 import { useEffect, useRef, useState } from "react";
 import { AppState, Modal, View, Text, Pressable, ActivityIndicator, Image, Platform, ScrollView } from "react-native";
-import { CameraView, useCameraPermissions } from "expo-camera";
+import { CameraView, useCameraPermissions, type LensInfo } from "expo-camera";
 import * as Haptics from "expo-haptics";
 import { AppIcon } from "./AppIcon";
 import { LicenseGuideOutline } from "./LicenseGuideOutline";
@@ -95,7 +95,7 @@ export function CaptureFlow({
   const [qrTooSmall, setQrTooSmall] = useState(false);
   const cameraSize = useRef({ width: 0, height: 0 });
   const [flash, setFlash] = useState<"auto" | "off">("auto");
-  const [lenses, setLenses] = useState<string[]>([]);
+  const [lenses, setLenses] = useState<LensInfo[]>([]);
   const [wide, setWide] = useState(false);
   const [assessment, setAssessment] = useState<PhotoAssessment | null>(null);
   const [meterGuide, setMeterGuide] = useState<MeterGuide>("wide");

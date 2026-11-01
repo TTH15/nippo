@@ -2,14 +2,19 @@ import { describe, expect, it } from "vitest";
 import { canAutoAdvancePhoto, captureLenses, photoAssessmentMessage } from "../src/capture/camera-options";
 
 describe("撮影カメラの機能選択", () => {
-  it("列挙された日本語/英語の物理レンズだけを選ぶ", () => {
-    expect(captureLenses(["デュアル広角カメラ", "超広角カメラ", "広角カメラ"])).toEqual({ ultra: "超広角カメラ", standard: "広角カメラ" });
-    expect(captureLenses(["Back Triple Camera", "Back Ultra Wide Camera", "Back Wide Camera"])).toEqual({ ultra: "Back Ultra Wide Camera", standard: "Back Wide Camera" });
+  it("表示言語に依存せず、列挙された物理レンズの識別子を選ぶ", () => {
+    const lenses = [
+      { deviceType: "AVCaptureDeviceTypeBuiltInTripleCamera", localizedName: "トリプルカメラ" },
+      { deviceType: "AVCaptureDeviceTypeBuiltInUltraWideCamera", localizedName: "超広角カメラ" },
+      { deviceType: "AVCaptureDeviceTypeBuiltInWideAngleCamera", localizedName: "Back Wide Camera" },
+    ];
+    expect(captureLenses(lenses)).toEqual({ ultra: lenses[1].deviceType, standard: lenses[2].deviceType });
+    expect(captureLenses(lenses.map(lens => ({ ...lens, localizedName: "別の言語" })))).toEqual(captureLenses(lenses));
   });
-  it("未知の名称・広角非対応で架空のレンズを指定しない", () => {
+  it("非対応端末・未知のレンズで架空の識別子を指定しない", () => {
     expect(captureLenses([])).toEqual({ ultra: undefined, standard: undefined });
-    expect(captureLenses(["Back Wide Camera"]).ultra).toBeUndefined();
-    expect(captureLenses(["不明なカメラ"]).ultra).toBeUndefined();
+    expect(captureLenses([{ deviceType: "AVCaptureDeviceTypeBuiltInWideAngleCamera", localizedName: "広角" }]).ultra).toBeUndefined();
+    expect(captureLenses([{ deviceType: "unknown", localizedName: "Back Ultra Wide Camera" }])).toEqual({ ultra: undefined, standard: undefined });
   });
   it("解析なしを合格表示にせず、指摘のある写真にだけ再撮影を促す", () => {
     expect(photoAssessmentMessage(null)).toBeNull();

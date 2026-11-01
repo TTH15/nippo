@@ -1,8 +1,11 @@
-// Expo Camera 57のiOS実装はlocalizedNameを返す。列挙された名称だけを選択する。
-export function captureLenses(lenses: string[]) {
-  const ultra = lenses.find(name => /ultra[ -]?wide|超広角/i.test(name));
-  const standard = lenses.find(name => !/ultra|超広角|dual|triple|デュアル|トリプル/i.test(name) && /wide|広角/i.test(name));
-  return { ultra, standard };
+import type { LensInfo } from "expo-camera";
+
+// SDK58は表示名と安定した識別子を分けて返す。選択には列挙されたdeviceTypeだけを使う。
+export function captureLenses(lenses: LensInfo[]) {
+  const types = new Set(lenses.map(lens => lens.deviceType));
+  const ultra = "AVCaptureDeviceTypeBuiltInUltraWideCamera";
+  const standard = "AVCaptureDeviceTypeBuiltInWideAngleCamera";
+  return { ultra: types.has(ultra) ? ultra : undefined, standard: types.has(standard) ? standard : undefined };
 }
 export type PhotoAssessment = { blur?: boolean; framing?: boolean; glare?: boolean; passed?: boolean };
 // 省略された値や警告なしだけでは合格としない。判定器が明示的に合格を返した場合だけ進める。

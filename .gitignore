@@ -59,3 +59,7 @@ apps/web/public/glb/
 
 # Generated from locked OCR/PDF dependencies (prepare-vehicle-reader.mjs)
 /apps/web/public/ocr/runtime/
+
+# Isolated native CI outputs
+/native-build-artifacts/
+/native-derived-data/

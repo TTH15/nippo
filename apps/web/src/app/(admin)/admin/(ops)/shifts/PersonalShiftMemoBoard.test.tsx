@@ -145,7 +145,15 @@ describe("共有メモの保存と同期", () => {
   let get: () => Promise<Reply>;
   let patch: (body: { changes: BoardChange[] }) => Promise<Reply>;
   const api = vi.mocked(apiFetch);
-  const flush = async (ms = 0) => { await act(async () => { await vi.advanceTimersByTimeAsync(ms); }); };
+  const flush = async (ms = 0) => { await act(async () => {
+    await vi.advanceTimersByTimeAsync(ms);
+    // Happy DOMのWAAPI時計はfake timersと別なので、描画の完了も明示する。
+    for (const element of document.querySelectorAll("*")) {
+      for (const animation of element.getAnimations()) {
+        if (animation.playState === "running") animation.finish();
+      }
+    }
+  }); };
   const patches = () => api.mock.calls.filter(([, options]) => options?.method === "PATCH");
   const gets = () => api.mock.calls.filter(([path, options]) => path === "/api/admin/shifts/memo/board" && !options?.method);
   const input = () => screen.getByRole("textbox", { name: "この日のメモ" });

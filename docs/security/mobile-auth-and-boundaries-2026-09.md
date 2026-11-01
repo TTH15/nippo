@@ -77,3 +77,14 @@ PR #55を`main`の`4250c861`へ統合し、Vercel本番`dpl_7EBNgSoi7xLvi4RuPtnr
 - [Android Credential Managerの前提条件](https://developer.android.com/identity/credential-manager/prerequisites)は、アプリ署名とWebドメインの関連付けを実機配布で確認する根拠。
 
 本番DBの担当コース制約と一部利用者のPasskey登録数は上記のとおり確認した。DB公開権限、Realtimeのprivate設定、既存利用者のSMS登録状況、署名証明書、Apple Team、配布済みアプリの版、通知到達、侵害の有無はこの監査では確認していない。これらをコード上の推測で「本番完了」にしない。
+
+
+### Expo依存14件の解消（2026/11/02）
+
+SDK57の最新57.0.31でもCLIのZod3/deepmerge/古いglob・minimatchが残るため、SDK58.0.22/RN0.88.1へ更新する。SDKが要求するReact19.3.0をWeb/Mobile/Baseで統一し、NativeWindは4.2.7/Tailwind3を維持する。glob14.0.3/minimatch11.0.3を固定し、Happy DOM21.0.4も含めた全依存のnpm監査は0件。古いReact実体を残す増分インストールを避けてlockfileを再生成し、単一実体とSDK依存検査をCIに追加した。
+
+RNの参照型・AppState初期null、カメラ58のLensInfo/deviceTypeへ対応。Happy DOMは未参照finishedを即生成するためテスト環境でキャンセルのAbortErrorのみ処理し、元のPromiseの拒否と他のエラーを保持する。業務テストのfake clockではWAAPIの終了も明示し、アニメーションやエラーを一括で無効化しない。
+
+ローカルのEASログインには対象プロジェクトへのREAD権限がなかったため、既存GitHub CIのXcode27/Androidツールチェーンで署名なしネイティブビルドを検証する。プロジェクト紐付け・認証情報は変更しない。Directoryの既存OCR未検証通知を除外して隠さず、ビルド/実機確認と区別する。最終結果は作業ログへ追記する。
+
+参照: [Expo SDK58](https://expo.dev/changelog/sdk-58)、[GitHub Xcode27 runner](https://github.blog/changelog/2026-10-15-xcode-27-runner-image-generally-available/)。

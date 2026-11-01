@@ -1,6 +1,6 @@
 # ハコ虎 — ドライバー用ネイティブアプリ
 
-Expo SDK 57 / React Native 0.86 / React 19.2.3。iOS/Android識別子は `jp.hakotora.app`。
+Expo SDK 58 / React Native 0.88.1 / React 19.3.0。iOS/Android識別子は `jp.hakotora.app`。
 認証/APIは `@repo/core`、端末の認証保存はSecureStore。vendorの `packages/auth` / `packages/api-client` は直接編集しない。
 
 ## EASの紐付け（2026/09/21）
@@ -46,7 +46,7 @@ EAS各profileのAPIは現状 `https://hakotora.jp`。development環境も本番�
 
 ## OTA更新（ローカル設定済み・未公開）
 
-`expo-updates` をSDK 57互換で追加。`app.config.ts` は紐付け済みprojectの更新URLと `fingerprint` runtimeを生成し、`eas.json` はdevelopment/preview/productionのchannelを分離する。
+`expo-updates` はSDK 58互換。`app.config.ts` は紐付け済みprojectの更新URLと `fingerprint` runtimeを生成し、`eas.json` はdevelopment/preview/productionのchannelを分離する。
 起動時に非同期取得し、取得した更新は次のコールド起動で反映する。アプリを閉じずに復帰しただけでは反映を保証しない。業務中の強制リロードは追加しない。
 
 更新対象は互換性のあるJS・アセット。ネイティブ依存・権限・Associated Domainsの変更は新しい署名ビルドが必要。EASへの公開は未実施で、channelの存在/接続も初回ビルド時に確認する。
@@ -105,3 +105,12 @@ eas build --profile preview --platform ios
 preview: AndroidはAPK、iOSはad hoc（対象UDIDが必要）。TestFlight/Play内部テストはproductionのstoreビルドから提出する別作業。`submit.production` の宛先・資格情報は未設定。EAS version管理はremote/autoIncrementを維持し、初回番号はproject照合時に確認する。
 
 2026/09/23: 選別コピーのnpm ci・mobile型検査・14テスト・両OS prebuild・署名なしiOS実機向けReleaseコンパイルに成功。承認済みEAS preview環境2変数を保存し、同環境でOTAチェックも成功。iOSシミュレーターは既存OCR依存のarm64除外で失敗。Androidネイティブコンパイル・両OSの署名配布・PasskeyのOS画面・実機の駐車送信・OTA実機反映は未検証。PIN停止・既存利用者の強制ログアウト・DB適用・一般公開・OTA公開は行っていない。
+
+
+## SDK58の依存・ネイティブ検証（2026/11/02）
+
+`node scripts/check-native-dependencies.mjs` でWeb/Mobile/BaseのReact単一実体とSDK推奨依存を照合する。全workspaceと開発依存の `npm audit --audit-level=low` をCIで実行する。SDK58でカメラのレンズはdeviceTypeを選び、RNのStrict APIの参照型を使う。
+
+新規checkoutの `node scripts/verify-native-build.mjs mobile ios` / `mobile android` でprebuildとネイティブコンパイルを実行する。既存のios/androidディレクトリは上書きしない。iOSは既存OCRのARM64シミュレータ非対応を避け、Xcode27の実機向けReleaseを署名なしでコンパイルする。AndroidはDebug APK。接続先はpreview.invalid、環境ファイルを読まず、署名・配布・EASへのアクセスを行わない。GitHubのNative SDK validationはMobile/Baseの両OSを検証する。
+
+Expo DoctorのReact Native Directoryメタデータは既存の@react-native-ml-kit/text-recognitionをNew Architecture未検証と報告する。除外設定で隠さず、ネイティブビルド結果と実機OCR確認を分けて記録する。SDK57からの更新はネイティブ再ビルドが必要で、既存SDK57アプリへOTAだけで適用しない。

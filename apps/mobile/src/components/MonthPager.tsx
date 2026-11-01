@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Pressable, ScrollView, Text, View, useWindowDimensions } from "react-native";
-import type { NativeScrollEvent, NativeSyntheticEvent } from "react-native";
+import type { NativeScrollEvent, NativeSyntheticEvent, ScrollViewInstance } from "react-native";
 import { AppIcon } from "./AppIcon";
 import { BottomSheet } from "./BottomSheet";
 
@@ -33,7 +33,7 @@ export function MonthPager({
   renderMonth: (ym: YM, isCenter: boolean) => ReactNode;
 }) {
   const { width } = useWindowDimensions();
-  const ref = useRef<ScrollView>(null);
+  const ref = useRef<ScrollViewInstance>(null);
   const key = ymKey(ym);
 
   useEffect(() => {

@@ -45,3 +45,8 @@ iPad 推奨・スマホでも使う、**現場の事実を登録・確認する*
 - `types/safe-area-classname.d.ts` — safe-area-context 5.x の `className` 型拡張
 
 ネイティブプロジェクト（`ios/` `android/`）はコミットしない（CNG＝prebuild で生成）。
+
+
+## SDK58の検証（2026/11/02）
+
+Expo58.0.22 / RN0.88.1 / React19.3.0へ更新。ReactはWeb/Mobileと同じ実体を使う。`node scripts/check-native-dependencies.mjs`、新規checkoutの `node scripts/verify-native-build.mjs base ios` / `base android` で検証する。iOSはXcode27の署名なし実機向けRelease、AndroidはDebug APK。本番API・認証・ストアには接続しない。
