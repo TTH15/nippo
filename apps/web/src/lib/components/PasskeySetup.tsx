@@ -7,12 +7,14 @@ import { SmoothCollapse } from "./SmoothCollapse";
 import { useRecentAuthAction } from "./RecentAuth";
 
 /** 初回登録とSMSログイン後で共用。未完了を登録済みとして扱わない。 */
-export function PasskeySetup({ supported, register, onContinue, verifyIdentity = false, required = false, requiredMessage }: {
+export function PasskeySetup({ supported, register, onContinue, verifyIdentity = false, required = false, requiredMessage, continueLabel = "次へ", recovery = false }: {
   supported: boolean;
   register: (reauthToken?: string) => Promise<void>;
   verifyIdentity?: boolean;
   required?: boolean;
   requiredMessage?: string;
+  continueLabel?: string;
+  recovery?: boolean;
   onContinue: (registered: boolean) => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -21,7 +23,7 @@ export function PasskeySetup({ supported, register, onContinue, verifyIdentity =
   const [fallbackOpen, setFallbackOpen] = useState(false);
   const fallbackId = useId();
   const triggerId = useId();
-  const reauth = useRecentAuthAction();
+  const reauth = useRecentAuthAction({ recovery });
   const buttonClass = "min-h-11 w-full rounded-lg bg-slate-900 px-4 py-2.5 font-medium text-white hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed";
 
   const submit = async (reauthToken?: string) => {
@@ -52,18 +54,18 @@ export function PasskeySetup({ supported, register, onContinue, verifyIdentity =
         </div>)}
       </div>
       <h2 className="text-base font-semibold text-slate-900">かんたんログイン（パスキー）</h2>
-      <p className="text-sm text-slate-600">{required
+      {(!required || requiredMessage !== "") && <p className="text-sm text-slate-600">{required
         ? requiredMessage ?? "招待登録を続けるには設定が必要です。"
-        : "この端末の画面ロックで、そのままログインできます。"}</p>
+        : "この端末の画面ロックで、そのままログインできます。"}</p>}
     </div>
     {done ? <>
       <p role="status" className="flex items-center justify-center gap-2 rounded-lg bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
         <FontAwesomeIcon icon={faCircleCheck} className="h-4 w-4" />登録しました
       </p>
-      <button type="button" onClick={() => onContinue(true)} className={buttonClass}>次へ</button>
+      <button type="button" onClick={() => onContinue(true)} className={buttonClass}>{continueLabel}</button>
     </> : <>
       {failed && <p role="alert" className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-900">
-        登録が完了しませんでした。もう一度お試しください。
+        登録が完了しませんでした。USBキーの画面しか出ない場合は、別のブラウザや登録済みの端末をお試しください。
       </p>}
       {verifyIdentity && reauth.verification}
       {supported ? <button type="button" disabled={busy || reauth.checking || reauth.verifying}

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
-import { requireRecentAuth } from "@/server/auth/recentAuth";
+import { passkeyManagementAuthorization } from "@/server/auth/passkeyPolicy";
 import { reauthIdentity } from "@/server/auth/reauthIdentity";
 import { supabase } from "@/server/db/client";
 import { afterSafely } from "@/server/afterSafely";
@@ -29,8 +29,8 @@ export async function DELETE(req: NextRequest) {
   if (isAuthError(user)) return user;
   if (!user.orgId) return NextResponse.json({ error: "所属を確認できません" }, { status: 403 });
   const orgId = user.orgId;
-  const reauthError = await requireRecentAuth(req, user);
-  if (reauthError) return reauthError;
+  const authorization = await passkeyManagementAuthorization(req, user);
+  if (authorization instanceof NextResponse) return authorization;
   const body = await req.json().catch(() => null);
   if (typeof body?.id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.id)) {
     return NextResponse.json({ error: "削除するログイン端末を選んでください" }, { status: 400 });
@@ -45,5 +45,5 @@ export async function DELETE(req: NextRequest) {
       : status === 404 ? "ログイン端末が見つかりません" : "削除できませんでした。時間をおいてお試しください" }, { status });
   }
   afterSafely(() => deliverStoredNotifications(orgId, [data.notificationId]));
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, sessionsRevoked: true });
 }

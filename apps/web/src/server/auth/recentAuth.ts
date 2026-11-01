@@ -19,20 +19,20 @@ export function hasRecentStrongAuth(user: AuthUser): boolean {
     Number.isSafeInteger(user.strongAuthAt) && age >= 0 && age < RECENT_AUTH_SECONDS;
 }
 
-export async function issueRecentAuthGrant(req: NextRequest, user: AuthUser): Promise<string> {
+export async function issueRecentAuthGrant(req: NextRequest, user: AuthUser, method: "sms" | "passkey" = "sms"): Promise<string> {
   if (!user.identityId || !req.headers.get("authorization")) throw new Error("Missing authenticated identity");
   return new SignJWT({ kind: "passkey_management", identity_id: user.identityId, driver_id: user.driverId,
-    org_id: user.orgId, token_version: user.tokenVersion ?? 0, session_hash: sessionFingerprint(req) })
+    org_id: user.orgId, token_version: user.tokenVersion ?? 0, session_hash: sessionFingerprint(req), auth_method: method })
     .setProtectedHeader({ alg: "HS256" }).setIssuedAt().setExpirationTime(`${RECENT_AUTH_SECONDS}s`).sign(secret());
 }
 
-export async function hasRecentAuth(req: NextRequest, user: AuthUser): Promise<boolean> {
-  if (hasRecentStrongAuth(user)) return true;
+export async function hasRecentAuth(req: NextRequest, user: AuthUser, method?: "passkey"): Promise<boolean> {
+  if (hasRecentStrongAuth(user) && (!method || user.strongAuthMethod === method)) return true;
   const grant = req.headers.get("x-reauth-token");
   if (!grant || !user.identityId) return false;
   try {
     const { payload } = await jwtVerify(grant, secret(), { algorithms: ["HS256"] });
-    return payload.kind === "passkey_management" && payload.identity_id === user.identityId &&
+    return (!method || payload.auth_method === method) && payload.kind === "passkey_management" && payload.identity_id === user.identityId &&
       payload.driver_id === user.driverId && payload.org_id === user.orgId &&
       payload.token_version === (user.tokenVersion ?? 0) && payload.session_hash === sessionFingerprint(req) &&
       typeof payload.iat === "number" && payload.iat <= now() && now() - payload.iat < RECENT_AUTH_SECONDS;

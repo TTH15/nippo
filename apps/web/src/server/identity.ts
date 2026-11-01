@@ -3,6 +3,7 @@ import { supabase } from "@/server/db/client";
 import { signToken } from "@/server/auth/jwt";
 import { resolveCapabilities } from "@/server/auth/permissions";
 import { getCompany } from "@/config/companies";
+import { randomUUID } from "node:crypto";
 
 // ログイン中ユーザーの identity_id を解決する。
 // JWT（6a）に identity_id があればそれを使い、無ければ drivers から引く。
@@ -78,8 +79,9 @@ export async function resolveActiveDriverByIdentity(
 }
 
 /** driver 行から通常ログインと同じ形の {token, driver} セッションを発行する。 */
-export async function issueDriverSession(driver: ActiveDriverRow, strongAuth?: Pick<AuthUser, "strongAuthAt" | "strongAuthMethod">) {
+export async function issueDriverSession(driver: ActiveDriverRow, strongAuth?: Pick<AuthUser, "strongAuthAt" | "strongAuthMethod" | "sessionId" | "sessionExpiresAt">) {
   const envCompany = getCompany(process.env.NEXT_PUBLIC_COMPANY_CODE);
+  const sessionId = strongAuth?.sessionId ?? randomUUID();
 
   const token = await signToken({
     driverId: driver.id,
@@ -90,12 +92,15 @@ export async function issueDriverSession(driver: ActiveDriverRow, strongAuth?: P
     tokenVersion: driver.token_version,
     strongAuthAt: strongAuth?.strongAuthAt,
     strongAuthMethod: strongAuth?.strongAuthMethod,
+    sessionId,
+    sessionExpiresAt: strongAuth?.sessionExpiresAt,
   });
 
   const capabilities = await resolveCapabilities(driver.id, driver.role);
 
   return {
     token,
+    sessionId,
     driver: {
       id: driver.id,
       name: driver.name,
@@ -109,7 +114,7 @@ export async function issueDriverSession(driver: ActiveDriverRow, strongAuth?: P
 }
 
 /** 本人のPasskey検証が完了したログイン経路からだけ呼ぶ、短命の運営セッション。 */
-export async function issueAdminSession(driver: ActiveDriverRow): Promise<string | null> {
+export async function issueAdminSession(driver: ActiveDriverRow, parentSessionId?: string): Promise<string | null> {
   if (!driver.identity_id || !driver.org_id) return null;
   const capabilities = await resolveCapabilities(driver.id, driver.role);
   if (capabilities.size === 0) return null;
@@ -121,5 +126,6 @@ export async function issueAdminSession(driver: ActiveDriverRow): Promise<string
     orgId: driver.org_id,
     tokenVersion: driver.token_version,
     purpose: "admin",
+    parentSessionId,
   });
 }

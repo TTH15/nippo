@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import { RevokeAllSessions } from "@/lib/components/AccountRecovery";
 import { PasskeyManagement } from "@/lib/components/PasskeyManagement";
 import { DriverSetupPanel } from "@/lib/components/DriverSetupGate";
 import { Skeleton } from "@/lib/components/Skeleton";
@@ -24,6 +25,7 @@ import { PushNotificationSection } from "./PushNotificationSection";
 
 export function MePageContent({ forceReport = false }: { forceReport?: boolean } = {}) {
   const router = useRouter();
+  const [logoutError, setLogoutError] = useState("");
   const [logoutConfirming, setLogoutConfirming] = useState(false);
   const [accountDirty, setAccountDirty] = useState(false);
   const searchParams = useSearchParams();
@@ -494,7 +496,8 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
 
       <PushNotificationSection />
 
-      <div id="passkey-settings"><PasskeyManagement /></div>
+      <div id="passkey-settings"><PasskeyManagement />
+            <RevokeAllSessions /></div>
 
       {/* ログアウトはここに集約（ヘッダーだと通知ベルと隣接して誤タップが起きる）。
           破壊的操作ではないが、間違えると再ログインが要るので下端に置き控えめに見せる。 */}
@@ -508,14 +511,15 @@ export function MePageContent({ forceReport = false }: { forceReport?: boolean }
         </button>
       </section>
 
+      {logoutError && <p role="alert" className="text-sm text-red-700">{logoutError}</p>}
       <ConfirmDialog
         open={logoutConfirming}
         title="ログアウトしますか？"
         message={accountDirty ? "入力中の振込口座を破棄してログアウトしますか？" : "次に使うときは、もう一度ログインが必要です。"}
         confirmLabel="ログアウト"
-        onConfirm={() => {
-          clearAuth();
-          router.push("/login");
+        onConfirm={async () => {
+          try { await clearAuth(); router.push("/login"); }
+          catch (error) { setLogoutError(error instanceof Error ? error.message : "ログアウトできませんでした"); }
         }}
         onClose={() => setLogoutConfirming(false)}
       />

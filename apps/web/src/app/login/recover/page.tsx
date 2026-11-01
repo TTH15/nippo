@@ -2,10 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { bankChangeReturnPath } from "@repo/core/logic/bankChange";
-import { PasskeySetup } from "@/lib/components/PasskeySetup";
-import { registerPasskey } from "@/lib/registerPasskey";
-import { useIsWebAuthnHost } from "@/lib/webauthnHost";
+import { AccountRecovery } from "@/lib/components/AccountRecovery";
 import { useRouter } from "next/navigation";
 import { apiFetch, setLoginSession, getStoredDriver } from "@/lib/api";
 import { canEnterAdmin } from "@/lib/capabilities";
@@ -16,16 +13,16 @@ import { getLastAppMode, isMobileWidth, resolveHomePath } from "@/lib/appMode";
 // 検証済み電話への SMS OTP で本人確認しセッション発行（§2-1a のブートストラップ）。
 // 用途: ①仮承認直後の初回ログイン（PIN 無し）②Passkey/端末を失った復旧。
 // ログイン後、申請途中のドライバーは /join で再開し、運営権限を持つ既存ユーザーは
-// KYC項目の状態にかかわらずPasskey未登録なら登録を案内する。
+// KYC項目や既存Passkeyの有無にかかわらず、運営復旧では追加登録を案内する。
 // その先で新しい端末に Passkey を登録し直せる。
 // ============================================================
 
-type Step = "phone" | "otp" | "passkey";
+type Step = "phone" | "otp" | "passkey" | "resume";
+type LoginDriver = { id: string; name: string; role: string; companyCode?: string };
 
 export default function RecoverPage() {
   const router = useRouter();
-  const canUsePasskey = useIsWebAuthnHost();
-  const [homePath, setHomePath] = useState("/");
+  const [verifiedDriver, setVerifiedDriver] = useState<LoginDriver | null>(null);
   const [adminRecovery, setAdminRecovery] = useState(false);
   const [step, setStep] = useState<Step>("phone");
   const [phone, setPhone] = useState("");
@@ -55,32 +52,27 @@ export default function RecoverPage() {
   };
 
   // SMSは業務セッションだけを発行する。運営入口へはPasskey登録後に入り直す。
-  const goToNext = async (driver: { role: string; companyCode?: string }) => {
+  const goToNext = async (driver: LoginDriver) => {
     const stored = getStoredDriver() ?? driver;
     const hasAdmin = canEnterAdmin(stored);
-    const nextPath = bankChangeReturnPath(new URLSearchParams(window.location.search).get("returnTo")) ?? (hasAdmin ? "/submit" : resolveHomePath({ hasAdminAccess: false, lastMode: getLastAppMode(), isMobile: isMobileWidth() }));
-    if (adminRecovery || !hasAdmin) {
+    const nextPath = hasAdmin ? "/submit" : resolveHomePath({ hasAdminAccess: false, lastMode: getLastAppMode(), isMobile: isMobileWidth() });
+    // 登録済みでも、現在の端末で使えるとは限らない。SMSで確認した本人へ追加登録を開く。
+    if (adminRecovery && hasAdmin) {
+      setStep("passkey");
+      return;
+    }
+    if (!hasAdmin) {
       try {
-        const reg = await apiFetch<{ complete: boolean; kycVerified: boolean; hasPasskey: boolean }>("/api/me/registration");
+        const reg = await apiFetch<{ complete: boolean; kycVerified: boolean }>("/api/me/registration");
         // 既存の運営アカウントはKYC項目が未入力でも参加申請へ戻さない。
-        if (!hasAdmin && !reg.complete && !reg.kycVerified) {
+        if (!reg.complete && !reg.kycVerified) {
           router.push("/join");
           return;
         }
-        if (!reg.hasPasskey) {
-          setHomePath(adminRecovery ? "/login?next=admin" : nextPath);
-          setStep("passkey");
-          return;
-        }
-        if (adminRecovery) {
-          router.push("/login?next=admin");
-          return;
-        }
       } catch {
-        if (adminRecovery) {
-          setError("パスキーの登録状態を確認できません。もう一度お試しください");
-          return;
-        }
+        setStep("resume");
+        setError("登録状態を確認できませんでした。もう一度お試しください。");
+        return;
       }
     }
     router.push(nextPath);
@@ -92,13 +84,14 @@ export default function RecoverPage() {
     try {
       const res = await apiFetch<{
         token: string;
-        driver: { id: string; name: string; role: string; companyCode?: string };
+        driver: LoginDriver;
       }>(
         "/api/auth/recover/verify",
         { method: "POST", body: JSON.stringify({ phone: phone.trim(), code: code.trim() }) },
         { skipAuthRedirect: true },
       );
       setLoginSession(res.token, res.driver);
+      setVerifiedDriver(res.driver);
       await goToNext(res.driver);
     } catch (err) {
       setError(err instanceof Error ? err.message : "確認に失敗しました");
@@ -123,13 +116,24 @@ export default function RecoverPage() {
               className="h-12 mb-2"
               style={{ maxWidth: "60%", height: "auto" }}
             />
-            <h1 className="text-base font-semibold text-slate-900">電話番号でログイン</h1>
+            <h1 className="text-base font-semibold text-slate-900">{step === "passkey" ? "パスキーの復旧" : "電話番号でログイン"}</h1>
           </div>
 
           <div className="p-5 space-y-4">
             {step === "passkey" && <>
-              <PasskeySetup verifyIdentity required={adminRecovery} requiredMessage={adminRecovery ? "運営画面を使うにはパスキーが必要です。" : undefined} supported={canUsePasskey} register={registerPasskey} onContinue={() => router.push(homePath)} />
-              {adminRecovery && <Link href="/submit" className="block min-h-11 py-3 text-center text-sm text-slate-600 underline underline-offset-4">ドライバー画面へ</Link>}
+              <AccountRecovery onContinue={() => router.push("/login?next=admin")} />
+              <Link href="/login?next=admin" className="block min-h-11 py-3 text-center text-sm text-slate-600 underline underline-offset-4">登録済みのパスキーでログイン</Link>
+              <Link href="/submit" className="block min-h-11 py-3 text-center text-sm text-slate-600 underline underline-offset-4">SMSでドライバー画面へ</Link>
+            </>}
+            {step === "resume" && <>
+              <p role="alert" className="text-sm text-red-600 text-center">{error}</p>
+              <button disabled={loading || !verifiedDriver} className={btnCls} onClick={async () => {
+                if (!verifiedDriver) return;
+                setLoading(true);
+                setError("");
+                try { await goToNext(verifiedDriver); }
+                finally { setLoading(false); }
+              }}>{loading ? "確認中..." : "もう一度確認する"}</button>
             </>}
             {step === "phone" && (
               <>

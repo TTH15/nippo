@@ -8,6 +8,10 @@ vi.mock("@/server/auth/reauthIdentity", () => ({ reauthIdentity: mock.identity }
 vi.mock("@/server/otp/twilio", () => ({ checkOtp: mock.otp, sendOtp: mock.send }));
 vi.mock("@/server/db/client", () => ({ supabase: { from: mock.from, rpc: mock.rpc } }));
 vi.mock("@simplewebauthn/server", () => ({ verifyAuthenticationResponse: mock.verify, generateAuthenticationOptions: mock.generate, generateRegistrationOptions: vi.fn(), verifyRegistrationResponse: vi.fn() }));
+vi.mock("@/server/auth/passkeyPolicy", async () => {
+  const { requireRecentAuth } = await import("@/server/auth/recentAuth");
+  return { passkeyManagementAuthorization: async (req: NextRequest, user: any) => await requireRecentAuth(req, user) ?? {}, recoverySessionHash: () => "fixture-hash" };
+});
 vi.mock("@/server/afterSafely", () => ({ afterSafely: vi.fn() }));
 vi.mock("@/server/notifications/dispatch", () => ({ deliverStoredNotifications: vi.fn() }));
 import { POST as verify } from "@/app/api/auth/reauth/verify/route";
@@ -22,12 +26,12 @@ beforeEach(() => { vi.clearAllMocks(); vi.stubEnv("JWT_SECRET", "reauth-route-te
 afterEach(() => vi.unstubAllEnvs());
 it("SMS送信先はリクエスト番号を無視し保存済みの本人番号を使う", async () => {
   expect((await options(req({ method: "sms", phone: "+819099999999" }))).status).toBe(200);
-  expect(mock.send).toHaveBeenCalledWith("+819000000001");
+  expect(mock.send).toHaveBeenCalledWith("+819000000001", expect.any(NextRequest));
 });
 it("SMS検証後だけセッションに結び付いた証明を渡す", async () => {
   const request = req({ method: "sms", code: "123456", phone: "+819099999999" });
   const response = await verify(request);
-  expect(response.status).toBe(200); expect(mock.otp).toHaveBeenCalledWith("+819000000001", "123456");
+  expect(response.status).toBe(200); expect(mock.otp).toHaveBeenCalledWith("+819000000001", "123456", expect.any(NextRequest));
   const { reauthToken } = await response.json();
   const check = req({}); check.headers.set("x-reauth-token", reauthToken);
   expect(await hasRecentAuth(check, user)).toBe(true);

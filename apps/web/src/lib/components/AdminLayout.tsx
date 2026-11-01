@@ -110,9 +110,13 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
 
-  const logout = () => {
-    clearAuth();
+  const [logoutError, setLogoutError] = useState("");
+  const logout = async () => {
+    setLogoutError("");
+    try {
+    await clearAuth();
     router.push("/login");
+    } catch (error) { setLogoutError(error instanceof Error ? error.message : "ログアウトできませんでした"); }
   };
 
   const isActive = (href: string) => activeAdminNavHref(pathname) === href;
@@ -150,6 +154,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 max-md:bg-transparent">
+      {logoutError && <p role="alert" className="fixed bottom-4 left-4 z-[100] rounded-lg border border-red-200 bg-white p-3 text-sm text-red-700">{logoutError}</p>}
       {/* モバイルヘッダー（運営モードの外枠。ダークで「運営に居る」ことを示す） */}
       {/* z-40: ページ内の sticky テーブルヘッダー（z-20〜30）より前面に置き、スクロール時の重なりを防ぐ */}
       {/* 高さは実測して --admin-header-h に公開する（ページ側の sticky がこの値で貼り付く） */}

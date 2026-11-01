@@ -20,6 +20,10 @@ vi.mock("@/server/identity", () => ({
   issueAdminSession: mock.issueAdminSession,
   describeIdentityLoginFailure: vi.fn(),
 }));
+vi.mock("@/server/auth/passkeyPolicy", async () => {
+  const { requireRecentAuth } = await import("@/server/auth/recentAuth");
+  return { passkeyManagementAuthorization: async (req: NextRequest, user: any) => await requireRecentAuth(req, user) ?? {}, recoverySessionHash: () => "fixture-hash" };
+});
 vi.mock("@/server/afterSafely", () => ({ afterSafely: vi.fn() }));
 vi.mock("@/server/notifications/dispatch", () => ({ deliverStoredNotifications: vi.fn() }));
 import { createChallengeToken } from "./webauthn";

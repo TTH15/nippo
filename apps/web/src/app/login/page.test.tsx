@@ -78,15 +78,16 @@ describe("ログイン入口", () => {
     await waitFor(() => expect(mobile.getByRole("alert")).toHaveTextContent("運営画面の権限がありません"));
     expect(mock.push).not.toHaveBeenCalledWith("/admin");
   });
-});
 
-it("口座変更からのパスキーログインは専用ページへ戻る", async () => {
-  window.history.replaceState(null, "", "/login?next=driver&returnTo=%2Faccount%2Fbank-change");
-  render(<LoginPage />); fireEvent.click(within(document.querySelector(".login-mobile") as HTMLElement).getByRole("button", { name: "パスキーでログイン" }));
-  await waitFor(() => expect(mock.push).toHaveBeenCalledWith("/account/bank-change"));
-});
-it("外部URLのreturnToはログイン後の遷移に使わない", async () => {
-  window.history.replaceState(null, "", "/login?next=driver&returnTo=https%3A%2F%2Fexample.com");
-  render(<LoginPage />); fireEvent.click(within(document.querySelector(".login-mobile") as HTMLElement).getByRole("button", { name: "パスキーでログイン" }));
-  await waitFor(() => expect(mock.push).toHaveBeenCalledWith("/submit"));
+  it.each(["driver", "admin"])("%s入口の認証中止後にSMS・復旧の次の操作を示す", async (target) => {
+    window.history.replaceState(null, "", `/login?next=${target}`);
+    mock.authenticate.mockRejectedValueOnce(new DOMException("cancelled", "NotAllowedError"));
+    render(<LoginPage />);
+    const mobile = within(document.querySelector(".login-mobile") as HTMLElement);
+    fireEvent.click(mobile.getByRole("button", { name: "パスキーでログイン" }));
+    expect(await mobile.findByRole("alert")).toHaveTextContent(target === "admin" ? "パスキーを設定・復旧する" : "電話番号でログイン");
+    expect(mock.setLoginSession).not.toHaveBeenCalled();
+    expect(mock.push).not.toHaveBeenCalled();
+    expect(mobile.getByRole("button", { name: "パスキーでログイン" })).toBeEnabled();
+  });
 });

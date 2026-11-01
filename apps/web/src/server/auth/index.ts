@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { authProvider } from "./jwt";
 import type { AuthUser } from "./types";
 import { checkMembership } from "./membership";
+import { supabase } from "@/server/db/client";
 
 export type { AuthUser, MembershipRole } from "./types";
 export { authProvider, signToken } from "./jwt";
@@ -56,6 +57,11 @@ export async function requireAuth(
   try {
     const result = await checkMembership(user, { pathname: req.nextUrl.pathname, method: req.method });
     if ("user" in result) {
+      if (user.sessionId) {
+        const { data: revoked, error } = await supabase.rpc("auth_session_is_revoked", { p_session_id: user.sessionId, p_parent_session_id: user.parentSessionId ?? null });
+        if (error || typeof revoked !== "boolean") throw new Error("Session status unavailable");
+        if (revoked) return NextResponse.json({ error: "ログインし直してください" }, { status: 401 });
+      }
       if (req.nextUrl.pathname.startsWith("/api/admin/") && result.user.purpose !== "admin") {
         return NextResponse.json({ error: "管理画面にログインし直してください", code: "ADMIN_SESSION_REQUIRED" }, { status: 401 });
       }

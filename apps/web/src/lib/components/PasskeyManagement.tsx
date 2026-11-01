@@ -1,7 +1,9 @@
 "use client";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useId, useState } from "react";
 import { formatDateSlashWeekdayJP } from "@repo/core/logic/calendar";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, forgetLoginSession } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { useIsWebAuthnHost } from "@/lib/webauthnHost";
 import { registerPasskey } from "@/lib/registerPasskey";
@@ -10,6 +12,7 @@ import { SmoothCollapse } from "./SmoothCollapse";
 
 type Key = { id: string; name: string | null; created_at: string; last_used_at: string | null };
 export function PasskeyManagement() {
+  const router = useRouter();
   const supported = useIsWebAuthnHost();
   const { data, error, isInitialLoading, refresh } = useApi<{ keys: Key[]; canRecoverWithSms: boolean }>("/api/me/passkeys");
   const [selected, setSelected] = useState<string | null>(null);
@@ -42,11 +45,11 @@ export function PasskeyManagement() {
       </>}
       <SmoothCollapse open={!!selected} id={collapseId}>
         <div className="space-y-2 rounded-lg bg-slate-50 p-3">
-          <p className="text-sm text-slate-700">この端末の設定を削除します。次回から、この端末ではかんたんログインを使えません。</p>
+          <p className="text-sm text-slate-700">このパスキーを削除し、すべての端末からログアウトします。次回は別のパスキーかSMSでログインしてください。</p>
           <button type="button" disabled={disabled} className="min-h-11 w-full rounded-lg bg-red-700 px-3 py-2 text-sm text-white disabled:opacity-50"
             onClick={() => reauth.run(async (grant) => {
               await apiFetch("/api/me/passkeys", { method: "DELETE", headers: reauthHeaders(grant), body: JSON.stringify({ id: selected }) });
-              setSelected(null); setMessage("端末の設定を削除しました"); await refresh();
+              forgetLoginSession(); router.push("/login");
             })}>削除する</button>
           <button type="button" disabled={disabled} onClick={() => setSelected(null)} className="min-h-11 w-full text-sm underline">取り消す</button>
         </div>
@@ -58,6 +61,7 @@ export function PasskeyManagement() {
           await registerPasskey(grant); setMessage("かんたんログインを設定しました"); await refresh();
         }); }}>この端末にかんたんログインを設定する</button>
         : <p className="text-sm text-slate-600">SafariやChromeで開いて設定してください。</p>}
+      <Link href="/login/recover?next=admin" className="inline-flex min-h-11 items-center text-sm underline">パスキーが使えない場合の復旧</Link>
     </div>
   </section>;
 }

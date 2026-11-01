@@ -3,6 +3,7 @@ import type { AuthUser } from "./types";
 
 // 本人登録だけを継続できるよう、パスの前方一致にはしない。
 const PENDING_ROUTES: Readonly<Record<string, readonly string[]>> = {
+  "/api/auth/logout": ["POST"],
   "/api/me/registration": ["GET", "POST"],
   "/api/me/registration/photo": ["POST"],
   "/api/reports/profile": ["GET", "POST"],

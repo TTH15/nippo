@@ -1,3 +1,4 @@
+import { authLimitResponse } from "@/server/auth/requestBudget";
 import { freshStrongAuth } from "@/server/auth/recentAuth";
 import { clearAdminRenewCookie } from "@/server/auth/adminRenew";
 import { NextRequest, NextResponse } from "next/server";
@@ -28,11 +29,11 @@ export async function POST(req: NextRequest) {
     if (!phone) {
       return NextResponse.json({ error: "電話番号の形式が正しくありません" }, { status: 400 });
     }
-    if (!code) {
+    if (!/^\d{6}$/.test(code)) {
       return NextResponse.json({ error: "認証コードを入力してください" }, { status: 400 });
     }
 
-    const approved = await checkOtp(phone, code);
+    const approved = await checkOtp(phone, code, req);
     if (!approved) {
       return NextResponse.json({ error: "認証コードが正しくありません" }, { status: 400 });
     }
@@ -66,6 +67,8 @@ export async function POST(req: NextRequest) {
     clearAdminRenewCookie(result);
     return result;
   } catch (err) {
+    const limited = authLimitResponse(err);
+    if (limited) return limited;
     console.error("[Recover] error:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }

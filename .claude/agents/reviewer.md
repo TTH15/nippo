@@ -10,7 +10,7 @@ tools: Read, Grep, Glob, Bash
 ## 最優先で探すもの（このリポジトリで実際に起きた事故）
 
 1. **テナント分離の抜け** — Supabase クエリに `.eq("org_id", orgId)` があるか。
-   RLS を使っていないので、1箇所の書き忘れがそのまま他社データの露出になる。
+   既存のservice role接続はRLSを迂回するため、会社境界の漏れは他社データの露出につながる。RLSの有効化だけでAPI側の検査を省かない。
    `cd apps/web && npm run check:tenant` を必ず実行して結果を報告する
 2. **ページングに ORDER BY が無い** — `fetchAllRows` は順序が一意でないと**行の重複・欠落**が起きる。
    `.range()` を使うクエリに一意な `.order()` が2本（ソートキー＋id）付いているか

@@ -4,6 +4,9 @@ import { getCompany } from "@/config/companies";
 import { ServiceWorkerRegister } from "@/lib/components/ServiceWorkerRegister";
 import { ModeTransitionProvider } from "@/lib/components/ModeTransition";
 
+// nonce付きCSPとHTML内の初期化scriptを、同じリクエストで生成する。
+export const dynamic = "force-dynamic";
+
 const company = getCompany(process.env.NEXT_PUBLIC_COMPANY_CODE);
 
 export const metadata: Metadata = {

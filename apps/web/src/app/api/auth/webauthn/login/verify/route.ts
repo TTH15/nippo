@@ -117,7 +117,7 @@ export async function POST(req: NextRequest) {
     }
 
     const session = await issueDriverSession(resolved.driver, freshStrongAuth("passkey"));
-    const adminToken = await issueAdminSession(resolved.driver);
+    const adminToken = await issueAdminSession(resolved.driver, session.sessionId);
     const result = NextResponse.json({ ...session, adminToken }, { headers: { "Cache-Control": "no-store" } });
     if (adminToken && resolved.driver.identity_id && resolved.driver.org_id) {
       const renewal = await signAdminRenew({
@@ -125,6 +125,7 @@ export async function POST(req: NextRequest) {
         identityId: resolved.driver.identity_id,
         orgId: resolved.driver.org_id,
         tokenVersion: resolved.driver.token_version,
+        sessionId: session.sessionId,
       });
       setAdminRenewCookie(result, renewal);
     } else {

@@ -10,6 +10,7 @@ type AdminRenewClaims = {
   identityId: string;
   orgId: string;
   tokenVersion: number;
+  sessionId: string;
 };
 
 function secret() {
@@ -23,6 +24,7 @@ export async function signAdminRenew(claims: AdminRenewClaims): Promise<string> 
     org_id: claims.orgId,
     token_version: claims.tokenVersion,
     purpose: "admin_renew",
+    session_id: claims.sessionId,
   })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(claims.driverId)
@@ -43,12 +45,14 @@ export async function verifyAdminRenew(req: NextRequest): Promise<AdminRenewClai
         typeof payload.identity_id !== "string" || !payload.identity_id ||
         typeof payload.org_id !== "string" || !payload.org_id ||
         typeof payload.token_version !== "number" ||
-        !Number.isSafeInteger(payload.token_version) || payload.token_version < 0) return null;
+        !Number.isSafeInteger(payload.token_version) || payload.token_version < 0 ||
+        typeof payload.session_id !== "string" || !/^(?:[0-9a-f-]{36}|[0-9a-f]{64})$/i.test(payload.session_id)) return null;
     return {
       driverId: payload.sub,
       identityId: payload.identity_id,
       orgId: payload.org_id,
       tokenVersion: payload.token_version,
+      sessionId: payload.session_id,
     };
   } catch { return null; }
 }

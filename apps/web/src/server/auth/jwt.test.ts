@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, vi } from "vitest";
 import { SignJWT } from "jose";
 import { signToken, SimpleJwtAuthProvider } from "./jwt";
 import { signAdminRenew } from "./adminRenew";
@@ -96,7 +96,7 @@ describe("signToken / verify (Phase 6a: identity_id + current_org_id)", () => {
   });
 
   it("更新Cookieの署名値をAPIのBearerトークンとして使えない", async () => {
-    const renewal = await signAdminRenew({ driverId: "admin-2", identityId: "identity-1", orgId: "org-1", tokenVersion: 0 });
+    const renewal = await signAdminRenew({ driverId: "admin-2", identityId: "identity-1", orgId: "org-1", tokenVersion: 0, sessionId: "00000000-0000-4000-8000-000000000001" });
     await expect(provider.verify(`Bearer ${renewal}`)).rejects.toThrow("Invalid token payload");
   });
 
@@ -105,4 +105,18 @@ describe("signToken / verify (Phase 6a: identity_id + current_org_id)", () => {
       .setProtectedHeader({ alg: "HS256" }).setExpirationTime("30d").sign(secret());
     await expect(provider.verify(`Bearer ${token}`)).rejects.toThrow("Invalid token payload");
   });
+});
+
+it("業務セッションの同期でログイン単位と絶対期限を延長しない", async () => {
+  vi.useFakeTimers();
+  try {
+    vi.setSystemTime(new Date("2026-11-02T00:00:00Z"));
+    const original=await provider.verify(`Bearer ${await signToken({driverId:"self",role:"DRIVER",companyCode:"A"})}`);
+    vi.advanceTimersByTime(29*86400*1000);
+    const refreshed=await provider.verify(`Bearer ${await signToken(original)}`);
+    expect(refreshed.sessionId).toBe(original.sessionId);
+    expect(refreshed.sessionExpiresAt).toBe(original.sessionExpiresAt);
+    vi.advanceTimersByTime(86400*1000);
+    await expect(signToken(refreshed)).rejects.toThrow("Session expired");
+  } finally {vi.useRealTimers();}
 });

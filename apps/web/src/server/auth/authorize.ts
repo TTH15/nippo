@@ -9,6 +9,7 @@ import {
   type Capability,
 } from "./capabilities";
 import { checkPermission, type Grants, type PermissionScope, type PermissionSpec } from "./policy";
+import { AuthzUnavailableError, authzUnavailable } from "./authzError";
 
 // ============================================================
 // 認可モデル — スコープ付き権限のリクエストガード（own / any）。
@@ -28,19 +29,22 @@ export type { Grants, PermissionScope, PermissionSpec } from "./policy";
  * この関数の返す Grants の形は変えない。
  */
 export async function resolveGrants(driverId: string, fallbackRole?: string): Promise<Grants> {
-  const { data: driver } = await supabase
+  const { data: driver, error: driverError } = await supabase
     // tenant-scope-ok: 認可の解決処理。呼び出し元が認証済みのmembership IDを渡す
     .from("drivers")
     .select("role, role_id, works_as_driver")
     .eq("id", driverId)
     .maybeSingle();
 
+  if (driverError || !driver) throw new AuthzUnavailableError();
+
   let capabilities: Set<Capability>;
   if (driver?.role_id) {
-    const { data: caps } = await supabase
+    const { data: caps, error: capsError } = await supabase
       .from("role_capabilities")
       .select("capability")
       .eq("role_id", driver.role_id);
+    if (capsError || !caps) throw new AuthzUnavailableError();
     capabilities = expandCapabilities((caps ?? []).map((c) => c.capability as Capability));
   } else {
     const roleKey = driver?.role ?? fallbackRole ?? "";
@@ -69,7 +73,9 @@ export async function requireScopedPermission(
   const user = await requireAuth(req);
   if (isAuthError(user)) return user;
 
-  const grants = await resolveGrants(user.driverId, user.role);
+  let grants: Grants;
+  try { grants = await resolveGrants(user.driverId, user.role); }
+  catch { return authzUnavailable(); }
   // 通常セッションでは会社全体のcapabilityを使わず、本人スコープだけ評価する。
   // any優先のポリシーへそのまま渡すと、兼務者が自分のシフトも開けなくなる。
   const effectiveGrants = user.purpose === "admin" ? grants : { ...grants, capabilities: new Set<Capability>() };

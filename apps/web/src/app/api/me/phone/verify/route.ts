@@ -1,3 +1,5 @@
+import { hasRecentAuth } from "@/server/auth/recentAuth";
+import { authLimitResponse } from "@/server/auth/requestBudget";
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { supabase } from "@/server/db/client";
@@ -48,6 +50,9 @@ export async function POST(req: NextRequest) {
   if (!phone) {
     return NextResponse.json({ error: "電話番号の形式が正しくありません" }, { status: 400 });
   }
+  if (!trustedPhone && !await hasRecentAuth(req, user, "passkey")) {
+    return NextResponse.json({ error: "登録済みのパスキーで本人確認してください。使えるパスキーがない場合は運営へ連絡してください", code: "PASSKEY_REQUIRED" }, { status: 403 });
+  }
   if (trustedPhone ? phone !== trustedPhone : !enrollment.canRegister) {
     return NextResponse.json({ error: "登録済みの電話番号を入力してください。番号の変更は運営にご連絡ください" }, { status: 403 });
   }
@@ -57,8 +62,8 @@ export async function POST(req: NextRequest) {
   }
 
   let approved;
-  try { approved = await checkOtp(phone, code); }
-  catch { return NextResponse.json({ error: "SMSの確認に失敗しました" }, { status: 503 }); }
+  try { approved = await checkOtp(phone, code, req); }
+  catch (err) { return authLimitResponse(err) ?? NextResponse.json({ error: "SMSの確認に失敗しました" }, { status: 503 }); }
   if (!approved) {
     return NextResponse.json({ error: "認証コードが正しくありません" }, { status: 400 });
   }

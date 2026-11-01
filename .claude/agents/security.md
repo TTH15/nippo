@@ -8,7 +8,7 @@ tools: Read, Grep, Glob, Bash
 
 ## この環境の前提（ここを外すと的外れな指摘になる）
 
-- **RLS は使っていない**（構成A）。service role キーで接続しているため、DB 側の防御はゼロ。
+- 2026/11/02の本番読み取り監査でpublicのRLS有効・一般ロールの直接権限なしを確認。ただし既存APIのservice roleはRLSを迂回するため、各APIの認証・認可・会社境界を必ず検証する。
   テナント分離は**アプリ層の `.eq("org_id", orgId)` だけ**が支えている
 - 認可は capability モデル（`src/server/auth/`）。`requirePermission(req, "can_xxx")` が入口
 - **認証は過渡期**。本人系ルートの多くが `requireAuth` のみで、リソースの所有者確認（own 化）が未了

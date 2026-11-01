@@ -16,7 +16,7 @@ beforeEach(() => {
     if (path === "/api/reports/profile") return { name: "見本 太郎", phone: m.phone, phoneVerified: m.verified };
     if (path === "/api/me/registration" && !init?.method) return { ...m.bank, hasPasskey: m.hasKey };
     if (path === "/api/auth/reauth/options") return { options: {}, challengeToken: "bank-challenge" };
-    if (path === "/api/auth/reauth/verify") return { bankChangeToken: "bank-proof" };
+    if (path === "/api/auth/reauth/verify") return { bankChangeToken: "bank-proof", reauthToken: "phone-proof" };
     if (path === "/api/me/registration") {
       if (m.failSave) throw new Error("保存できませんでした");
       m.bank = JSON.parse(String(init?.body)); return { ok: true };
@@ -83,7 +83,7 @@ it("新しい電話を入力し、SMS誤コードから復帰して口座ペー�
   expect(screen.getByText("口座情報の登録").closest("li")).toHaveAttribute("aria-current", "step");
   fireEvent.click(screen.getByRole("button", { name: "口座を登録して利用を開始" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-  expect(m.bank.bankNo).toBe("01234567"); expect(m.passkey).not.toHaveBeenCalled();
+  expect(m.bank.bankNo).toBe("01234567"); expect(m.passkey).toHaveBeenCalledTimes(1);
 });
 it("SMSが成功してもサーバーが未確認なら口座ページへ進めない", async () => {
   m.persistPhone = false; gate(); fireEvent.click(await screen.findByRole("button", { name: "認証コードを送信" }));
@@ -228,4 +228,18 @@ it("その他は具体名を入力して初回保存し、種別名を表示す�
  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
  expect(m.bank).toMatchObject({ bankType: "other", bankTypeOther: "別段", bankNo: "01234567" });
  expect(m.passkey).not.toHaveBeenCalled();
+});
+
+it("番号未登録のパスキー確認を中止するとSMSを送らず入力を残して再試行できる", async () => {
+  m.phone = "";
+  m.passkey.mockRejectedValueOnce(new DOMException("cancelled", "NotAllowedError"));
+  gate();
+  fireEvent.change(await screen.findByLabelText("電話番号"), { target: { value: "09000000001" } });
+  fireEvent.click(screen.getByRole("button", { name: "認証コードを送信" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("本人確認を中止しました");
+  expect(m.api.mock.calls.some(([path]) => path === "/api/me/phone/send")).toBe(false);
+  expect(screen.getByLabelText("電話番号")).toHaveValue("09000000001");
+  fireEvent.click(screen.getByRole("button", { name: "認証コードを送信" }));
+  expect(await screen.findByRole("heading", { name: "認証コードを入力してください" })).toBeInTheDocument();
+  expect(m.api).toHaveBeenCalledWith("/api/me/phone/send", expect.objectContaining({ headers: { "x-reauth-token": "phone-proof" } }));
 });

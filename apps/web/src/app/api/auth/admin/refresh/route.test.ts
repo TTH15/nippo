@@ -10,7 +10,7 @@ vi.mock("@/server/db/client", () => ({ supabase: { from: () => ({ select: () => 
 import { signAdminRenew } from "@/server/auth/adminRenew";
 import { POST } from "./route";
 
-const claims = { driverId: "driver-a", identityId: "person-a", orgId: "org-a", tokenVersion: 3 };
+const claims = { driverId: "driver-a", identityId: "person-a", orgId: "org-a", tokenVersion: 3, sessionId: "00000000-0000-4000-8000-000000000001" };
 const request = (cookie?: string, origin = "http://localhost") => new NextRequest("http://localhost/api/auth/admin/refresh", {
   method: "POST", headers: { origin, authorization: "Bearer work-token", ...(cookie ? { cookie: `nippo_admin_renew=${cookie}` } : {}) },
 });
@@ -18,7 +18,7 @@ const request = (cookie?: string, origin = "http://localhost") => new NextReques
 beforeEach(() => {
   vi.stubEnv("JWT_SECRET", "admin-renew-test-secret");
   vi.clearAllMocks();
-  mock.auth.mockResolvedValue({ driverId: "driver-a", identityId: "person-a", orgId: "org-a", tokenVersion: 3, purpose: "work" });
+  mock.auth.mockResolvedValue({ driverId: "driver-a", identityId: "person-a", orgId: "org-a", tokenVersion: 3, sessionId: "00000000-0000-4000-8000-000000000001", purpose: "work" });
   mock.driver.mockResolvedValue({ data: { id: "driver-a", identity_id: "person-a", org_id: "org-a", token_version: 3, status: "active" }, error: null });
   mock.issue.mockResolvedValue("fresh-admin-token");
 });
@@ -39,9 +39,14 @@ describe("運営セッションの自動更新", () => {
   });
 
   it("SMSの業務トークンだけでは更新できず、権限剥奪も反映する", async () => {
-    mock.auth.mockResolvedValueOnce({ driverId: "driver-a", identityId: "person-a", orgId: "org-a", tokenVersion: 3, purpose: "admin" });
+    mock.auth.mockResolvedValueOnce({ driverId: "driver-a", identityId: "person-a", orgId: "org-a", tokenVersion: 3, sessionId: "00000000-0000-4000-8000-000000000001", purpose: "admin" });
     expect((await POST(request(await signAdminRenew(claims)))).status).toBe(401);
     mock.issue.mockResolvedValue(null);
     expect((await POST(request(await signAdminRenew(claims)))).status).toBe(403);
+  });
+
+  it("同じ本人でも別ログインのCookieは再利用できない", async () => {
+    expect((await POST(request(await signAdminRenew({ ...claims, sessionId: "00000000-0000-4000-8000-000000000002" })))).status).toBe(401);
+    expect(mock.issue).not.toHaveBeenCalled();
   });
 });

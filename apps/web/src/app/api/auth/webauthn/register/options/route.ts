@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { AuthenticatorTransportFuture } from "@simplewebauthn/server";
 import { requireAuth, isAuthError } from "@/server/auth";
-import { requireRecentAuth } from "@/server/auth/recentAuth";
+import { passkeyManagementAuthorization } from "@/server/auth/passkeyPolicy";
 import { supabase } from "@/server/db/client";
 import { generateRegistrationOptions, createChallengeToken, rpConfig } from "@/server/auth/webauthn";
 
@@ -10,8 +10,8 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
   const user = await requireAuth(req, "DRIVER");
   if (isAuthError(user)) return user;
-  const reauthError = await requireRecentAuth(req, user);
-  if (reauthError) return reauthError;
+  const authorization = await passkeyManagementAuthorization(req, user, true);
+  if (authorization instanceof NextResponse) return authorization;
 
   if (!user.identityId) {
     return NextResponse.json(

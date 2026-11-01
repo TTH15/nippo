@@ -15,6 +15,8 @@ Claude Code の Stop フック（`~/.claude/bin/worklog-check.sh`）により、
 
 ## 月別
 
+- [2026年11月](worklog/2026-11.md)
+
 - [2026年7月](worklog/2026-07.md) — 47件
 - [2026年8月](worklog/2026-08.md) — 310件
 - [2026年9月](worklog/2026-09.md) — 246件

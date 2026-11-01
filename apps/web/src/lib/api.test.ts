@@ -15,7 +15,7 @@ vi.mock("@repo/core/auth", () => ({
 }));
 vi.mock("@repo/core/api", () => ({ apiFetch: mock.fetch }));
 
-import { apiFetch, apiUpload, clearAuth, getAdminToken, renewAdminToken, setAuth, setLoginSession } from "./api";
+import { apiUpload, apiFetch, clearAuth, getAdminToken, renewAdminToken, setAuth, setLoginSession } from "./api";
 
 const driver = { id: "member-1", name: "試験者", role: "DRIVER" };
 
@@ -40,7 +40,7 @@ describe("同じアカウントの業務・運営セッション", () => {
     expect(mock.token).toBe("work-token");
   });
 
-  it("権限同期では運営トークンを残し、アカウント変更とSMS再ログインでは破棄する", () => {
+  it("権限同期では運営トークンを残し、アカウント変更とSMS再ログインでは破棄する", async () => {
     setLoginSession("work-token", driver, "admin-token");
     setAuth("renewed-work-token", driver);
     expect(getAdminToken()).toBe("admin-token");
@@ -49,7 +49,7 @@ describe("同じアカウントの業務・運営セッション", () => {
     setLoginSession("work-token", driver, "admin-token");
     setLoginSession("sms-work-token", driver);
     expect(getAdminToken()).toBeNull();
-    clearAuth();
+    await clearAuth();
     expect(mock.token).toBeNull();
   });
 
@@ -73,6 +73,7 @@ describe("同じアカウントの業務・運営セッション", () => {
   });
 });
 
+
 it("アップロードの中止をfetchへ伝え、ログイン状態を保つ",async()=>{
  setLoginSession("work-token",driver,"admin-token");
  const controller=new AbortController();
@@ -85,4 +86,14 @@ it("アップロードの中止をfetchへ伝え、ログイン状態を保つ",
  await expect(uploading).rejects.toMatchObject({name:"AbortError"});
  expect(fetch).toHaveBeenCalledWith("/api/admin/shifts/memo/read",expect.objectContaining({signal:controller.signal,headers:{Authorization:"Bearer admin-token"}}));
  expect(getAdminToken()).toBe("admin-token");
+});
+
+it("失効APIの応答が失敗した場合はログイン情報を残して再試行できる", async () => {
+ setLoginSession("work-token",driver,"admin-token");
+ vi.mocked(fetch).mockResolvedValueOnce(new Response(null,{status:503}));
+ await expect(clearAuth()).rejects.toThrow("ログアウトを完了できませんでした");
+ expect(mock.token).toBe("work-token");expect(getAdminToken()).toBe("admin-token");
+ vi.mocked(fetch).mockResolvedValueOnce(new Response(null,{status:200}));
+ await clearAuth();expect(mock.token).toBeNull();expect(getAdminToken()).toBeNull();
+ expect(fetch).toHaveBeenLastCalledWith("/api/auth/logout",expect.objectContaining({headers:expect.objectContaining({Authorization:"Bearer work-token"}),body:JSON.stringify({adminToken:"admin-token"})}));
 });
