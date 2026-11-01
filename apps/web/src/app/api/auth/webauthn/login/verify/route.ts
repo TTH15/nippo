@@ -116,8 +116,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: failure.error }, { status: failure.status });
     }
 
-    const session = await issueDriverSession(resolved.driver, freshStrongAuth("passkey"));
-    const adminToken = await issueAdminSession(resolved.driver, session.sessionId);
+    const strongAuth = freshStrongAuth("passkey");
+    const session = await issueDriverSession(resolved.driver, strongAuth);
+    const adminToken = await issueAdminSession(resolved.driver, session.sessionId, strongAuth);
     const result = NextResponse.json({ ...session, adminToken }, { headers: { "Cache-Control": "no-store" } });
     if (adminToken && resolved.driver.identity_id && resolved.driver.org_id) {
       const renewal = await signAdminRenew({

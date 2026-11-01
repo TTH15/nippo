@@ -62,7 +62,7 @@ export async function requireAuth(
         if (error || typeof revoked !== "boolean") throw new Error("Session status unavailable");
         if (revoked) return NextResponse.json({ error: "ログインし直してください" }, { status: 401 });
       }
-      if (req.nextUrl.pathname.startsWith("/api/admin/") && result.user.purpose !== "admin") {
+      if ((req.nextUrl.pathname.startsWith("/api/admin/") || req.nextUrl.pathname.startsWith("/api/platform/")) && result.user.purpose !== "admin") {
         return NextResponse.json({ error: "管理画面にログインし直してください", code: "ADMIN_SESSION_REQUIRED" }, { status: 401 });
       }
       return result.user;

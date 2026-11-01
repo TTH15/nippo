@@ -78,11 +78,13 @@ describe("共通requireAuthからの照合", () => {
   it("SMS・旧形式の通常トークンを管理APIで拒否し、短命管理トークンだけ通す", async () => {
     const work = await signToken({ ...user, strongAuthMethod: "sms", strongAuthAt: Math.floor(Date.now() / 1000) });
     const admin = await signToken({ ...user, purpose: "admin" });
-    const requestWith = (token: string) => new NextRequest("http://localhost/api/admin/payments", {
+    const requestWith = (token: string, path = "/api/admin/payments") => new NextRequest(`http://localhost${path}`, {
       headers: { authorization: `Bearer ${token}` },
     });
     expect(await requireAuth(requestWith(work))).toMatchObject({ status: 401 });
     expect(await requireAuth(requestWith(admin))).toMatchObject({ driverId: user.driverId, purpose: "admin" });
+    expect(await requireAuth(requestWith(work, "/api/platform/organizations"))).toMatchObject({ status: 401 });
+    expect(await requireAuth(requestWith(admin, "/api/platform/organizations"))).toMatchObject({ driverId: user.driverId, purpose: "admin" });
   });
   it("有効な署名でも停止済みなら401にする", async () => {
     db.read.mockResolvedValue({ data: { ...row, status: "inactive" }, error: null });

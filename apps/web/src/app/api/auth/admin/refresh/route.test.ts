@@ -25,10 +25,13 @@ beforeEach(() => {
 
 describe("運営セッションの自動更新", () => {
   it("業務トークンとHttpOnly Cookieの本人・所属が一致した場合だけ更新する", async () => {
+    const strongAuth = { strongAuthAt: 12345, strongAuthMethod: "passkey" };
+    mock.auth.mockResolvedValueOnce({ ...claims, purpose: "work", ...strongAuth });
     const response = await POST(request(await signAdminRenew(claims)));
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ adminToken: "fresh-admin-token" });
     expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(mock.issue).toHaveBeenCalledWith(expect.anything(), claims.sessionId, expect.objectContaining(strongAuth));
   });
 
   it("Cookieなし・他人のCookie・異なるサイトからの要求は拒否する", async () => {

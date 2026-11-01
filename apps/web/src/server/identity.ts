@@ -114,10 +114,15 @@ export async function issueDriverSession(driver: ActiveDriverRow, strongAuth?: P
 }
 
 /** 本人のPasskey検証が完了したログイン経路からだけ呼ぶ、短命の運営セッション。 */
-export async function issueAdminSession(driver: ActiveDriverRow, parentSessionId?: string): Promise<string | null> {
+export async function issueAdminSession(driver: ActiveDriverRow, parentSessionId?: string, strongAuth?: Pick<AuthUser, "strongAuthAt" | "strongAuthMethod">): Promise<string | null> {
   if (!driver.identity_id || !driver.org_id) return null;
   const capabilities = await resolveCapabilities(driver.id, driver.role);
-  if (capabilities.size === 0) return null;
+  if (capabilities.size === 0) {
+    const { data: platformAdmin, error } = await supabase.from("platform_admins")
+      .select("identity_id").eq("identity_id", driver.identity_id).maybeSingle();
+    if (error) throw new Error("Platform authorization unavailable");
+    if (!platformAdmin) return null;
+  }
   return signToken({
     driverId: driver.id,
     role: driver.role,
@@ -127,5 +132,7 @@ export async function issueAdminSession(driver: ActiveDriverRow, parentSessionId
     tokenVersion: driver.token_version,
     purpose: "admin",
     parentSessionId,
+    strongAuthAt: strongAuth?.strongAuthAt,
+    strongAuthMethod: strongAuth?.strongAuthMethod,
   });
 }

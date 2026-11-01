@@ -40,3 +40,23 @@ describe("直近の本人確認", () => {
     vi.advanceTimersByTime(300000); expect(await hasRecentAuth(request(grant), user)).toBe(false);
   });
 });
+
+it("署名済みの業務・運営JWTは同じ親ログインのパスキー確認だけ共有する", async () => {
+  const provider = new SimpleJwtAuthProvider();
+  const parent = "00000000-0000-4000-8000-000000000001";
+  const workToken = await signToken({ ...user, sessionId: parent });
+  const adminToken = await signToken({ ...user, purpose: "admin", parentSessionId: parent });
+  const work = await provider.verify(`Bearer ${workToken}`);
+  const admin = await provider.verify(`Bearer ${adminToken}`);
+  const grant = await issueRecentAuthGrant(request(undefined, workToken), work, "passkey");
+  expect(await hasRecentAuth(request(grant, adminToken), admin, "passkey")).toBe(true);
+  const otherToken = await signToken({ ...user, purpose: "admin", parentSessionId: "00000000-0000-4000-8000-000000000002" });
+  expect(await hasRecentAuth(request(grant, otherToken), await provider.verify(`Bearer ${otherToken}`), "passkey")).toBe(false);
+  const smsGrant = await issueRecentAuthGrant(request(undefined, workToken), work, "sms");
+  expect(await hasRecentAuth(request(smsGrant, adminToken), admin, "passkey")).toBe(false);
+  vi.advanceTimersByTime(1000);
+  const renewed = await signToken({ ...work });
+  expect(await hasRecentAuth(request(grant, renewed), await provider.verify(`Bearer ${renewed}`), "passkey")).toBe(true);
+  vi.advanceTimersByTime(299000);
+  expect(await hasRecentAuth(request(grant, adminToken), admin, "passkey")).toBe(false);
+});

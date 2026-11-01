@@ -83,8 +83,8 @@ export async function clearAuth() {
   forgetLoginSession();
 }
 
-const isAdminRequest = (path: string) => path.startsWith("/api/admin/") ||
-  (typeof window !== "undefined" && window.location.pathname.startsWith("/admin") && !path.startsWith("/api/auth/"));
+const isAdminRequest = (path: string) => path.startsWith("/api/admin/") || path.startsWith("/api/platform/") ||
+  (typeof window !== "undefined" && (window.location.pathname.startsWith("/admin") || window.location.pathname.startsWith("/platform")) && !path.startsWith("/api/auth/"));
 
 function requestAdminLogin() {
   clearAdminToken();

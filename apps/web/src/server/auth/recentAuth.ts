@@ -13,6 +13,12 @@ const secret = () => {
 export const freshStrongAuth = (method: "sms" | "passkey") => ({ strongAuthAt: now(), strongAuthMethod: method });
 export const sessionFingerprint = (req: NextRequest) => createHash("sha256").update(req.headers.get("authorization") ?? "").digest("hex");
 
+// 業務JWTとその子の運営JWTでは、同じログインの再認証だけを共有する。
+const recentAuthFingerprint = (req: NextRequest, user: AuthUser) => {
+  const loginId = user.parentSessionId ?? user.sessionId;
+  return loginId ? createHash("sha256").update(`login:${loginId}`).digest("hex") : sessionFingerprint(req);
+};
+
 export function hasRecentStrongAuth(user: AuthUser): boolean {
   const age = now() - (user.strongAuthAt ?? 0);
   return !!user.identityId && (user.strongAuthMethod === "sms" || user.strongAuthMethod === "passkey") &&
@@ -22,7 +28,7 @@ export function hasRecentStrongAuth(user: AuthUser): boolean {
 export async function issueRecentAuthGrant(req: NextRequest, user: AuthUser, method: "sms" | "passkey" = "sms"): Promise<string> {
   if (!user.identityId || !req.headers.get("authorization")) throw new Error("Missing authenticated identity");
   return new SignJWT({ kind: "passkey_management", identity_id: user.identityId, driver_id: user.driverId,
-    org_id: user.orgId, token_version: user.tokenVersion ?? 0, session_hash: sessionFingerprint(req), auth_method: method })
+    org_id: user.orgId, token_version: user.tokenVersion ?? 0, session_hash: recentAuthFingerprint(req, user), auth_method: method })
     .setProtectedHeader({ alg: "HS256" }).setIssuedAt().setExpirationTime(`${RECENT_AUTH_SECONDS}s`).sign(secret());
 }
 
@@ -34,7 +40,7 @@ export async function hasRecentAuth(req: NextRequest, user: AuthUser, method?: "
     const { payload } = await jwtVerify(grant, secret(), { algorithms: ["HS256"] });
     return (!method || payload.auth_method === method) && payload.kind === "passkey_management" && payload.identity_id === user.identityId &&
       payload.driver_id === user.driverId && payload.org_id === user.orgId &&
-      payload.token_version === (user.tokenVersion ?? 0) && payload.session_hash === sessionFingerprint(req) &&
+      payload.token_version === (user.tokenVersion ?? 0) && payload.session_hash === recentAuthFingerprint(req, user) &&
       typeof payload.iat === "number" && payload.iat <= now() && now() - payload.iat < RECENT_AUTH_SECONDS;
   } catch { return false; }
 }

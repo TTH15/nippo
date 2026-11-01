@@ -52,7 +52,7 @@ Webに問題があれば直前の本番デプロイへ戻す。追加した表�
 
 ### 公開・戻し方
 
-DB2件→Webの順。旧運営更新CookieにはセッションIDがないため運営側はパスキー再ログインが必要。旧業務JWTは元の有効期限まで継続し、再取得による無期限延長を止める。ネイティブのサーバー失効対応は更新版配布後から有効で、既存の端末内ログアウトだけを行う旧バイナリを遠隔で置換はできない。
+DB3件→Webの順。旧運営更新CookieにはセッションIDがないため運営側はパスキー再ログインが必要。旧業務JWTは元の有効期限まで継続し、再取得による無期限延長を止める。ネイティブのサーバー失効対応は更新版配布後から有効で、既存の端末内ログアウトだけを行う旧バイナリを遠隔で置換はできない。
 
 Webを戻す際は直前の本番deploymentへ戻し、新表・失効記録・token_versionを残す。世代を下げない。旧WebのSMS単独での運営キー追加も戻るため、修正版の再公開まで運営用の復旧を窓口対応とする。
 
@@ -65,7 +65,7 @@ Web本番依存の監査0件を公開条件とする。Expo CLIのZod3等はSDK5
 
 ### 本番DBの適用結果
 
-2026/11/02にユーザーの本番反映指示を受け、上記2migrationをSupabase `Hakotora`（ref `ooirajiizydcynyglvuv`）へ個別トランザクションで適用した。Supabase migration履歴と既存 `_migrations` に対象ファイル名を記録。新規3表はRLS有効・anon/authenticatedのSELECT不可、新規6関数はSECURITY INVOKER・一般EXECUTE不可・service_roleのみ実行可を確認した。架空のセッションIDの読み取りは未失効false。実利用者のキー作成・復旧・SMS送信を本番テストとして実行していない。
+2026/11/02にユーザーの本番反映指示を受け、上記migrationをSupabase `Hakotora`（ref `ooirajiizydcynyglvuv`）へ個別トランザクションで適用した。Supabase migration履歴と既存 `_migrations` に対象ファイル名を記録。新規3表はRLS有効・anon/authenticatedのSELECT不可、新規6関数はSECURITY INVOKER・一般EXECUTE不可・service_roleのみ実行可を確認した。架空のセッションIDの読み取りは未失効false。実利用者のキー作成・復旧・SMS送信を本番テストとして実行していない。
 
 6つのsearch_path修正対象は適用前後で本文md5と実行ACLが一致。設定だけ `pg_catalog, public, pg_temp` へ固定した。Supabase Security AdvisorのWARN6件は0件となり、残るINFO103件はRLS有効・一般権限なしの意図した閉鎖表である。Webは公開・配信確認を後続に記録する。
 
@@ -73,9 +73,16 @@ nonce CSPの適用拡大に合わせてルートHTMLを動的描画し、レス�
 
 公開用lockfileの作成はnpm 11.21.1を使用する。npm 10.9.8ではworkspace解決の欠落とpeer解決の例外があったため、manifestから再生成した。React本体は19.2.3のまま、React型を19.2.17/19.2.3へ統一する。非セキュリティ変更となるMotion/Happy DOMの更新は回帰（アニメーション中止時の未処理エラー）を起こしたため、公開済みと同じMotion系12.42.2・Happy DOM20.11.1へ固定して検証する。
 
-公開候補の最終検証はWeb238ファイル2,002件・Mobile68件・隔離DB32項目、全型/tenant/本番ビルド、実ビルド5HTMLのnonce一致と3API未認証401。Web本番依存監査0件。公開済みの旧PIN/管理者コードログインAPIは410で終了することも維持し、静的コード認証を再導入していない。
+公開候補の最終検証はWeb239ファイル2,009件・Mobile68件・隔離DB35項目、全型/tenant/本番ビルド、実ビルド5HTMLのnonce一致と3API未認証401。Web本番依存監査0件。公開済みの旧PIN/管理者コードログインAPIは410で終了することも維持し、静的コード認証を再導入していない。
 
 
 ### 復旧期限の追加検証と適用
 
 `20261101163404_auth_recovery_deadline_after_lock.sql` を追加して本番へ適用した。申請/承認の期限をtransaction開始時のnow()だけで判断せず、ロック取得後と保存完了前のclock_timestamp()で再確認する。期限を超えた場合は鍵・通知・世代変更をトランザクションごと取り消す。専用DBでadvisory lockとidentity行ロックの待機中に期限を超える2ケースと、鍵が残らないことを検証し、認証DB検証は35項目になった。期限エラーはUSB機器の再操作ではなく、承認状況の確認/再申請へ案内する。
+
+
+### 再認証と運営窓口の最終監査
+
+再認証は業務JWTと、そのログインを親に持つ管理JWTで共有する。本人・所属・token_version・確認方法・5分期限の検査を維持し、別ログインの証明を拒否する。JWTの更新では元の本人確認時刻を延長しない。口座変更用チャレンジと確認証明は引き続き個別のBearerに拘束する。
+
+`/api/platform/*`も短命のadmin JWTを必須とし、SMSログインだけで運営窓口を操作できない。会社の権限とplatform_adminsの認可は独立して確認し、会社権限のない窓口担当者にもパスキー検証後に窓口用の短命JWTを発行する。会社のcapabilityは付与しない。認可DB障害は503で拒否する。クライアントの窓口APIも管理JWTを送信し、既存キーの再確認だけは業務JWTを使う。

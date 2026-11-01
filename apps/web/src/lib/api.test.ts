@@ -97,3 +97,14 @@ it("失効APIの応答が失敗した場合はログイン情報を残して再�
  await clearAuth();expect(mock.token).toBeNull();expect(getAdminToken()).toBeNull();
  expect(fetch).toHaveBeenLastCalledWith("/api/auth/logout",expect.objectContaining({headers:expect.objectContaining({Authorization:"Bearer work-token"}),body:JSON.stringify({adminToken:"admin-token"})}));
 });
+
+it("運営窓口でも短命セッションを使い、本人再確認には業務セッションを使う", async () => {
+  window.history.replaceState({}, "", "/platform/account-recovery");
+  setLoginSession("work-token", driver, "admin-token");
+  for (const path of ["/api/platform/account-recovery", "/api/me/passkeys"]) {
+    await apiFetch(path);
+    expect(mock.fetch).toHaveBeenLastCalledWith(path, expect.objectContaining({ headers: expect.objectContaining({ Authorization: "Bearer admin-token" }) }), expect.anything());
+  }
+  await apiFetch("/api/auth/reauth");
+  expect(mock.fetch).toHaveBeenLastCalledWith("/api/auth/reauth", {}, {});
+});

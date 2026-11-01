@@ -83,11 +83,11 @@ function LoginPageContent() {
       );
 
       setLoginSession(res.token, res.driver, res.adminToken);
-      if (target === "admin" && (!res.adminToken || !canEnterAdmin(getStoredDriver() ?? res.driver))) {
+      if (target === "admin" && !res.adminToken) {
         setPasskeyError("運営画面の権限がありません");
         return;
       }
-      router.push(target === "admin" ? "/admin" : "/submit");
+      router.push(target === "admin" ? (canEnterAdmin(getStoredDriver() ?? res.driver) ? "/admin" : "/platform") : "/submit");
     } catch (err: unknown) {
       setPasskeyError(err instanceof Error && err.name === "NotAllowedError"
         ? target === "admin"
