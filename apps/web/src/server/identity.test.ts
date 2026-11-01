@@ -1,10 +1,10 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mock = vi.hoisted(() => ({ capabilities: vi.fn(), signToken: vi.fn() }));
+const mock = vi.hoisted(() => ({ capabilities: vi.fn(), signToken: vi.fn(), platform: vi.fn() }));
 vi.mock("@/server/auth/permissions", () => ({ resolveCapabilities: mock.capabilities }));
 vi.mock("@/server/auth/jwt", () => ({ signToken: mock.signToken }));
-vi.mock("@/server/db/client", () => ({ supabase: {} }));
+vi.mock("@/server/db/client", () => ({ supabase: { from: () => ({ select: () => ({ eq: () => ({ maybeSingle: mock.platform }) }) }) } }));
 
 import { issueAdminSession, type ActiveDriverRow } from "./identity";
 
@@ -16,6 +16,7 @@ const driver: ActiveDriverRow = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mock.platform.mockResolvedValue({ data: null, error: null });
   mock.signToken.mockResolvedValue("short-admin-token");
 });
 
@@ -39,4 +40,14 @@ describe("運営用セッションの発行", () => {
     expect(await issueAdminSession({ ...driver, org_id: null })).toBeNull();
     expect(mock.signToken).not.toHaveBeenCalled();
   });
+});
+
+it("会社の権限とは独立した運営窓口にも短命セッションを発行し、確認時刻を延長しない", async () => {
+  mock.capabilities.mockResolvedValue(new Set());
+  mock.platform.mockResolvedValue({ data: { identity_id: driver.identity_id }, error: null });
+  const strong = { strongAuthAt: 12345, strongAuthMethod: "passkey" as const };
+  expect(await issueAdminSession(driver, "parent", strong)).toBe("short-admin-token");
+  expect(mock.signToken).toHaveBeenCalledWith(expect.objectContaining({ purpose: "admin", parentSessionId: "parent", ...strong }));
+  mock.platform.mockResolvedValue({ data: null, error: { message: "offline" } });
+  await expect(issueAdminSession(driver)).rejects.toThrow("Platform authorization unavailable");
 });

@@ -35,12 +35,20 @@ jobs:
           node-version: '24'
           cache: npm
       - name: Install locked dependencies
-        run: npm ci --no-audit --no-fund
+        run: npm exec --yes --package=npm@11.21.1 -- npm ci --no-audit --no-fund
       - name: Check Web, preview, and mobile types
         run: npm run typecheck
       - name: Run Web and shared package tests
         run: npm run test -w @repo/web -- --maxWorkers=2
+      - name: Audit production Web dependencies
+        run: npm audit --workspace=@repo/web --omit=dev --audit-level=low
+      - name: Verify auth in a network-isolated DB
+        run: node scripts/tests/auth-security-db.mjs
+      - name: Run mobile auth tests
+        run: npm -w @repo/mobile test -- --maxWorkers=2
       - name: Check tenant query scope
         run: npm run check:tenant
       - name: Build Web
         run: npm run build
+      - name: Verify built login CSP and unauthenticated guards
+        run: node scripts/tests/auth-csp-build.mjs

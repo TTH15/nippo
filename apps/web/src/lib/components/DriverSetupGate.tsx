@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { BANK_CHANGE_PATH } from "@repo/core/logic/bankChange";
-import { useEffect, useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { startAuthentication } from "@simplewebauthn/browser";
 import { motion, useReducedMotion } from "motion/react";
 import { SmoothCollapse } from "@/lib/components/SmoothCollapse";
@@ -37,6 +37,7 @@ export function DriverSetupPanel({ required = false, bankChangePage = false, chi
   const reduceMotion = useReducedMotion();
   const resendCooldown = useSmsResendCooldown();
   const supported = useIsWebAuthnHost();
+  const phoneGrant = useRef<{ token: string; expiresAt: number } | null>(null);
   const [state, setState] = useState<SetupState | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -134,7 +135,18 @@ export function DriverSetupPanel({ required = false, bankChangePage = false, chi
     if (!phone.trim() || busy || phoneSuccess || (!verify && resendCooldown.seconds > 0)) return;
     setPhoneError(""); setBusy(verify ? "verify" : "send");
     try {
-      await apiFetch(`/api/me/phone/${verify ? "verify" : "send"}`, { method: "POST", body: JSON.stringify({ phone: phone.trim(), ...(verify ? { code } : {}) }) });
+      // 番号未登録の本人だけ、登録済みパスキーで先に確認する。証明はメモリ内で5分未満。
+      let token: string | undefined;
+      if (!state?.profile.phone?.trim()) {
+        if (!phoneGrant.current || phoneGrant.current.expiresAt <= Date.now()) {
+          const options = await apiFetch<{ options: Parameters<typeof startAuthentication>[0]["optionsJSON"]; challengeToken: string }>("/api/auth/reauth/options", { method: "POST", body: JSON.stringify({ method: "passkey" }) });
+          const response = await startAuthentication({ optionsJSON: options.options });
+          const proof = await apiFetch<{ reauthToken: string }>("/api/auth/reauth/verify", { method: "POST", body: JSON.stringify({ method: "passkey", response, challengeToken: options.challengeToken }) });
+          phoneGrant.current = { token: proof.reauthToken, expiresAt: Date.now() + 4 * 60_000 };
+        }
+        token = phoneGrant.current.token;
+      }
+      await apiFetch(`/api/me/phone/${verify ? "verify" : "send"}`, { method: "POST", headers: token ? { "x-reauth-token": token } : undefined, body: JSON.stringify({ phone: phone.trim(), ...(verify ? { code } : {}) }) });
       if (verify) {
         const next = await refresh();
         if (!next.profile.phoneVerified) throw new Error("電話番号の確認状況を再読み込みしてください");
@@ -147,7 +159,7 @@ export function DriverSetupPanel({ required = false, bankChangePage = false, chi
           if (next.profile.phoneVerified && formatJPPhoneDisplay(next.profile.phone || "") === formatJPPhoneDisplay(phone)) { setPhoneSuccess(true); return; }
         } catch { /* 状態の取得失敗は再読み込みの入口を残す */ }
       }
-      setPhoneError(error instanceof Error ? (error.message.startsWith("登録状況を確認できませんでした") ? "" : error.message) : "確認できませんでした。もう一度お試しください");
+      setPhoneError(error instanceof Error && error.name === "NotAllowedError" ? "本人確認を中止しました。入力は残っています。もう一度お試しください。" : error instanceof Error ? (error.message.startsWith("登録状況を確認できませんでした") ? "" : error.message) : "確認できませんでした。もう一度お試しください");
     }
     finally { setBusy(null); }
   }

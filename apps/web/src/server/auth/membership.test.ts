@@ -1,8 +1,8 @@
 // @vitest-environment node
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
-const db = vi.hoisted(() => ({ read: vi.fn() }));
-vi.mock("@/server/db/client", () => ({ supabase: { from: () => ({ select: () => ({ eq: () => ({ maybeSingle: db.read }) }) }) } }));
+const db = vi.hoisted(() => ({ read: vi.fn(), rpc: vi.fn() }));
+vi.mock("@/server/db/client", () => ({ supabase: { rpc: db.rpc, from: () => ({ select: () => ({ eq: () => ({ maybeSingle: db.read }) }) }) } }));
 import { checkMembership } from "./membership";
 import { requireAuth } from "./index";
 import { signToken } from "./jwt";
@@ -13,6 +13,7 @@ const row = { role: "ADMIN", status: "active", company_code: "AAA", org_id: "org
 const request = { pathname: "/api/admin/payments", method: "GET" };
 beforeEach(() => {
   vi.stubEnv("JWT_SECRET", "membership-tests");
+  db.rpc.mockReset().mockResolvedValue({ data: false, error: null });
   db.read.mockReset().mockResolvedValue({ data: { ...row }, error: null });
 });
 afterEach(() => vi.unstubAllEnvs());
@@ -54,6 +55,7 @@ describe("現在の所属とログイン世代", () => {
 describe("承認待ちの利用範囲", () => {
   beforeEach(() => db.read.mockResolvedValue({ data: { ...row, status: "pending", role: "DRIVER" }, error: null }));
   it.each([
+    ["/api/auth/logout", "POST"],
     ["/api/me/registration", "GET"], ["/api/me/registration", "POST"],
     ["/api/me/registration/photo", "POST"], ["/api/reports/profile", "GET"],
     ["/api/auth/webauthn/register/options", "POST"], ["/api/auth/webauthn/register/verify", "POST"],
@@ -76,11 +78,13 @@ describe("共通requireAuthからの照合", () => {
   it("SMS・旧形式の通常トークンを管理APIで拒否し、短命管理トークンだけ通す", async () => {
     const work = await signToken({ ...user, strongAuthMethod: "sms", strongAuthAt: Math.floor(Date.now() / 1000) });
     const admin = await signToken({ ...user, purpose: "admin" });
-    const requestWith = (token: string) => new NextRequest("http://localhost/api/admin/payments", {
+    const requestWith = (token: string, path = "/api/admin/payments") => new NextRequest(`http://localhost${path}`, {
       headers: { authorization: `Bearer ${token}` },
     });
     expect(await requireAuth(requestWith(work))).toMatchObject({ status: 401 });
     expect(await requireAuth(requestWith(admin))).toMatchObject({ driverId: user.driverId, purpose: "admin" });
+    expect(await requireAuth(requestWith(work, "/api/platform/organizations"))).toMatchObject({ status: 401 });
+    expect(await requireAuth(requestWith(admin, "/api/platform/organizations"))).toMatchObject({ driverId: user.driverId, purpose: "admin" });
   });
   it("有効な署名でも停止済みなら401にする", async () => {
     db.read.mockResolvedValue({ data: { ...row, status: "inactive" }, error: null });
@@ -94,4 +98,13 @@ describe("共通requireAuthからの照合", () => {
     const response = await requireAuth(new NextRequest("http://localhost/api/admin/payments", { headers: { authorization: `Bearer ${token}` } }));
     expect(response).toHaveProperty("status", 503);
   });
+});
+
+it("ログアウトしたセッションと失効確認の障害を拒否する", async () => {
+  const token=await signToken({...user});
+  const req=new NextRequest("http://localhost/api/me/passkeys",{headers:{authorization:`Bearer ${token}`}});
+  db.rpc.mockResolvedValueOnce({data:true,error:null});
+  expect(await requireAuth(req)).toHaveProperty("status",401);
+  db.rpc.mockResolvedValueOnce({data:null,error:{message:"offline"}});
+  expect(await requireAuth(req)).toHaveProperty("status",503);
 });

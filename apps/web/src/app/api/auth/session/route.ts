@@ -28,5 +28,5 @@ export async function GET(req: NextRequest) {
   if (user.purpose === "admin") {
     session.token = req.headers.get("authorization")!.slice(7);
   }
-  return NextResponse.json(session);
+  return NextResponse.json(session, { headers: { "Cache-Control": "private, no-store", Vary: "Authorization" } });
 }

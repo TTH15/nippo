@@ -1,3 +1,5 @@
+import { authLimitResponse } from "@/server/auth/requestBudget";
+import type { AuthenticatorTransportFuture } from "@simplewebauthn/server";
 import { normalizeBankAccount, bankFields } from "@/lib/bankAccount";
 import { readOwnBank, bankBeforeHash, bankAfterHash, bankSnapshotValues } from "@/server/auth/bankChangeAuth";
 import { NextRequest, NextResponse } from "next/server";
@@ -30,20 +32,22 @@ export async function POST(req: NextRequest) {
     if (body.method === "sms") {
       const { phone, phoneMasked } = await reauthIdentity(user.identityId);
       if (!phone) return NextResponse.json({ error: "確認済みの電話番号がありません。運営にお問い合わせください" }, { status: 409 });
-      await sendOtp(phone);
+      await sendOtp(phone, req);
       return NextResponse.json({ ok: true, phoneMasked });
     }
     const { data: credentials, error } = await supabase.from("passkey_credentials")
-      .select("credential_id").eq("identity_id", user.identityId);
+      .select("credential_id, transports").eq("identity_id", user.identityId);
     if (error) throw error;
     if (!credentials?.length) return NextResponse.json({ error: "かんたんログインが設定されていません" }, { status: 409 });
     const options = await generateAuthenticationOptions({ rpID: rpConfig().rpID, userVerification: "required",
-      allowCredentials: credentials.map((c) => ({ id: c.credential_id as string })) });
+      allowCredentials: credentials.map((c) => ({ id: c.credential_id as string, transports: (c.transports as AuthenticatorTransportFuture[] | null) ?? undefined })) });
     const challengeToken = await createChallengeToken({ challenge: options.challenge, purpose: bankEdit ? "bank_edit" : bankChange ? "bank_change" : "reauth",
       identityId: user.identityId, sessionHash: sessionFingerprint(req),
       ...(before ? { bankBeforeHash: bankBeforeHash(before), ...(bank ? { bankAfterHash: bankAfterHash(bank) } : {}) } : {}) });
     return NextResponse.json({ options, challengeToken });
-  } catch {
+  } catch (err) {
+    const limited = authLimitResponse(err);
+    if (limited) return limited;
     return NextResponse.json({ error: "本人確認を開始できませんでした。時間をおいてお試しください" }, { status: 503 });
   }
 }

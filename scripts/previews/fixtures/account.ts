@@ -1,7 +1,7 @@
 // 本番 /admin/account を再利用。端末認証とAPIは隔離runnerの中だけで模擬する。
 import type { PreviewFixture } from "@/lib/preview/fixtureStore";
 
-type State = { hasPasskey: boolean; attempts: number; tokens: Set<string>; verified: boolean; keys: { id: string; name: string; created_at: string; last_used_at: null }[] };
+type State = { hasPasskey: boolean; attempts: number; tokens: Set<string>; verified: boolean; method: string; requests: { id: string; name: string; requestedAt: string; isSelf: boolean }[]; keys: { id: string; name: string; created_at: string; last_used_at: null }[] };
 
 export const accountFixture: PreviewFixture<State> = {
   id: "account",
@@ -18,20 +18,23 @@ export const accountFixture: PreviewFixture<State> = {
     inactive: { label: "利用停止", description: "画面を開いた後に停止。次の操作でログインへ戻り、再ログインも拒否される" },
     changed: { label: "権限変更", description: "画面を開いた後に権限変更。次の操作でログインへ戻る" },
   },
-  createState: ({ scenario }) => ({ hasPasskey: scenario === "normal", attempts: 0, tokens: new Set(), verified: false,
+  createState: ({ scenario }) => ({ hasPasskey: scenario === "normal", attempts: 0, tokens: new Set(), verified: false, method: "", requests: [{ id: "00000000-0000-4000-8000-000000000050", name: "架空の管理者", requestedAt: "2026-11-02T00:00:00Z", isSelf: false }, { id: "00000000-0000-4000-8000-000000000051", name: "自分の申請", requestedAt: "2026-11-02T00:00:00Z", isSelf: true }],
     keys: ["normal", "lastkey"].includes(scenario) ? [{ id: "00000000-0000-0000-0000-000000000001", name: "普段の端末", created_at: "2026-09-16T03:00:00Z", last_used_at: null }] : [] }),
-  read: (state, { path }, { scenario }) => {
+  read: (state, { path, params }, { scenario }) => {
     if (path === "/api/admin/account") return { hasPasskey: state.hasPasskey };
     if (path === "/api/me/passkeys") return { keys: state.keys, canRecoverWithSms: !["lastkey", "nofactor"].includes(scenario) };
-    if (path === "/api/auth/reauth") return { recent: state.verified, canUseSms: !["lastkey", "nofactor"].includes(scenario), phoneMasked: "下4桁 0000", hasPasskey: state.keys.length > 0 };
+    if (path === "/api/auth/reauth") return { recent: state.verified && (params.get("purpose") === "recovery" || state.method === "passkey"), canUseSms: params.get("purpose") === "recovery" && !["lastkey", "nofactor"].includes(scenario), phoneMasked: "下4桁 0000", hasPasskey: state.keys.length > 0 };
+    if (path === "/api/admin/account-recovery") return { requests: state.requests };
     return undefined;
   },
   write: (state, { path, body, method }, { scenario }) => {
     if (path === "/api/auth/reauth/options") return { options: {}, challengeToken: "preview-reauth" };
     if (path === "/api/auth/reauth/verify") {
       if (body.method === "sms" && body.code !== "123456") throw new Error("認証コードが正しくありません");
-      state.verified = true; return { reauthToken: "preview-reauth-proof" };
+      state.verified = true; state.method = String(body.method); return { reauthToken: "preview-reauth-proof" };
     }
+    if (path === "/api/admin/account-recovery") { state.requests = state.requests.filter(r => r.id !== body.id); return { ok: true }; }
+    if (path === "/api/me/sessions/revoke-all" || path === "/api/auth/logout") return { ok: true };
     if (path === "/api/me/passkeys" && method === "DELETE") {
       state.keys = state.keys.filter((key) => key.id !== body.id); state.hasPasskey = state.keys.length > 0; return { ok: true };
     }

@@ -72,3 +72,9 @@ describe("Passkey登録の半必須導線", () => {
     expect(next).not.toHaveBeenCalled();
   });
 });
+
+it("復旧期限のエラーは承認状況の確認へ案内する", async () => {
+ render(<PasskeySetup supported required recovery register={vi.fn().mockRejectedValue(new Error("復旧の期限が切れました。承認状況を確認してください"))} onContinue={vi.fn()} />);
+ fireEvent.click(screen.getByRole("button", { name: "設定する" }));
+ expect(await screen.findByRole("alert")).toHaveTextContent("復旧の期限が切れました。承認状況を確認してください");
+});

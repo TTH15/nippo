@@ -52,7 +52,7 @@ react / react-native / expo を直接依存で足さないこと**（混在の�
 ## サブエージェント
 
 `.claude/agents/` に explorer / architect / reviewer / ui-auditor / security / tester。全て読み取り専用で、
-ハコ虎固有の前提（RLS 不使用・本番DB直結・過去に踏んだ地雷）を常駐させてある。
+ハコ虎固有の前提（service role はRLSを迂回・本番DB直結・過去に踏んだ地雷）を常駐させてある。
 
 Claude と Codex でこの6役を共用する。`.claude/agents/*.md` を役割定義の正本とし、Codex は
 `.codex/skills/hakotora-subagents/SKILL.md` の手順で、必要な役の定義を全文読んでから委任する。

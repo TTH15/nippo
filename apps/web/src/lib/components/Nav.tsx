@@ -31,14 +31,19 @@ export function Nav({ variant = "default" }: NavProps) {
   const isAdmin = driver?.role === "ADMIN";
   const isUserLayout = variant === "user";
 
-  const logout = () => {
+  const [logoutError, setLogoutError] = useState("");
+  const logout = async () => {
+    setLogoutError("");
+    try {
     setMenuOpen(false);
-    clearAuth();
+    await clearAuth();
     router.push("/login");
+    } catch (error) { setLogoutError(error instanceof Error ? error.message : "ログアウトできませんでした"); }
   };
 
   return (
     <nav className="bg-white text-slate-700 border-b border-slate-200 sticky top-0 z-50">
+      {logoutError && <p role="alert" className="px-4 py-2 text-sm text-red-700">{logoutError}</p>}
       <div className="max-w-3xl mx-auto flex items-center justify-between h-12 px-4">
         {/* 左: ロゴ */}
         <div className="flex items-center">

@@ -19,6 +19,10 @@ export type AuthUser = {
   /** 最後にSMS/Passkeyを検証した時刻。セッションの再発行では更新しない。 */
   strongAuthAt?: number;
   strongAuthMethod?: "sms" | "passkey";
+  /** 更新後も維持するログイン単位と絶対期限。 */
+  sessionId?: string;
+  sessionExpiresAt?: number;
+  parentSessionId?: string;
   /**
    * requirePermission が解決した capability 集合（同一リクエスト内の再利用用）。
    * 認可の正本はあくまでサーバーの都度判定で、これは往復を減らすためのキャッシュ。

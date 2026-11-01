@@ -4,7 +4,6 @@
 // 認証ロジックの実体は @repo/core/auth（プラットフォーム非依存）にあり、ここでは
 // Web 用ストレージ（localStorage）と 401 遷移（window.location）を注入する。
 // 既存の各画面は従来どおり @/lib/api から import すればよい（実体を再エクスポート）。
-import { bankChangeUnauthorizedPath } from "@repo/core/logic/bankChange";
 import { configureAuth, getStoredDriver, getToken, setAuth as setCoreAuth, clearAuth as clearCoreAuth, type KeyValueStorage, type StoredDriver } from "@repo/core/auth";
 import { apiFetch as coreApiFetch } from "@repo/core/api";
 
@@ -66,16 +65,26 @@ export function setLoginSession(token: string, driver: StoredDriver, adminToken?
   setAdminToken(adminToken ?? null, driver.id);
 }
 
-export function clearAuth() {
-  if (typeof window !== "undefined") {
-    void fetch("/api/auth/admin/logout", { method: "POST", credentials: "same-origin", keepalive: true }).catch(() => {});
-  }
+export function forgetLoginSession() {
   clearAdminToken();
   clearCoreAuth();
 }
 
-const isAdminRequest = (path: string) => path.startsWith("/api/admin/") ||
-  (typeof window !== "undefined" && window.location.pathname.startsWith("/admin") && !path.startsWith("/api/auth/"));
+export async function clearAuth() {
+  if (typeof window !== "undefined") {
+    const token = getToken();
+    const response = await fetch(token ? "/api/auth/logout" : "/api/auth/admin/logout", {
+      method: "POST", credentials: "same-origin", keepalive: true,
+      headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({ adminToken: getAdminToken() }),
+    });
+    if (!response.ok && response.status !== 401) throw new Error("ログアウトを完了できませんでした。もう一度お試しください");
+  }
+  forgetLoginSession();
+}
+
+const isAdminRequest = (path: string) => path.startsWith("/api/admin/") || path.startsWith("/api/platform/") ||
+  (typeof window !== "undefined" && (window.location.pathname.startsWith("/admin") || window.location.pathname.startsWith("/platform")) && !path.startsWith("/api/auth/"));
 
 function requestAdminLogin() {
   clearAdminToken();
@@ -152,7 +161,7 @@ configureAuth({
   onUnauthorized: () => {
     if (typeof window !== "undefined") {
       clearAdminToken();
-      window.location.href = bankChangeUnauthorizedPath(window.location.pathname, new URLSearchParams(window.location.search).get("returnTo"));
+      window.location.href = "/login";
     }
   },
 });

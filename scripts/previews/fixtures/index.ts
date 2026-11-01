@@ -48,6 +48,8 @@ import { mapFixture } from "./map";
 import { paymentsFixture } from "./payments";
 import { submitFixture } from "./submit";
 import { myShiftsFixture } from "./myShifts";
+import PlatformRecoveryPreview from "../platform-recovery";
+import { platformRecoveryFixture } from "./platformRecovery";
 import { accountFixture } from "./account";
 import { loginFixture } from "./login";
 import ShiftMemosPage from "@/app/(admin)/admin/(ops)/shift-memos/page";
@@ -89,6 +91,7 @@ export const PREVIEW_PAGES: PreviewPageEntry[] = [
   entry("roles", rolesFixture, RolesPage),
   entry("payments", paymentsFixture, PaymentsPage),
   entry("account", accountFixture, AccountPage),
+  entry("platform-recovery", platformRecoveryFixture, PlatformRecoveryPreview),
   entry("login", loginFixture, LoginPreview),
   entry("onboarding", onboardingFixture, OnboardingPreview),
   entry("recover", recoverFixture, RecoverPreview),

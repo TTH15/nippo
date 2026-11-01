@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
   const renewal = await verifyAdminRenew(req);
   if (!renewal || renewal.driverId !== user.driverId ||
       renewal.identityId !== user.identityId || renewal.orgId !== user.orgId ||
-      renewal.tokenVersion !== user.tokenVersion) {
+      renewal.tokenVersion !== user.tokenVersion || renewal.sessionId !== user.sessionId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const token = await issueAdminSession(driver);
+  const token = await issueAdminSession(driver, user.sessionId, user);
   if (!token) return NextResponse.json({ error: "運営画面の権限がありません" }, { status: 403 });
   return NextResponse.json({ adminToken: token }, { headers: { "Cache-Control": "no-store" } });
 }

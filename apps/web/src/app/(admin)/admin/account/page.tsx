@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { getStoredDriver, type StoredDriver } from "@/lib/api";
 
+import { RecoveryApprovals, RevokeAllSessions } from "@/lib/components/AccountRecovery";
 import { PasskeyManagement } from "@/lib/components/PasskeyManagement";
 
 export default function AdminAccountPage() {
@@ -14,6 +15,8 @@ export default function AdminAccountPage() {
       <h1 className="mb-6 text-lg font-bold text-slate-900">アカウント設定</h1>
       <h2 className="mb-4 text-base font-bold text-slate-900">{driver?.name}</h2>
       <PasskeyManagement />
+      <RevokeAllSessions />
+      {driver?.role === "ADMIN" && <RecoveryApprovals />}
     </div>
   </AdminLayout>;
 }

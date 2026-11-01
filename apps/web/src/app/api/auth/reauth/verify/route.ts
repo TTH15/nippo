@@ -1,3 +1,4 @@
+import { authLimitResponse } from "@/server/auth/requestBudget";
 import { normalizeBankAccount } from "@/lib/bankAccount";
 import { bankAfterHash, issueBankChangeGrant } from "@/server/auth/bankChangeAuth";
 import { NextRequest, NextResponse } from "next/server";
@@ -26,7 +27,7 @@ export async function POST(req: NextRequest) {
     if (body?.method === "sms") {
       if (typeof body.code !== "string" || !/^\d{6}$/.test(body.code)) return reject();
       const { phone } = await reauthIdentity(user.identityId);
-      if (!phone || !await checkOtp(phone, body.code)) return reject();
+      if (!phone || !await checkOtp(phone, body.code, req)) return reject();
     } else if (body?.method === "passkey") {
       if (typeof body.challengeToken !== "string" || typeof body.response?.id !== "string") return reject();
       let challenge;
@@ -58,8 +59,10 @@ export async function POST(req: NextRequest) {
       if (updated.error || !updated.data) throw new Error("Failed to update credential");
     } else { return reject(); }
     if ((bankChange || bankEdit) && bankIntent) return NextResponse.json({ bankChangeToken: await issueBankChangeGrant(req, user, bankIntent.before, bankIntent.after) }, { headers: { "Cache-Control": "no-store" } });
-    return NextResponse.json({ reauthToken: await issueRecentAuthGrant(req, user) }, { headers: { "Cache-Control": "no-store" } });
-  } catch {
+    return NextResponse.json({ reauthToken: await issueRecentAuthGrant(req, user, body.method) }, { headers: { "Cache-Control": "no-store" } });
+  } catch (err) {
+    const limited = authLimitResponse(err);
+    if (limited) return limited;
     return NextResponse.json({ error: "本人確認を完了できませんでした。時間をおいてお試しください" }, { status: 503 });
   }
 }

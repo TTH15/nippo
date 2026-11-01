@@ -1,3 +1,5 @@
+import { hasRecentAuth } from "@/server/auth/recentAuth";
+import { authLimitResponse } from "@/server/auth/requestBudget";
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { resolveIdentityId } from "@/server/identity";
@@ -44,14 +46,18 @@ export async function POST(req: NextRequest) {
   if (!phone) {
     return NextResponse.json({ error: "電話番号の形式が正しくありません" }, { status: 400 });
   }
+  if (!trustedPhone && !await hasRecentAuth(req, user, "passkey")) {
+    return NextResponse.json({ error: "登録済みのパスキーで本人確認してください。使えるパスキーがない場合は運営へ連絡してください", code: "PASSKEY_REQUIRED" }, { status: 403 });
+  }
   if (trustedPhone ? phone !== trustedPhone : !enrollment.canRegister) {
     return NextResponse.json({ error: "登録済みの電話番号を入力してください。番号の変更は運営にご連絡ください" }, { status: 403 });
   }
 
 
   try {
-    await sendOtp(phone);
+    await sendOtp(phone, req);
   } catch (err) {
+    const limited = authLimitResponse(err); if (limited) return limited;
     console.error("[Phone send] failed");
     const msg = err instanceof Error && err.message.includes("Twilio 未設定")
       ? "SMS 設定が未完了です（運営にお問い合わせください）"

@@ -8,8 +8,9 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { NavigationContainer, useNavigation, useIsFocused, useNavigationContainerRef } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { getStoredDriver, clearAuth, type StoredDriver } from "@repo/core/auth";
-import { apiFetch } from "@repo/core/api";
+import { getStoredDriver, getToken, clearAuth, type StoredDriver } from "@repo/core/auth";
+import { apiFetch, getApiBaseUrl } from "@repo/core/api";
+import { revokeSession } from "./src/auth/revokeSession";
 import { bootstrap } from "./src/bootstrap";
 import { AuthContext } from "./src/AuthContext";
 import { LoginScreen } from "./src/screens/LoginScreen";
@@ -75,11 +76,10 @@ export default function App() {
   }, []);
 
   const logout = () => {
-    void stopVehicleTracking();
-    clearAuth();
-    void flushAuthStorage()
+    void revokeSession(getApiBaseUrl(), getToken())
+      .then(async () => { await stopVehicleTracking(); clearAuth(); await flushAuthStorage(); })
       .then(() => setDriver(null))
-      .catch(() => Alert.alert("ログアウトできませんでした", "端末の保存データを消せませんでした。もう一度お試しください。"));
+      .catch(() => Alert.alert("ログアウトできませんでした", "通信または端末への保存に失敗しました。もう一度お試しください。"));
   };
 
   // ログイン後にゲート状態を取得。

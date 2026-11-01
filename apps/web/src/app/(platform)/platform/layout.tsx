@@ -11,16 +11,17 @@ export default function PlatformLayout({ children }: { children: ReactNode }) {
   const nav = [
     { href: "/platform", label: "ダッシュボード" },
     { href: "/platform/applications", label: "申請" },
+    { href: "/platform/account-recovery", label: "アカウント復旧" },
   ];
   return (
     <div className="min-h-screen bg-slate-100">
       <header className="bg-slate-900 text-white">
-        <div className="mx-auto max-w-6xl px-4 h-14 flex items-center gap-6">
-          <div className="flex items-baseline gap-2">
+        <div className="mx-auto max-w-6xl px-4 py-3 flex flex-wrap items-center gap-x-6 gap-y-2">
+          <div className="flex shrink-0 items-baseline gap-2">
             <span className="font-bold tracking-wide">ハコ虎</span>
             <span className="text-[11px] font-semibold text-amber-400 tracking-widest">PLATFORM</span>
           </div>
-          <nav className="flex items-center gap-1">
+          <nav className="flex flex-wrap items-center gap-1">
             {nav.map((n) => {
               const active = pathname === n.href;
               return (

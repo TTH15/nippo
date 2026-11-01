@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { hasRecentAuth } from "@/server/auth/recentAuth";
 import { reauthIdentity } from "@/server/auth/reauthIdentity";
+import { isPrivilegedIdentity } from "@/server/auth/passkeyPolicy";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
@@ -10,7 +11,8 @@ export async function GET(req: NextRequest) {
   if (!user.identityId) return NextResponse.json({ error: "本人確認の設定がありません" }, { status: 400 });
   try {
     const { phone, phoneMasked, hasPasskey } = await reauthIdentity(user.identityId);
-    return NextResponse.json({ recent: await hasRecentAuth(req, user), canUseSms: !!phone, phoneMasked, hasPasskey },
+    const privileged = await isPrivilegedIdentity(user) && req.nextUrl.searchParams.get("purpose") !== "recovery";
+    return NextResponse.json({ recent: await hasRecentAuth(req, user, privileged ? "passkey" : undefined), canUseSms: !privileged && !!phone, phoneMasked, hasPasskey },
       { headers: { "Cache-Control": "no-store" } });
   } catch { return NextResponse.json({ error: "本人確認の設定を読み込めませんでした。もう一度お試しください" }, { status: 503 }); }
 }

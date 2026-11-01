@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 const mock = vi.hoisted(() => ({
-  api: vi.fn(), push: vi.fn(), replace: vi.fn(), setLoginSession: vi.fn(), authenticate: vi.fn(),
+  api: vi.fn(), push: vi.fn(), replace: vi.fn(), setLoginSession: vi.fn(), authenticate: vi.fn(), canEnterAdmin: vi.fn(),
 }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mock.push, replace: mock.replace }),
@@ -14,12 +14,13 @@ vi.mock("@/lib/api", () => ({
   apiFetch: mock.api, setLoginSession: mock.setLoginSession,
   getStoredDriver: () => ({ id: "driver-1", role: "ADMIN", capabilities: ["admin.access"] }),
 }));
-vi.mock("@/lib/capabilities", () => ({ canEnterAdmin: () => true }));
+vi.mock("@/lib/capabilities", () => ({ canEnterAdmin: mock.canEnterAdmin }));
 vi.mock("@/lib/webauthnHost", () => ({ useIsWebAuthnHost: () => true }));
 import LoginPage from "./page";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mock.canEnterAdmin.mockReturnValue(true);
   window.history.replaceState(null, "", "/login");
   mock.api.mockImplementation(async (path: string) => path.endsWith("/options")
     ? { options: {}, challengeToken: "test-challenge" }
@@ -78,15 +79,25 @@ describe("ログイン入口", () => {
     await waitFor(() => expect(mobile.getByRole("alert")).toHaveTextContent("運営画面の権限がありません"));
     expect(mock.push).not.toHaveBeenCalledWith("/admin");
   });
+
+  it.each(["driver", "admin"])("%s入口の認証中止後にSMS・復旧の次の操作を示す", async (target) => {
+    window.history.replaceState(null, "", `/login?next=${target}`);
+    mock.authenticate.mockRejectedValueOnce(new DOMException("cancelled", "NotAllowedError"));
+    render(<LoginPage />);
+    const mobile = within(document.querySelector(".login-mobile") as HTMLElement);
+    fireEvent.click(mobile.getByRole("button", { name: "パスキーでログイン" }));
+    expect(await mobile.findByRole("alert")).toHaveTextContent(target === "admin" ? "パスキーを設定・復旧する" : "電話番号でログイン");
+    expect(mock.setLoginSession).not.toHaveBeenCalled();
+    expect(mock.push).not.toHaveBeenCalled();
+    expect(mobile.getByRole("button", { name: "パスキーでログイン" })).toBeEnabled();
+  });
 });
 
-it("口座変更からのパスキーログインは専用ページへ戻る", async () => {
-  window.history.replaceState(null, "", "/login?next=driver&returnTo=%2Faccount%2Fbank-change");
-  render(<LoginPage />); fireEvent.click(within(document.querySelector(".login-mobile") as HTMLElement).getByRole("button", { name: "パスキーでログイン" }));
-  await waitFor(() => expect(mock.push).toHaveBeenCalledWith("/account/bank-change"));
-});
-it("外部URLのreturnToはログイン後の遷移に使わない", async () => {
-  window.history.replaceState(null, "", "/login?next=driver&returnTo=https%3A%2F%2Fexample.com");
-  render(<LoginPage />); fireEvent.click(within(document.querySelector(".login-mobile") as HTMLElement).getByRole("button", { name: "パスキーでログイン" }));
-  await waitFor(() => expect(mock.push).toHaveBeenCalledWith("/submit"));
+it("会社権限のない運営窓口はパスキー確認後にプラットフォームへ進む", async () => {
+  window.history.replaceState(null, "", "/login?next=admin");
+  mock.canEnterAdmin.mockReturnValue(false);
+  mock.api.mockImplementation(async (path: string) => path.endsWith("/options") ? { options: {}, challengeToken: "challenge" } : { token: "work", adminToken: "short-admin", driver: { id: "support", role: "DRIVER" } });
+  render(<LoginPage />);
+  fireEvent.click(within(document.querySelector(".login-mobile") as HTMLElement).getByRole("button", { name: "パスキーでログイン" }));
+  await waitFor(() => expect(mock.push).toHaveBeenCalledWith("/platform"));
 });

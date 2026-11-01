@@ -23,26 +23,31 @@ export type PlatformContext = { user: AuthUser; identityId: string };
 export async function requirePlatformAdmin(req: NextRequest): Promise<PlatformContext | NextResponse> {
   const user = await requireAuth(req);
   if (isAuthError(user)) return user;
+  if (user.purpose !== "admin") {
+    return NextResponse.json({ error: "管理画面にログインし直してください", code: "ADMIN_SESSION_REQUIRED" }, { status: 401 });
+  }
 
   let identityId = user.identityId;
   if (!identityId) {
-    const { data } = await supabase
+    const { data, error } = await supabase
       // tenant-scope-ok: requireAuth由来の本人user.driverIdからplatform権限用identityを解決
       .from("drivers")
       .select("identity_id")
       .eq("id", user.driverId)
       .maybeSingle();
+    if (error) return NextResponse.json({ error: "権限を確認できませんでした" }, { status: 503 });
     identityId = (data?.identity_id as string | null) ?? null;
   }
   if (!identityId) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const { data: admin } = await supabase
+  const { data: admin, error } = await supabase
     .from("platform_admins")
     .select("identity_id")
     .eq("identity_id", identityId)
     .maybeSingle();
+  if (error) return NextResponse.json({ error: "権限を確認できませんでした" }, { status: 503 });
   if (!admin) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }

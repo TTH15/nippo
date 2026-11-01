@@ -12,7 +12,7 @@ export const reauthHeaders = (grant?: string) => grant ? { "x-reauth-token": gra
 const primary = "min-h-11 w-full rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50";
 
 /** 再確認の証明はメモリだけに保持し、サーバーで本人・セッション・期限を毎回検査する。 */
-export function useRecentAuthAction() {
+export function useRecentAuthAction(options?: { recovery?: boolean }) {
   const grant = useRef<string | undefined>(undefined);
   const pending = useRef<Action | null>(null);
   const [state, setState] = useState<State | null>(null);
@@ -23,7 +23,7 @@ export function useRecentAuthAction() {
     // SMS初回確認の証明で開始する。再確認で更新した証明を古い入力値で戻さない。
     if (verifiedGrant && !grant.current) grant.current = verifiedGrant;
     try {
-      const status = await apiFetch<State>("/api/auth/reauth", { headers: reauthHeaders(grant.current) });
+      const status = await apiFetch<State>(`/api/auth/reauth${options?.recovery ? "?purpose=recovery" : ""}`, { headers: reauthHeaders(grant.current) });
       if (status.recent) await action(grant.current);
       else { pending.current = action; setState(status); }
     } catch (err) { setError(err instanceof Error ? err.message : "本人確認を開始できませんでした"); }

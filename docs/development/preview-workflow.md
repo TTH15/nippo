@@ -16,6 +16,9 @@
 
 ## 本番ページをシナリオURLで開く（2026-09-06）
 
+- 認証セキュリティ公開候補（2026/11/02）: 専用作業ツリーで `npm run preview:admin -- admin --port 3217`。`/preview/admin/account?scenario=normal&role=admin` は復旧承認/自己承認禁止/全端末失効、`/preview/admin/recover?scenario=approve-on-refresh&next=admin` はSMS後の承認待ち→状況更新→キー登録、`/preview/admin/platform-recovery?scenario=normal&role=admin` は運営窓口。`/preview/admin/driver-setup?scenario=no-phone&role=admin` は番号未登録時のパスキー確認を試せる。本番Page/PlatformLayout/DriverSetupPanelを直接再利用し、SMS・認証器・DB・通知は隔離fixtureのみ。コードが変わったら再ビルドする。
+
+
 管理画面の本番 `page.tsx` を**そのまま**使い、認証・API・Next Router だけを fixture（架空データと読み書きの定義）へ差し替えて動かす runner。ページ・データ状態・閲覧者の権限を URL だけで指定できるので、AI や人が「この状態の画面を開いて直す」を1手で始められる。ChatGPT で整理した方針（別コピーを作らず同一コード・fixture・シナリオURL・役割URL）を hakotora の既存 runner に載せたもの。
 
 - 起動: `npm run preview:admin -- admin --port 3197` → `http://127.0.0.1:3197/preview/admin`（一覧）

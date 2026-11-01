@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
-import { requireRecentAuth } from "@/server/auth/recentAuth";
+import { passkeyManagementAuthorization, recoverySessionHash } from "@/server/auth/passkeyPolicy";
 import { supabase } from "@/server/db/client";
 import {
   verifyRegistrationResponse,
@@ -20,8 +20,8 @@ export async function POST(req: NextRequest) {
   if (isAuthError(user)) return user;
   if (!user.orgId) return NextResponse.json({ error: "所属を確認できません" }, { status: 403 });
   const orgId = user.orgId;
-  const reauthError = await requireRecentAuth(req, user);
-  if (reauthError) return reauthError;
+  const authorization = await passkeyManagementAuthorization(req, user, true);
+  if (authorization instanceof NextResponse) return authorization;
 
   if (!user.identityId) {
     return NextResponse.json(
@@ -86,9 +86,10 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { data: saved, error: insertError } = await supabase.rpc("manage_passkey", {
+  const { data: saved, error: insertError } = await supabase.rpc(authorization.recoveryId ? "complete_account_recovery" : "manage_passkey", {
     p_driver_id: user.driverId, p_identity_id: user.identityId, p_org_id: user.orgId,
-    p_operation: "register", p_credential: {
+    ...(authorization.recoveryId ? { p_request_id: authorization.recoveryId, p_version: user.tokenVersion ?? 0, p_session_hash: recoverySessionHash(req, user) } : { p_operation: "register" }),
+    p_credential: {
       credential_id: credential.id, public_key: publicKeyToBytea(credential.publicKey),
       counter: credential.counter, transports: credential.transports ?? null,
       device_type: credentialDeviceType, backed_up: credentialBackedUp,
@@ -97,6 +98,9 @@ export async function POST(req: NextRequest) {
   });
 
   if (insertError || !saved?.notificationId) {
+    if (authorization.recoveryId && insertError?.code === "42501") {
+      return NextResponse.json({ error: "復旧の期限が切れたか、申請状況が変わりました。承認状況を確認して、もう一度申請してください", code: "RECOVERY_UNAVAILABLE" }, { status: 403 });
+    }
     console.error("[Passkey] insert error:", insertError);
     return NextResponse.json({ error: "かんたんログインを保存できませんでした" }, { status: 500 });
   }

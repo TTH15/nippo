@@ -4,6 +4,8 @@
 //   env: TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_VERIFY_SERVICE_SID
 // ============================================================
 import twilio from "twilio";
+import type { NextRequest } from "next/server";
+import { consumeAuthBudget } from "@/server/auth/requestBudget";
 
 function getClient() {
   const sid = process.env.TWILIO_ACCOUNT_SID;
@@ -16,13 +18,16 @@ function getClient() {
 }
 
 /** 認証コードを SMS 送信する（Verify が生成・送信）。 */
-export async function sendOtp(phoneE164: string): Promise<void> {
+export async function sendOtp(phoneE164: string, req?: NextRequest): Promise<void> {
+  await consumeAuthBudget("sms-send", phoneE164, req);
   const { client, serviceSid } = getClient();
   await client.verify.v2.services(serviceSid).verifications.create({ to: phoneE164, channel: "sms" });
 }
 
 /** 入力コードを検証する。approved なら true。 */
-export async function checkOtp(phoneE164: string, code: string): Promise<boolean> {
+export async function checkOtp(phoneE164: string, code: string, req?: NextRequest): Promise<boolean> {
+  if (!/^\d{6}$/.test(code)) return false;
+  await consumeAuthBudget("sms-check", phoneE164, req);
   const { client, serviceSid } = getClient();
   try {
     const res = await client.verify.v2.services(serviceSid).verificationChecks.create({ to: phoneE164, code });

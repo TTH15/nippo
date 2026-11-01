@@ -3,6 +3,7 @@ import { supabase } from "@/server/db/client";
 import { requireAuth, isAuthError } from "./index";
 import type { AuthUser } from "./types";
 import { DEFAULT_ROLE_CAPABILITIES, expandCapabilities, type Capability } from "./capabilities";
+import { AuthzUnavailableError, authzUnavailable } from "./authzError";
 
 // ============================================================
 // 認可モデル — capability 解決とガード。
@@ -28,21 +29,24 @@ async function resolveAuthz(
   driverId: string,
   fallbackRole?: string,
 ): Promise<{ caps: Set<Capability>; orgId: string | null }> {
-  const { data: driver } = await supabase
+  const { data: driver, error: driverError } = await supabase
     // tenant-scope-ok: 所属と権限の解決そのもの。呼び出し元は認証済みのmembership ID
     .from("drivers")
     .select("role, role_id, org_id")
     .eq("id", driverId)
     .maybeSingle();
 
+  if (driverError || !driver) throw new AuthzUnavailableError();
+
   const orgId = (driver?.org_id as string | undefined) ?? null;
   // 付与された束は含意（例: 設定の編集 → 領域別の編集すべて）を展開してから返す。
   // 各ガードは展開後の集合だけを見ればよく、既存ロールの行を移行しなくても互換が保てる。
   if (driver?.role_id) {
-    const { data: caps } = await supabase
+    const { data: caps, error: capsError } = await supabase
       .from("role_capabilities")
       .select("capability")
       .eq("role_id", driver.role_id);
+    if (capsError || !caps) throw new AuthzUnavailableError();
     return { caps: expandCapabilities((caps ?? []).map((c) => c.capability as Capability)), orgId };
   }
 
@@ -81,7 +85,10 @@ export async function requirePermission(
     return NextResponse.json({ error: "管理画面にログインし直してください", code: "ADMIN_SESSION_REQUIRED" }, { status: 401 });
   }
 
-  const { caps, orgId } = await resolveAuthz(user.driverId, user.role);
+  let resolved: Awaited<ReturnType<typeof resolveAuthz>>;
+  try { resolved = await resolveAuthz(user.driverId, user.role); }
+  catch { return authzUnavailable(); }
+  const { caps, orgId } = resolved;
   if (!caps.has(capability)) {
     console.log(`[Auth] Forbidden: required ${capability}, role=${user.role}`);
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -108,7 +115,10 @@ export async function requireAnyPermission(
     return NextResponse.json({ error: "管理画面にログインし直してください", code: "ADMIN_SESSION_REQUIRED" }, { status: 401 });
   }
 
-  const { caps, orgId } = await resolveAuthz(user.driverId, user.role);
+  let resolved: Awaited<ReturnType<typeof resolveAuthz>>;
+  try { resolved = await resolveAuthz(user.driverId, user.role); }
+  catch { return authzUnavailable(); }
+  const { caps, orgId } = resolved;
   if (!capabilities.some((c) => caps.has(c))) {
     console.log(`[Auth] Forbidden: required any of ${capabilities.join("|")}, role=${user.role}`);
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });

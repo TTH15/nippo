@@ -1,3 +1,4 @@
+import { authLimitResponse } from "@/server/auth/requestBudget";
 import { freshStrongAuth } from "@/server/auth/recentAuth";
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/server/db/client";
@@ -100,7 +101,7 @@ export async function POST(req: NextRequest) {
     }
 
     // SMS OTP をサーバ側で検証（approved 必須）。
-    const approved = await checkOtp(phone, code);
+    const approved = await checkOtp(phone, code, req);
     if (!approved) {
       return NextResponse.json({ error: "認証コードが正しくありません" }, { status: 400 });
     }
@@ -265,6 +266,8 @@ export async function POST(req: NextRequest) {
     const session = await issueDriverSession(created as ActiveDriverRow, freshStrongAuth("sms"));
     return NextResponse.json({ ok: true, organizationName: org.name, ...session });
   } catch (err) {
+    const limited = authLimitResponse(err);
+    if (limited) return limited;
     console.error("[Join] error:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }

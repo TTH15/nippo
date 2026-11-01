@@ -1,4 +1,5 @@
 import { jwtVerify, SignJWT } from "jose";
+import { createHash, randomUUID } from "node:crypto";
 import type { AuthProvider, AuthUser, MembershipRole } from "./types";
 
 const secret = () => {
@@ -22,8 +23,14 @@ export async function signToken(payload: {
   strongAuthAt?: number;
   strongAuthMethod?: "sms" | "passkey";
   purpose?: "work" | "admin";
+  sessionId?: string;
+  sessionExpiresAt?: number;
+  parentSessionId?: string;
 }): Promise<string> {
   const purpose = payload.purpose ?? "work";
+  const now = Math.floor(Date.now() / 1000);
+  const expiresAt = Math.min(payload.sessionExpiresAt ?? Infinity, now + (purpose === "admin" ? 15 * 60 : 30 * 86400));
+  if (!Number.isSafeInteger(expiresAt) || expiresAt <= now) throw new Error("Session expired");
   if (purpose === "admin" && (!payload.orgId || !payload.identityId)) {
     throw new Error("Admin session requires organization and identity");
   }
@@ -37,11 +44,14 @@ export async function signToken(payload: {
     strong_auth_at: payload.strongAuthAt,
     strong_auth_method: payload.strongAuthMethod,
     purpose,
+    session_expires_at: expiresAt,
+    parent_session_id: payload.parentSessionId,
   })
     .setProtectedHeader({ alg: "HS256" })
     .setAudience(`hakotora-${purpose}`)
+    .setJti(payload.sessionId ?? randomUUID())
     .setIssuedAt()
-    .setExpirationTime(purpose === "admin" ? "15m" : "30d")
+    .setExpirationTime(expiresAt)
     .sign(secret());
 }
 
@@ -65,6 +75,9 @@ export class SimpleJwtAuthProvider implements AuthProvider {
     const orgId = (payload.current_org_id as string | null | undefined) ?? null;
     const tokenVersion = payload.token_version ?? 0;
     const purpose = payload.purpose ?? "work";
+    const sessionId = payload.jti ?? createHash("sha256").update(token).digest("hex");
+    const sessionExpiresAt = payload.session_expires_at ?? payload.exp;
+    const parentSessionId = payload.parent_session_id;
 
     // role は表示ラベル（カスタムロールのキーも入りうる）。権限の判定は capability 側で行うため、
     // ここでは driverId と非空 role の存在のみ検証する。
@@ -72,7 +85,10 @@ export class SimpleJwtAuthProvider implements AuthProvider {
         typeof tokenVersion !== "number" || !Number.isSafeInteger(tokenVersion) || tokenVersion < 0 ||
         (purpose !== "work" && purpose !== "admin") ||
         (payload.purpose !== undefined && payload.aud !== `hakotora-${purpose}`) ||
-        (purpose === "admin" && (!orgId || !identityId))) {
+        (purpose === "admin" && (!orgId || !identityId)) ||
+        typeof sessionId !== "string" || !/^(?:[0-9a-f-]{36}|[0-9a-f]{64})$/i.test(sessionId) ||
+        typeof sessionExpiresAt !== "number" || !Number.isSafeInteger(sessionExpiresAt) || sessionExpiresAt <= Math.floor(Date.now() / 1000) ||
+        (parentSessionId !== undefined && (typeof parentSessionId !== "string" || !/^(?:[0-9a-f-]{36}|[0-9a-f]{64})$/i.test(parentSessionId)))) {
       throw new Error("Invalid token payload");
     }
     return {
@@ -83,6 +99,9 @@ export class SimpleJwtAuthProvider implements AuthProvider {
       orgId,
       tokenVersion,
       purpose,
+      sessionId,
+      sessionExpiresAt,
+      ...(typeof parentSessionId === "string" ? { parentSessionId } : {}),
       ...(typeof payload.strong_auth_at === "number" && Number.isSafeInteger(payload.strong_auth_at) &&
         (payload.strong_auth_method === "sms" || payload.strong_auth_method === "passkey")
         ? { strongAuthAt: payload.strong_auth_at, strongAuthMethod: payload.strong_auth_method } : {}),
