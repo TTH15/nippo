@@ -20,6 +20,7 @@ export function PasskeySetup({ supported, register, onContinue, verifyIdentity =
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [failureMessage, setFailureMessage] = useState("");
   const [fallbackOpen, setFallbackOpen] = useState(false);
   const fallbackId = useId();
   const triggerId = useId();
@@ -29,11 +30,12 @@ export function PasskeySetup({ supported, register, onContinue, verifyIdentity =
   const submit = async (reauthToken?: string) => {
     if (busy) return;
     setBusy(true);
-    setFailed(false);
+    setFailed(false); setFailureMessage("");
     try {
       await register(reauthToken);
       setDone(true);
-    } catch {
+    } catch (error) {
+      if (error instanceof Error && error.name !== "NotAllowedError" && /[\u3040-\u30ff\u3400-\u9fff]/.test(error.message)) setFailureMessage(error.message);
       setFailed(true);
     } finally {
       setBusy(false);
@@ -65,7 +67,7 @@ export function PasskeySetup({ supported, register, onContinue, verifyIdentity =
       <button type="button" onClick={() => onContinue(true)} className={buttonClass}>{continueLabel}</button>
     </> : <>
       {failed && <p role="alert" className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-900">
-        登録が完了しませんでした。USBキーの画面しか出ない場合は、別のブラウザや登録済みの端末をお試しください。
+        {failureMessage || "登録が完了しませんでした。USBキーの画面しか出ない場合は、別のブラウザや登録済みの端末をお試しください。"}
       </p>}
       {verifyIdentity && reauth.verification}
       {supported ? <button type="button" disabled={busy || reauth.checking || reauth.verifying}

@@ -98,6 +98,9 @@ export async function POST(req: NextRequest) {
   });
 
   if (insertError || !saved?.notificationId) {
+    if (authorization.recoveryId && insertError?.code === "42501") {
+      return NextResponse.json({ error: "復旧の期限が切れたか、申請状況が変わりました。承認状況を確認して、もう一度申請してください", code: "RECOVERY_UNAVAILABLE" }, { status: 403 });
+    }
     console.error("[Passkey] insert error:", insertError);
     return NextResponse.json({ error: "かんたんログインを保存できませんでした" }, { status: 500 });
   }

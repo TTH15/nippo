@@ -34,6 +34,7 @@ try {
  GRANT UPDATE(token_version) ON public.drivers TO hakotora_context_owner;
  GRANT USAGE ON SCHEMA hakotora_security TO hakotora_runtime;GRANT EXECUTE ON FUNCTION hakotora_security.actor() TO hakotora_runtime;`);
  sql('BEGIN;'+readFileSync('supabase/migrations/20261101153820_auth_recovery_sessions_and_limits.sql','utf8')+'COMMIT;');
+ sql('BEGIN;'+readFileSync('supabase/migrations/20261101163404_auth_recovery_deadline_after_lock.sql','utf8')+'COMMIT;');
  // business基盤を後から導入する際も、末尾の橋渡し処理を再適用できる。
  const migration=readFileSync('supabase/migrations/20261101153820_auth_recovery_sessions_and_limits.sql','utf8');
  const bridge=migration.slice(migration.indexOf('DO $migration$'));
@@ -63,6 +64,18 @@ try {
  blocked(decide(admin,adminPerson,org));
  const credential=`'{"credential_id":"fixture-key","public_key":"\\\\x01","counter":0,"device_type":"multiDevice","backed_up":true}'::jsonb`;
  const complete=(session=hash,version=0)=>`SELECT complete_account_recovery('${recovery.id}','${driver}','${person}','${org}',${version},'${session}',${credential});`;
+
+ // 同じトランザクション内のnow()は更新されない。待機後の失効を必ず拒否する。
+ sql(`UPDATE account_recovery_requests SET expires_at=clock_timestamp()+interval '700 milliseconds' WHERE id='${recovery.id}';`);
+ const deadlineLock=parallelSql(`BEGIN;SELECT pg_advisory_xact_lock(hashtextextended('auth-identity:${person}',0));SELECT pg_sleep(1.2);COMMIT;`);
+ for(let i=0;i<20;i++){if(sql("SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND granted AND pid<>pg_backend_pid()")!=='0')break;await new Promise(resolve=>setTimeout(resolve,10));}
+ blocked(complete());await deadlineLock;
+ sql(`UPDATE account_recovery_requests SET expires_at=clock_timestamp()+interval '700 milliseconds' WHERE id='${recovery.id}';`);
+ const identityDeadlineLock=parallelSql(`BEGIN;SELECT id FROM identities WHERE id='${person}' FOR UPDATE;SELECT pg_sleep(1.2);COMMIT;`);
+ for(let i=0;i<20;i++){if(sql("SELECT count(*) FROM pg_locks WHERE relation='public.identities'::regclass AND mode='RowShareLock' AND granted AND pid<>pg_backend_pid()")!=='0')break;await new Promise(resolve=>setTimeout(resolve,10));}
+ blocked(complete());await identityDeadlineLock;
+ check(sql('SELECT count(*) FROM passkey_credentials')==='0','expiry during row wait rolls back credential');
+ sql(`UPDATE account_recovery_requests SET expires_at=clock_timestamp()+interval '15 minutes' WHERE id='${recovery.id}';`);
  blocked(complete('c'.repeat(64)));blocked(complete(hash,1));
  sql(`UPDATE account_recovery_requests SET expires_at=now()-interval '1 second' WHERE id='${recovery.id}';`);blocked(complete());
  sql(`UPDATE account_recovery_requests SET expires_at=now()+interval '10 minutes' WHERE id='${recovery.id}';`);
