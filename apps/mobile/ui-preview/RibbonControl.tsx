@@ -1,6 +1,7 @@
 // @refresh reset
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AccessibilityInfo, Animated, AppState, Easing, Image, PanResponder, Text, View } from "react-native";
+import type { ViewInstance } from "react-native";
 import { useIsFocused } from "@react-navigation/native";
 import { AppIcon } from "../src/components/AppIcon";
 import { playRibbonFeedback } from "./haptics";
@@ -9,7 +10,7 @@ import { createRibbonFeedback } from "./ribbon-feedback";
 
 export type RibbonOrigin = { x: number; y: number; width: number; height: number };
 export function RibbonControl({ mode, onOpen, onInteractionChange }: { mode: "start" | "end"; onOpen: (origin: RibbonOrigin) => void; onInteractionChange?: (active: boolean) => void }) {
-  const focused = useIsFocused(), track = useRef<View>(null);
+  const focused = useIsFocused(), track = useRef<ViewInstance>(null);
   const progress = useRef(new Animated.Value(0)).current;
   const travel = useRef(0), current = useRef(0), opening = useRef(false), cancelled = useRef(false), alive = useRef(true);
   const callback = useRef(onOpen); callback.current = onOpen;

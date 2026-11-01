@@ -13,6 +13,7 @@ import { closeoutProgress, finishWork, submitDayReport, nextPreviewShiftDate, di
 import { previewVehicle } from "./vehicle";
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { Alert, AppState, Image, Platform, Pressable, ScrollView, Switch, Text, View } from "react-native";
+import type { ScrollViewInstance } from "react-native";
 import { NavigationContainer, DefaultTheme, StackActions, useIsFocused, useNavigationContainerRef } from "@react-navigation/native";
 import { createNativeStackNavigator, type NativeStackScreenProps } from "@react-navigation/native-stack";
 import { AppIcon } from "../src/components/AppIcon";
@@ -115,7 +116,7 @@ function Home() {
   const { session, now, off, scan, open, parking, openParking, locationKnown, endOfDay, nextShift, openReport, openShifts, setTab } = usePreview();
   const maps = useMapPreferences();
   const completed = endOfDay ? closeoutProgress(endOfDay, parking).complete : false;
-  const scroll = useRef<ScrollView>(null);
+  const scroll = useRef<ScrollViewInstance>(null);
   const mapRef = useRef<MapView>(null);
   const [dragging, setDragging] = useState(false);
   const lockScroll = (active: boolean) => { scroll.current?.setNativeProps({ scrollEnabled: !active }); setDragging(active); };
@@ -248,7 +249,7 @@ function Active({ navigation }: NativeStackScreenProps<Routes, "Active">) {
   const { session, now, fuel, openReport } = usePreview();
   const insets = useSafeAreaInsets();
   const [presented, setPresented] = useState(false);
-  const scroll = useRef<ScrollView>(null);
+  const scroll = useRef<ScrollViewInstance>(null);
   const [dragging, setDragging] = useState(false), [sheetDragging, setSheetDragging] = useState(false);
   const ribbonActive = useRef(false), scrollOffset = useRef(0);
   const lockScroll = (active: boolean) => { ribbonActive.current = active; scroll.current?.setNativeProps({ scrollEnabled: !active }); setDragging(active); };
@@ -354,7 +355,7 @@ function NativeHomeContent() {
       clearInterval(timer);
       if (state === "active") { setNow(Date.now()); timer = setInterval(() => setNow(Date.now()), 30_000); }
     };
-    update(AppState.currentState);
+    update(AppState.currentState ?? "unknown");
     const listener = AppState.addEventListener("change", update);
     return () => { clearInterval(timer); listener.remove(); };
   }, [session?.startedAt]);
