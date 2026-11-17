@@ -522,3 +522,9 @@ npx tsx scripts/db/bank-cleanup-review.ts --input <同じ読取JSON> --out-dir <
 追加監査ではキャリア・配達実績・イベント・通知・本人報酬・勤怠・記録・運営窓口等も本番ページのまま登録した。詳細だけを待機させるfixtureの`isPending`とシナリオを追加し、モーダル・タブも確認できる。URL一覧、操作、34ページ・20状態の監査範囲と制限は [追加監査記録](skeleton-audit-2026-11-17.md) を参照。
 
 シフトの保存状態は `/preview/admin/shifts?scenario=autosave-slow&role=admin` で確認する。「全員」から当日の未割当ドライバーを開き、コースを追加して「完了」で閉じると、8秒間の自動保存中表示を確認できる。「次の保存を失敗させる」で失敗・巻き戻し・再操作も確認可能。保存済み／保存中の状態、ツールバーのボタン・期間切替を320〜1280pxで監査する。遅延はこのfixtureだけで、本番の保存処理・DBには影響しない。
+
+### 登録済みドライバーの初期確認（2026-11-17）
+
+`npm run preview:admin -- admin --port 3197` の `/preview/admin/driver-setup` は本番の `DriverSetupGate`・`MePageContent`・`Nav`・`UserBottomNav` を再利用する。`status-slow-complete` は登録確認を3秒遅延し、待機中も完了後も確認文・モーダルを出さない。`status-slow-incomplete` は結果の取得後に必要な登録だけを案内する。`status-read-error` は初回取得が失敗し、「再読み込み」で登録済みとして入場する。`loading` は待機継続、`normal` は登録済み、`both-missing` は未登録。
+
+確認待ちの業務操作制限と毎回の最新状態取得を維持し、端末に完了判定を永続保存しない。マイページ内の初期確認文も非表示。明示的に開く口座変更ページは読み込み表示を維持する。SMS・パスキー・保存は架空処理で、再読み込み／シナリオ変更では架空状態を初期化する。PCでのドライバー本文は監査用表示で、実機の認証・SMS到達・本番データ更新は検証しない。

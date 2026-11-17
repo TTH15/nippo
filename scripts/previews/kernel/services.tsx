@@ -18,6 +18,7 @@ let authState: { runtime: ReturnType<typeof getPreviewRuntime>; driver: StoredDr
 export async function apiFetch<T = unknown>(path: string, init?: RequestInit, options?: { skipAuthRedirect?: boolean }): Promise<T> {
   const { store, navigate } = getPreviewRuntime();
   try {
+    if (["driver-setup", "driver-setup-designs", "me", "bank-change"].includes(store.fixture.id) && store.scenario.startsWith("status-slow-") && !init?.method && ["/api/reports/profile", "/api/me/registration"].includes(path)) await new Promise<void>(resolve => setTimeout(resolve, 3000));
     if (path === "/api/admin/shifts/memo/board" && !init?.method) store.invalidate();
     if (store.fixture.id === "recover" && (path === "/api/me/registration" || path === "/api/auth/recovery-request")) store.invalidate();
     return (await store.fetch(path, { method: init?.method, body: init?.body, fresh: init?.cache === "no-store", headers: init?.headers })) as T;

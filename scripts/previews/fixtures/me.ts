@@ -18,6 +18,9 @@ export const meFixture: PreviewFixture<ReturnType<typeof accountFixture.createSt
     "long-name": { label: "長い名前", description: "長い名義・支店名" },
     "save-error": { label: "保存失敗", description: "最初の口座保存だけ失敗し、再保存で復帰" },
     "refresh-error": { label: "保存後の取得失敗", description: "保存後の再確認が一度失敗し、再読み込みで復帰" },
+    "status-read-error": { label: "登録済み・再取得", description: "初回だけ登録状況の取得が失敗し、再読み込みで入場" },
+    "status-slow-complete": { label: "登録済み・確認待ち", description: "登録確認を3秒遅らせ、確認モーダルを出さずに開く" },
+    "status-slow-incomplete": { label: "未完了・確認待ち", description: "登録確認後に不足項目だけ案内" },
     normal: { label: "通常", description: "口座変更にパスキーで本人確認" },
     "bank-no-passkey": { label: "パスキーなし", description: "変更はパスキー設定後" },
     "bank-passkey-cancel": { label: "パスキー中止", description: "初回のパスキー操作を中止し、再試行できる" },
@@ -30,10 +33,10 @@ export const meFixture: PreviewFixture<ReturnType<typeof accountFixture.createSt
     lastkey: { label: "最後の鍵", description: "最後の鍵の削除を防ぐ" },
   },
   createState: (context) => ({ ...accountFixture.createState({ ...context, scenario: ["bank-no-passkey", "legacy-bank-incomplete"].includes(context.scenario) ? "empty" : "normal" }),
-    phoneVerified: !["both-missing", "phone-missing", "no-phone"].includes(context.scenario), phoneSent: false, readAttempts: 0, writeAttempts: 0, phone: ["both-missing", "phone-missing", "no-phone"].includes(context.scenario) ? "" : "09000000000", pendingPhone: "", bankProof: null, proofAttempts: 0,
+    phoneVerified: !["both-missing", "phone-missing", "no-phone", "status-slow-incomplete"].includes(context.scenario), phoneSent: false, readAttempts: 0, writeAttempts: 0, phone: ["both-missing", "phone-missing", "no-phone", "status-slow-incomplete"].includes(context.scenario) ? "" : "09000000000", pendingPhone: "", bankProof: null, proofAttempts: 0,
     bank: (previewBankValues(context) ?? savedBanks.get(bankKey(context)) ?? (context.scenario.startsWith("legacy-bank-")
       ? { bankName: "見本銀行 中央支店", bankNo: "普通 01234567", bankHolder: context.scenario === "legacy-bank-complete" ? "ミホン タロウ" : "" }
-      : (["normal", "registered", "phone-missing", "long-name", "bank-no-passkey", "bank-passkey-error", "bank-passkey-cancel", "bank-expired", "bank-conflict", "bank-change-error"].includes(context.scenario)
+      : (["normal", "registered", "status-slow-complete", "status-read-error", "phone-missing", "long-name", "bank-no-passkey", "bank-passkey-error", "bank-passkey-cancel", "bank-expired", "bank-conflict", "bank-change-error"].includes(context.scenario)
       ? { bankName: "見本銀行", bankBranch: context.scenario === "long-name" ? "配送事業者共同営業センター支店" : "中央支店", bankType: "ordinary", bankNo: "1234567", bankHolder: context.scenario === "long-name" ? "カブシキガイシャ ミホンハイソウサービス ダイヒョウトリシマリヤク ミホン タロウ" : "ミホン タロウ" }
       : { bankName: "", bankNo: "", bankHolder: "" }))) as BankAccount,
   }),
@@ -43,6 +46,7 @@ export const meFixture: PreviewFixture<ReturnType<typeof accountFixture.createSt
     const sharedBank = previewBankValues(context); if (sharedBank) state.bank = sharedBank;
     const shared = accountFixture.read(state, request, context);
     if (shared !== undefined) return shared;
+    if (path === "/api/reports/profile" && scenario === "status-read-error" && state.readAttempts++ < 2) throw new Error("登録状況の取得に失敗しました");
     if (path === "/api/reports/profile") return {
       name: "見本 太郎", officeCode: "TEST", driverCode: "TST123456", displayName: "見本 太郎",
       postalCode: "", address: "", phone: state.phone, phoneVerified: state.phoneVerified,
