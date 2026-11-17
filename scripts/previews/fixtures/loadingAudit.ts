@@ -75,7 +75,11 @@ export const adjustmentsFixture: PreviewFixture<null> = {
 export const submitScreenFixture: PreviewFixture<null> = {
   id: "submit-screen", title: "送信後の画面", pathname: "/admin/submit-screen", scenarios,
   createState: () => null,
-  read: (_state, { path }) => path === "/api/admin/submit-screen" ? { config: { blocks: [] }, drivers: [], carriers: [], events: [] } : undefined,
+  read: (_state, { path }) => path === "/api/admin/submit-screen" ? { config: {
+    thanksTitle: "お疲れさまでした", thanksMessage: "", rankingSource: "none", linkedEventId: null,
+    metricLabel: "完了個数", metricFields: [], targetDriverIds: [], teamRankingVisibleToDrivers: false,
+    blocks: [], formNotice: { enabled: false, message: "", startDate: null, endDate: null },
+  }, drivers: [], carriers: [], events: [] } : undefined,
 };
 
 // スケルトンを使わない待機表示も、同じ隔離環境で確認する。
