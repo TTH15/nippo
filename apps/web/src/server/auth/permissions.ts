@@ -39,6 +39,12 @@ async function resolveAuthz(
   if (driverError || !driver) throw new AuthzUnavailableError();
 
   const orgId = (driver?.org_id as string | undefined) ?? null;
+  const { data: individual, error: individualError } = await supabase
+    .from("member_capability_grants")
+    .select("capability")
+    .eq("driver_id", driverId);
+  if (individualError || !individual) throw new AuthzUnavailableError();
+  const additions = individual.filter(entry => entry.capability !== "can_view_profit").map((entry) => entry.capability as Capability);
   // 付与された束は含意（例: 設定の編集 → 領域別の編集すべて）を展開してから返す。
   // 各ガードは展開後の集合だけを見ればよく、既存ロールの行を移行しなくても互換が保てる。
   if (driver?.role_id) {
@@ -47,11 +53,11 @@ async function resolveAuthz(
       .select("capability")
       .eq("role_id", driver.role_id);
     if (capsError || !caps) throw new AuthzUnavailableError();
-    return { caps: expandCapabilities((caps ?? []).map((c) => c.capability as Capability)), orgId };
+    return { caps: expandCapabilities([...(caps ?? []).map((c) => c.capability as Capability), ...additions]), orgId };
   }
 
   const roleKey = driver?.role ?? fallbackRole ?? "";
-  return { caps: expandCapabilities(DEFAULT_ROLE_CAPABILITIES[roleKey] ?? []), orgId };
+  return { caps: expandCapabilities([...(DEFAULT_ROLE_CAPABILITIES[roleKey] ?? []), ...additions]), orgId };
 }
 
 /**

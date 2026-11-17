@@ -13,6 +13,7 @@ import { reportCycleTone, reportCycleTitle, orderCourseCycles } from "@/lib/repo
 import { ReportFieldInputs } from "@/lib/components/ReportFieldInputs";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { DatePicker } from "@/lib/components/DatePicker";
+import { CustomSelect } from "@/lib/components/CustomSelect";
 import { VehiclePlate } from "@/lib/components/VehiclePlate";
 import { PostSubmitView, type SubmitScreen } from "@/lib/components/PostSubmitView";
 import { LoginSetupPrompt } from "@/lib/components/LoginSetupPrompt";
@@ -81,6 +82,9 @@ export default function SubmitPageClientV2() {
   const [showPostSubmit, setShowPostSubmit] = useState(false);
 
   const [shifts, setShifts] = useState<ShiftForm[]>([]);
+  const [additionalKey, setAdditionalKey] = useState("");
+  const [formRevision, setFormRevision] = useState("");
+  const [requestedKeys, setRequestedKeys] = useState<string[]>([]);
   const [values, setValues] = useState<ValueMap>({});
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
@@ -135,8 +139,9 @@ export default function SubmitPageClientV2() {
     data: formData,
     error: formError,
     isInitialLoading: formLoading,
-  } = useApi<{ shifts: ShiftForm[]; shiftVehicleId?: string | null }>(
-    `/api/me/report-form?date=${encodeURIComponent(reportFormDateStr)}`,
+    mutate: mutateForm,
+  } = useApi<{ shifts: ShiftForm[]; candidates?: ShiftForm[]; revision: string; rejectedRequests?: { id: string; courseName: string; cycleNo: number }[]; shiftVehicleId?: string | null }>(
+    `/api/me/report-form?date=${encodeURIComponent(reportFormDateStr)}&candidates=1`,
     { revalidateOnFocus: false },
   );
 
@@ -146,6 +151,9 @@ export default function SubmitPageClientV2() {
     if (!formData) return;
     if (initializedDateRef.current === reportFormDateStr) return;
     initializedDateRef.current = reportFormDateStr;
+    setFormRevision(formData.revision);
+    setAdditionalKey("");
+    setRequestedKeys((formData.shifts ?? []).filter(s => s.requestId).map(s => reportFormKey(s.courseId, s.cycleNo)));
     const list = formData.shifts ?? [];
     setShifts(orderCourseCycles(list, s => s.courseId, s => s.cycleNo ?? 0));
     // 既存値で初期化
@@ -272,7 +280,9 @@ export default function SubmitPageClientV2() {
     setSubmitting(true);
     setMessage(null);
     try {
-      const items = buildReportItems(shifts, values, vehicleId, meterNum);
+      const items = buildReportItems(shifts, values, vehicleId, meterNum).map(item => ({ ...item,
+        request: requestedKeys.includes(reportFormKey(item.courseId, item.cycleNo)),
+      }));
 
       await apiFetch("/api/reports/v2", {
         method: "POST",
@@ -280,6 +290,8 @@ export default function SubmitPageClientV2() {
           reportDate: dateToReportDateStr(reportDate),
           driverIdentityId: selectedIdentityId,
           items,
+          expectedRevision: formRevision,
+          clientKey: parkingKeyRef.current,
           parking: parkingPayload,
         }),
       });
@@ -309,6 +321,8 @@ export default function SubmitPageClientV2() {
         onClose={() => {
           setShowPostSubmit(false);
           setPostSubmit(null);
+          initializedDateRef.current = null;
+          void mutateForm();
         }}
       />
     );
@@ -524,6 +538,20 @@ export default function SubmitPageClientV2() {
                   </span>
                 )}
                 {s.carrierName && <span className="text-[11px] text-slate-400">{s.carrierName}</span>}
+                {requestedKeys.includes(formKey) && <span className="text-xs font-semibold text-amber-700">承認待ちの追加</span>}
+                {requestedKeys.includes(formKey) && <button type="button" disabled={submitting} onClick={async () => {
+                  setMessage(null);
+                  if (s.requestId) {
+                    setSubmitting(true);
+                    try {
+                      const result = await apiFetch<{ revision: string }>(`/api/reports/course-requests?id=${encodeURIComponent(s.requestId)}`, { method: "DELETE" });
+                      setFormRevision(result.revision);
+                    } catch (e) { setMessage({ kind: "err", text: e instanceof Error ? e.message : "申請を取り消せませんでした" }); return; }
+                    finally { setSubmitting(false); }
+                  }
+                  setShifts(current => s.requestAssigned ? current.map(item => item === s ? { ...item, requestId: undefined, requestAssigned: undefined } : item) : current.filter(item => reportFormKey(item.courseId, item.cycleNo) !== formKey));
+                  setRequestedKeys(current => current.filter(key => key !== formKey));
+                }} className="ml-auto min-h-11 px-2 text-xs font-semibold text-slate-600 disabled:opacity-50">追加を取り消す</button>}
               </div>
               <div className="px-4 py-3 space-y-4">
                 {s.units.length === 0 && <p className="text-xs text-slate-400">報告項目が設定されていません。</p>}
@@ -536,6 +564,22 @@ export default function SubmitPageClientV2() {
           })}
         </div>
       )}
+
+      {(formData?.candidates?.length ?? 0) > 0 && !formLoading && !formError && (() => {
+        const choices = (formData?.candidates ?? []).filter(candidate => !shifts.some(shift => reportFormKey(shift.courseId, shift.cycleNo) === reportFormKey(candidate.courseId, candidate.cycleNo)));
+        return <div className="space-y-2">
+          <CustomSelect ariaLabel="追加するコース・便" size="md" value={additionalKey} placeholder="コース・便を選択" clearable={false} options={choices.map(candidate => ({ value: reportFormKey(candidate.courseId, candidate.cycleNo), label: `${candidate.courseName}${candidate.cycleLabel ? ` ${candidate.cycleLabel}` : ""}` }))} onChange={setAdditionalKey} />
+          <button type="button" disabled={!choices.some(candidate => reportFormKey(candidate.courseId, candidate.cycleNo) === additionalKey)} className="min-h-11 rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 disabled:opacity-40" onClick={() => {
+            const candidate = choices.find(item => reportFormKey(item.courseId, item.cycleNo) === additionalKey);
+            if (!candidate) return;
+            setShifts(current => orderCourseCycles([...current, candidate], item => item.courseId, item => item.cycleNo ?? 0));
+            setRequestedKeys(current => [...current, additionalKey]);
+            setAdditionalKey("");
+          }}>コース・便を追加</button>
+        </div>;
+      })()}
+
+      {(formData?.rejectedRequests?.length ?? 0) > 0 && <p className="text-sm text-amber-800">追加申請が却下されました。必要なコース・便を選び直して送信してください。</p>}
 
       {/* 配完表などの原本画像。読み取れた件数は本人の確認後にフォームへ入る（RIMG-2 / RIMG-3） */}
       {shifts.length > 0 && (

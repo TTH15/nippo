@@ -1,5 +1,7 @@
 "use client";
 
+import { CourseRequests } from "./CourseRequests";
+
 import { useCallback, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { AdminLayout } from "@/lib/components/AdminLayout";
@@ -343,6 +345,7 @@ export default function AdminDailyPage() {
         method: "PUT",
         body: JSON.stringify({
           report_date: /^\d{4}-\d{2}-\d{2}$/.test(reportDate) ? reportDate : undefined,
+          expectedSubmittedAt: originalReport.submitted_at,
           // 動的フォームの値（report_entries 縦持ち）。undefined のときは項目を変更しない。
           entries,
         }),
@@ -549,6 +552,7 @@ export default function AdminDailyPage() {
           </>
         ) : (
           <>
+            <CourseRequests onDecision={() => { void pendingApi.mutate(); void allApi.mutate(); void badgesApi.mutate(); }} />
             {fetchError && (
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800 mb-4">
                 日報の取得に失敗しました: {fetchError}

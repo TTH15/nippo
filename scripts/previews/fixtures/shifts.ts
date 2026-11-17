@@ -1,3 +1,4 @@
+import { isReportFlow, readReportFlow, writeReportFlow, resetReportFlow, flowShiftRows, FLOW_DRIVER } from "./reportLifecycle";
 // 本番 /admin/shifts/page.tsx と PersonalShiftMemoBoard を架空データで操作する。
 import { isMemberInPeriod } from "@/lib/drivers/activePeriod";
 import type { PreviewFixture } from "@/lib/preview/fixtureStore";
@@ -67,7 +68,9 @@ function createData(scenario: string) {
     valid_from: "2026-01-01",
     valid_to: null as string | null,
   }));
-  return { courses, drivers: scenario === "empty" ? [] : drivers, vehicles, driverLeases, shifts: [] as PreviewShift[], baselines, requirements, readinessSettings, deadlineRules, timeSlots, seeded: new Set<string>(), revision: 0,
+  return { courses, drivers: scenario === "empty" ? [] : drivers, vehicles, driverLeases, shifts: [] as PreviewShift[], baselines, requirements, readinessSettings, deadlineRules, timeSlots,
+    correctionSessions: [] as { id: string; driver_id: string; shift_date: string }[], approvedReports: scenario === "correction" ? [{ driver_id: drivers[2].id, report_date: day(-2) }] : [] as { driver_id: string; report_date: string }[],
+    seeded: new Set<string>(), revision: 0,
     sharedBoard: null as Record<string, unknown> | null, sharedRevision: 0, sharedFailed: false };
 }
 export type ShiftsFixtureState = ReturnType<typeof createData>;
@@ -133,7 +136,9 @@ function readinessResponse(state: ShiftsFixtureState, scenario: string) {
 
 export const shiftsFixture: PreviewFixture<ShiftsFixtureState> = {
   id: "shifts", title: "シフト・シフトメモ", pathname: "/admin/shifts",
-  scenarios: { "period-roster": { label: "過去の所属", description: "8月は終了者（担当解除済）を表示、9月開始の人は非表示" },  "memo-read": { label: "メモ画像の読み取り", description: "読み取り中・中止・未設定・休みとの重なりを確認" }, "plate-overlap": { label: "警告の重なり", description: "オイル/使用不可と日付・固定列の縦横スクロール" }, "memo-colors": { label: "メモの稼働日数・色", description: "同日の重複配置と曜日・日付の色、コンパクト出力" }, normal: { label: "通常", description: "個人・共有メモを切り替え" }, empty: { label: "未設定", description: "ドライバー・配置なし" }, "long-name": { label: "長い名前", description: "長い名前の配置" }, large: { label: "多数", description: "48人の名簿" }, transfer: { label: "メモ受け渡し", description: "自作枠・未登録の名前札・別コースへの反映" }, conflict: { label: "同時変更", description: "セル編集とメモ反映の両方で後勝ちを止める" }, "shared-live": { label: "2タブ共同", description: "別タブとの参加・更新を試す" }, "shared-missed": { label: "通知なしの2タブ", description: "通知を止めて定期取得で復旧" }, "shared-slow": { label: "遅い保存", description: "保存中の追加編集を保持" }, "shared-lost-response": { label: "保存応答の喪失", description: "保存済み正本を再取得して照合" }, "shared-peers": { label: "共同編集者", description: "共有メモの参加者表示" }, "shared-disjoint": { label: "別の箇所", description: "他の人の変更も残す" }, "shared-conflict": { label: "共有メモ競合", description: "同じ箇所の変更を検出" }, "shared-save-error": { label: "共有メモ保存失敗", description: "保存失敗から再試行" }, "save-error": { label: "反映失敗", description: "最初の反映で失敗し、再確認後に成功" }, unmapped: { label: "名前の対応", description: "未登録の名前札はメモだけに残し、任意で登録ドライバーへ合わせる" }, readiness: { label: "未解決あり", description: "不足・未確認・原本不一致・期限切れの一覧" }, "readiness-light": { label: "未解決（期限内）", description: "期限切れなし・基準未設定だけの状態" }, "readiness-many": { label: "未解決が多数", description: "40件・長いコース名で高さと折り返しを見る" } },
+  scenarios: {
+    "course-add": { label: "日報の追加反映", description: "承認前後の本人シフト" },
+    finalization: { label: "午前3時の確定", description: "確定したセルだけグレー" }, correction: { label: "確定と修正", description: "承認済みと過去のシフトの確定解除" }, "period-roster": { label: "過去の所属", description: "8月は終了者（担当解除済）を表示、9月開始の人は非表示" },  "memo-read": { label: "メモ画像の読み取り", description: "読み取り中・中止・未設定・休みとの重なりを確認" }, "plate-overlap": { label: "警告の重なり", description: "オイル/使用不可と日付・固定列の縦横スクロール" }, "memo-colors": { label: "メモの稼働日数・色", description: "同日の重複配置と曜日・日付の色、コンパクト出力" }, normal: { label: "通常", description: "個人・共有メモを切り替え" }, empty: { label: "未設定", description: "ドライバー・配置なし" }, "long-name": { label: "長い名前", description: "長い名前の配置" }, large: { label: "多数", description: "48人の名簿" }, transfer: { label: "メモ受け渡し", description: "自作枠・未登録の名前札・別コースへの反映" }, conflict: { label: "同時変更", description: "セル編集とメモ反映の両方で後勝ちを止める" }, "shared-live": { label: "2タブ共同", description: "別タブとの参加・更新を試す" }, "shared-missed": { label: "通知なしの2タブ", description: "通知を止めて定期取得で復旧" }, "shared-slow": { label: "遅い保存", description: "保存中の追加編集を保持" }, "shared-lost-response": { label: "保存応答の喪失", description: "保存済み正本を再取得して照合" }, "shared-peers": { label: "共同編集者", description: "共有メモの参加者表示" }, "shared-disjoint": { label: "別の箇所", description: "他の人の変更も残す" }, "shared-conflict": { label: "共有メモ競合", description: "同じ箇所の変更を検出" }, "shared-save-error": { label: "共有メモ保存失敗", description: "保存失敗から再試行" }, "save-error": { label: "反映失敗", description: "最初の反映で失敗し、再確認後に成功" }, unmapped: { label: "名前の対応", description: "未登録の名前札はメモだけに残し、任意で登録ドライバーへ合わせる" }, readiness: { label: "未解決あり", description: "不足・未確認・原本不一致・期限切れの一覧" }, "readiness-light": { label: "未解決（期限内）", description: "期限切れなし・基準未設定だけの状態" }, "readiness-many": { label: "未解決が多数", description: "40件・長いコース名で高さと折り返しを見る" } },
   createState: ({ scenario, driver }) => {
     // 本番利用者の保存キーには触れない。シナリオを開くたびに架空メモを初期化する。
     if (typeof localStorage !== "undefined") {
@@ -174,10 +179,14 @@ export const shiftsFixture: PreviewFixture<ShiftsFixtureState> = {
     return state;
   },
   onReset: ({ scenario, driver }) => {
+    if (isReportFlow(scenario)) resetReportFlow();
     sessionStorage.removeItem(`hakotora_shared_shift_memo_draft_v1:${driver.id}`);
     if (["shared-live", "shared-missed"].includes(scenario)) localStorage.removeItem(LIVE_BOARD_KEY);
   },
-  read(state, { path, params }, { driver, scenario }) {
+  read(state, request, { driver, scenario }) {
+    const { path, params } = request;
+    const flow = readReportFlow(request, scenario); if (flow !== undefined) return flow;
+    if (path === "/api/admin/shifts/corrections") return { sessions: state.correctionSessions.map(item => ({ ...item })), finalized: state.approvedReports.map(item => ({ ...item })) };
     if (path === "/api/admin/shifts/memo/board") {
       if (["shared-live", "shared-missed"].includes(scenario)) {
         const live = loadLiveBoard();
@@ -234,6 +243,11 @@ export const shiftsFixture: PreviewFixture<ShiftsFixtureState> = {
         localStorage.setItem(key, JSON.stringify({ version: 1, lanes, laneOrder: lanes.map(lane => lane.id), hiddenLaneIds: [], assignments: { ...old.assignments, ...assignments }, extraPeople: [], notes: {} }));
       }
     }
+    if (isReportFlow(scenario)) {
+      const flow = flowShiftRows(scenario);
+      state.shifts = state.shifts.filter(s => !(s.shift_date === flow.date && s.driver_id === FLOW_DRIVER));
+      state.shifts.push(...flow.rows);
+    }
     const shifts = state.shifts.filter(s => s.shift_date >= start && s.shift_date <= end);
     const assigned = new Set(shifts.map(s => s.driver_id));
     const drivers = scenario === "period-roster" ? state.drivers.filter(d => isMemberInPeriod(d, start, end) || assigned.has(d.id)) : state.drivers;
@@ -241,7 +255,21 @@ export const shiftsFixture: PreviewFixture<ShiftsFixtureState> = {
     const courses = scenario === "period-roster" ? state.courses.filter(c => !c.archived_at || assignedCourses.has(c.id)) : state.courses;
     return { courses, drivers, shifts, requests: ["memo-colors","memo-read"].includes(scenario) ? [{ driver_id:id(6),request_date:start,slot_id:null }] : [], slots: [], vehicles: state.vehicles, vehicle_driver_links: [], vehicle_loans: [], recent_assignments: [], driver_leases: state.driverLeases };
   },
-  write(state, { path, body }, { role, scenario }) {
+  write(state, request, { role, scenario }) {
+    const { path, body } = request;
+    const flow = writeReportFlow(request, scenario, role); if (flow !== undefined) return flow;
+    if (path === "/api/admin/shifts/corrections") {
+      if (role !== "admin") throw new Error("権限がありません");
+      if (typeof body.driverId === "string" && typeof body.date === "string") {
+        if (state.correctionSessions.some(item => item.driver_id === body.driverId && item.shift_date === body.date)) throw new Error("すでに修正中です");
+        const session = { id: `correction-${state.revision++}`, driver_id: body.driverId, shift_date: body.date };
+        state.correctionSessions.push(session); return { id: session.id };
+      }
+      const session = state.correctionSessions.find(item => item.id === body.id);
+      if (!session) throw new Error("修正が見つかりません");
+      state.correctionSessions = state.correctionSessions.filter(item => item.id !== body.id);
+      return { ok: true };
+    }
     if (path === "/api/admin/shifts/vehicle") {
       if (role !== "admin") throw new Error("この操作の権限がありません。");
       const { shiftDate, courseId, cycleNo = 0, slot, vehicleId, usesExternalVehicle, expectedVehicleId, hasExpectation } = body as {

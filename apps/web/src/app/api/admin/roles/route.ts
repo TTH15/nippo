@@ -58,6 +58,14 @@ export async function GET(req: NextRequest) {
     .eq("status", "active")
     .order("name", { ascending: true });
 
+  const memberIds = (members ?? []).map((member) => member.id);
+  const { data: individual, error: individualError } = memberIds.length
+    ? await supabase.from("member_capability_grants").select("driver_id, capability").in("driver_id", memberIds)
+    : { data: [], error: null };
+  if (individualError) return NextResponse.json({ error: "権限を読み込めませんでした" }, { status: 500 });
+  const byMember = new Map<string, string[]>();
+  for (const grant of individual ?? []) byMember.set(grant.driver_id, [...(byMember.get(grant.driver_id) ?? []), grant.capability]);
+
   return NextResponse.json({
     roles: (roles ?? []).map((r) => ({
       id: r.id,
@@ -73,6 +81,7 @@ export async function GET(req: NextRequest) {
       name: m.name,
       roleId: m.role_id,
       worksAsDriver: m.works_as_driver === true,
+      additionalCapabilities: byMember.get(m.id) ?? [],
     })),
     // 権限設定 UI の行定義（Discord 風の 許可なし/閲覧のみ/編集可能）
     rows: PERMISSION_ROWS,

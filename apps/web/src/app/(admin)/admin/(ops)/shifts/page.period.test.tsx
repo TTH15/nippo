@@ -1,11 +1,11 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import type { ShiftExportData } from "@/lib/shiftExport/data";
 const m = vi.hoisted(() => ({ resolve: vi.fn(), fetch: vi.fn(), refresh: vi.fn(), exportData: null as ShiftExportData | null }));
 vi.mock("@/lib/api", () => ({ apiFetch: m.fetch, getStoredDriver: () => ({ id: "preview-admin", name: "サンプル管理者" }) }));
 vi.mock("@/lib/useApi", () => ({ useApi: (key: string | null) => ({ data: key ? m.resolve(key) : undefined, isInitialLoading: false, isLoading: false, mutate: m.refresh, refresh: m.refresh }) }));
-vi.mock("@/lib/capabilities", () => import("../../../../../../../../scripts/previews/shifts-services"));
+vi.mock("@/lib/capabilities", () => ({ hasCapability: (cap: string) => ["can_manage_shifts", "can_dispatch", "can_manage_vehicles", "can_manage_members", "can_edit_reports"].includes(cap) }));
 vi.mock("@/lib/realtime/cellCursors", () => import("../../../../../../../../scripts/previews/shifts-services"));
 vi.mock("@/lib/swr", () => import("../../../../../../../../scripts/previews/shifts-services"));
 vi.mock("swr", () => ({ preload: vi.fn(), mutate: vi.fn() }));
@@ -51,6 +51,10 @@ it("表示で過去便を保持しても、追加候補へ無効C1を増やさ�
   const table = await screen.findByRole("table", { name: "ドライバー別シフト表" });
   const row = within(table).getByText("田中").closest("tr")!;
   fireEvent.click(within(row).getAllByRole("button", { name: "＋" })[0]);
+  fireEvent.click(screen.getByRole("button", { name: "変更する" }));
+  await waitFor(() => expect(screen.queryByRole("button", { name: "変更する" })).not.toBeInTheDocument());
+  fireEvent.click(within(row).getAllByRole("button", { name: "＋" })[0]);
+  await screen.findByRole("button", { name: "＋C2" });
   expect(screen.getByRole("button", { name: "＋C2" }).parentElement).toHaveTextContent("過去コース");
   expect(screen.queryByRole("button", { name: "＋C1" })).not.toBeInTheDocument();
 });

@@ -20,7 +20,7 @@ const ALL_CAPABILITIES = [
   "can_manage_billing", "can_manage_carriers", "can_manage_courses", "can_manage_members",
   "can_manage_org_settings", "can_manage_record_forms", "can_manage_report_kinds", "can_manage_rewards",
   "can_manage_shifts", "can_manage_submit_screen", "can_manage_vehicles", "can_send_notifications",
-  "can_view_bank_accounts", "can_view_billing", "can_view_members", "can_view_org_settings",
+  "can_view_bank_accounts", "can_view_billing", "can_view_sales", "can_view_profit", "can_view_members", "can_view_org_settings",
   "can_view_pii", "can_view_reports", "can_view_rewards", "can_view_shifts",
   "can_view_vehicle_cost", "can_view_vehicles",
 ];
@@ -32,7 +32,7 @@ export const PREVIEW_ROLES: Record<PreviewRole, PreviewRoleDefinition> = {
     role: "ACCOUNTING",
     capabilities: [
       "can_view_reports", "can_view_shifts", "can_view_rewards", "can_manage_rewards",
-      "can_view_bank_accounts", "can_view_vehicles", "can_view_vehicle_cost", "can_view_billing",
+      "can_view_bank_accounts", "can_view_vehicles", "can_view_vehicle_cost", "can_view_billing", "can_view_sales", "can_view_profit",
       "can_manage_billing", "can_view_members", "can_view_org_settings",
     ],
   },

@@ -149,6 +149,12 @@ export async function context(
     check(ce);
     caps = (c ?? []).map((v) => v.capability as Capability);
   }
+  const { data: grants, error: grantError } = await supabase
+    .from("member_capability_grants")
+    .select("capability")
+    .eq("driver_id", d.id);
+  check(grantError);
+  caps.push(...(grants ?? []).filter(grant => grant.capability !== "can_view_profit").map((grant) => grant.capability as Capability));
   const manager = expandCapabilities(caps).has("can_manage_record_forms");
   const scope = req.nextUrl.searchParams.get("scope") ?? "self";
   if (scope !== "staff" && scope !== "self" && scope !== "manage")

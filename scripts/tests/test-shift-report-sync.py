@@ -170,6 +170,24 @@ try:
     denied(f"UPDATE daily_reports_v2 SET submitted_at=clock_timestamp() WHERE id='{uid(20)}';")
     assert remover.wait(timeout=10) == 0, remover.stderr.read()
     expect(f"SELECT rejected_at IS NOT NULL FROM daily_reports_v2 WHERE id='{uid(20)}';", 't')
+    # 実際の既存シフト連動トリガーと、新しい確定保護を組み合わせる。
+    seed()
+    sql(f"""CREATE TABLE organizations(id uuid PRIMARY KEY);
+      INSERT INTO organizations VALUES ('{org}'),('{other_org}');
+      ALTER TABLE drivers ADD COLUMN status text NOT NULL DEFAULT 'active';
+      CREATE TABLE report_course_requests(org_id uuid,driver_id uuid,report_date date,status text);
+      GRANT SELECT, UPDATE ON drivers TO service_role;
+      GRANT SELECT ON organizations, report_course_requests TO service_role;
+    """)
+    sql((ROOT / 'supabase/migrations/20261116155246_shift_correction_sessions.sql').read_text())
+    denied(f"SET ROLE service_role; UPDATE shifts SET driver_id=NULL WHERE id='{uid(10)}';")
+    correction = sql(f"SET ROLE service_role; SELECT begin_shift_correction('{org}','{driver}','{driver}','2026-10-16',NULL);")
+    sql(f"SET ROLE service_role; UPDATE shifts SET driver_id=NULL WHERE id='{uid(10)}';")
+    expect(f"SELECT rejected_at IS NOT NULL AND approved_at IS NULL FROM daily_reports_v2 WHERE id='{uid(20)}';", 't')
+    denied(f"SET ROLE service_role; SELECT finish_shift_correction('{org}','{driver}','{correction}');")
+    sql(f"SET ROLE service_role; UPDATE shifts SET driver_id='{driver}' WHERE id='{uid(10)}'; INSERT INTO daily_reports_v2(id,org_id,driver_id,report_date,course_id,cycle_no,approved_at) VALUES('{uid(30)}','{org}','{driver}','2026-10-16','{course}',1,now()); UPDATE daily_reports_v2 SET approved_at=now() WHERE id='{uid(21)}';")
+    sql(f"SET ROLE service_role; SELECT finish_shift_correction('{org}','{driver}','{correction}');")
+    denied(f"SET ROLE service_role; UPDATE shifts SET driver_id=NULL WHERE id='{uid(10)}';")
     print('PASS: removal, reassignment, cycles, peers, dates, tenants, history, resubmission, approval, slot move, duplicate slots, rollback, import deletion, RLS, ACL, both submission/removal race orders')
 finally:
     run(['docker', 'rm', '--force', container])

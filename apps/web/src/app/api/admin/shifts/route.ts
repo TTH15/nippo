@@ -1,3 +1,4 @@
+import { serializeOperationalCourse } from "@/server/courses/serialize";
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
@@ -104,7 +105,7 @@ export async function GET(req: NextRequest) {
       (isMemberInPeriod(d, startDate, endDate) || assignedDriverIds.has(d.id))).map(d => ({ ...d,
       driver_identities: (d.driver_identities ?? []).map(identity => ({ ...identity, driver_courses: (identity.driver_courses ?? []).filter(c => courseSet.has(c.course_id)) })),
     }));
-    return NextResponse.json({ courses: courses.filter(c => !c.archived_at || assignedCourseIds.has(c.id)), shifts, drivers,
+    return NextResponse.json({ courses: courses.filter(c => !c.archived_at || assignedCourseIds.has(c.id)).map(c => serializeOperationalCourse(c, user.capabilities)), shifts, drivers,
       requests, slots, vehicles: vehicles.filter(v => !v.is_disposed),
       vehicle_driver_links: links, vehicle_loans: loans, recent_assignments: assignments.filter(s => driverById.has(s.driver_id)),
       // nullは取得失敗。空配列（契約なし）へ置換せず、画面で再試行を案内する。

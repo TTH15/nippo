@@ -1,7 +1,7 @@
 // Standalone runner entry only. Not a Next route; live auth/API imports are replaced at build time.
 // /preview/admin            … 登録ページ × シナリオ × 役割の一覧
 // /preview/admin/<slug>?scenario=<name>&role=<admin|accounting|viewer> … 本番ページ本体を fixture で表示
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore, type ComponentType } from "react";
 import { createFixtureStore } from "@/lib/preview/fixtureStore";
 import { VehicleDetailProvider } from "@/lib/components/VehicleDetailSheet";
 import { buildPreviewHref, parsePreviewLocation, PREVIEW_ROLES, PREVIEW_ROLE_ORDER } from "@/lib/preview/scenario";
@@ -78,6 +78,11 @@ function IndexPage({ missing }: { missing: string | null }) {
   );
 }
 
+function ResettablePage({ Page, store }: { Page: ComponentType; store: { subscribe: (listener: () => void) => () => void; readonly resetVersion: number } }) {
+  const resetVersion = useSyncExternalStore(store.subscribe, () => store.resetVersion, () => 0);
+  return <Page key={resetVersion} />;
+}
+
 export default function AdminPreviewApp() {
   const location = useLocation();
   // 本番の素のa要素も隔離URLへ接続する（Next Link/Routerはkernel側で差し替え済み）。
@@ -122,7 +127,7 @@ export default function AdminPreviewApp() {
     <PreviewRuntimeContext.Provider value={runtime}>
       {/* 本番の (admin)/layout.tsx と同じく、運営の画面ではプレートの長押しで詳細が出る */}
       <VehicleDetailProvider>
-        <Page key={`${page.slug}:${store.scenario}:${store.role}`} />
+        <ResettablePage key={`${page.slug}:${store.scenario}:${store.role}`} Page={Page} store={store} />
       </VehicleDetailProvider>
     </PreviewRuntimeContext.Provider>
   );

@@ -25,6 +25,7 @@ export async function PATCH(
 ) {
   const user = await requirePermission(req, "can_manage_billing");
   if (isAuthError(user)) return user;
+  if (!user.capabilities?.has("can_view_sales") || !user.capabilities.has("can_view_profit")) return NextResponse.json({ error: "権限がありません" }, { status: 403 });
   const orgId = await resolveOrgId(user.driverId);
 
   const { id } = await params;
@@ -136,6 +137,7 @@ export async function DELETE(
 ) {
   const user = await requirePermission(_req, "can_manage_billing");
   if (isAuthError(user)) return user;
+  if (!user.capabilities?.has("can_view_sales") || !user.capabilities.has("can_view_profit")) return NextResponse.json({ error: "権限がありません" }, { status: 403 });
   const orgId = await resolveOrgId(user.driverId);
 
   const { id } = await params;

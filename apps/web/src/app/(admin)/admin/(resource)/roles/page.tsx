@@ -16,11 +16,13 @@ import {
 import { AdminLayout } from "@/lib/components/AdminLayout";
 import { Skeleton } from "@/lib/components/Skeleton";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
+import { CheckboxField } from "@/lib/components/CheckboxField";
 import { ErrorDialog } from "@/lib/components/ErrorDialog";
 import { apiFetch, getStoredDriver } from "@/lib/api";
 import { swrFetcher } from "@/lib/swr";
 import { hasCapability } from "@/lib/capabilities";
 import { ApiPermissionCatalog } from "./ApiPermissionCatalog";
+import roleCatalog from "@/lib/roleCatalog.json";
 
 // ============================================================
 // ロール・権限管理（§2-6）。
@@ -36,7 +38,7 @@ type Role = {
   sortOrder: number;
   capabilities: string[];
 };
-type Member = { id: string; name: string; roleId: string | null; worksAsDriver: boolean };
+type Member = { id: string; name: string; roleId: string | null; worksAsDriver: boolean; additionalCapabilities?: string[] };
 // サーバーの PERMISSION_ROWS と同形（server/auth/capabilities.ts が正本）
 type PermissionRow =
   | { kind: "leveled"; key: string; label: string; description: string; view: string; manage: string }
@@ -46,6 +48,18 @@ type RolesRes = { roles: Role[]; members: Member[]; rows: PermissionRow[] };
 
 const ADMIN_KEY = "ADMIN";
 const DRIVER_KEY = "DRIVER";
+const inheritedCapabilities = (granted: string[]): Set<string> => {
+  const result = new Set<string>();
+  const pending = [...granted];
+  const implies: Record<string, string[]> = roleCatalog.capabilityImplies;
+  while (pending.length) {
+    const current = pending.pop()!;
+    if (result.has(current)) continue;
+    result.add(current);
+    pending.push(...(implies[current] ?? []));
+  }
+  return result;
+};
 
 export default function RolesPage() {
   const [canWrite, setCanWrite] = useState(false);
@@ -82,6 +96,17 @@ export default function RolesPage() {
   const [dragRole, setDragRole] = useState<string | null>(null);
   const [roleDropTarget, setRoleDropTarget] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [permissionMemberId, setPermissionMemberId] = useState<string | null>(null);
+  const [grantBusy, setGrantBusy] = useState(false);
+  const setMemberCapability = async (member: Member, capability: string, enabled: boolean) => {
+    setGrantBusy(true);
+    try {
+      await apiFetch(`/api/admin/users/${member.id}/capabilities`, { method: "PUT", body: JSON.stringify({ capability, enabled }) });
+      await mutate();
+    } catch (e) {
+      setError({ title: "保存できませんでした", message: e instanceof Error ? e.message : "もう一度お試しください" });
+    } finally { setGrantBusy(false); }
+  };
 
   const toggleExpand = (id: string) =>
     setExpanded((prev) => {
@@ -521,6 +546,7 @@ export default function RolesPage() {
                             >
                               {canWrite && <FontAwesomeIcon icon={faGripVertical} className="text-[10px] text-slate-300" />}
                               {m.name}
+                              {canWrite && <button type="button" onClick={() => setPermissionMemberId(current => current === m.id ? null : m.id)} className="rounded px-1 py-1 text-slate-600 underline" aria-expanded={permissionMemberId === m.id}>個人権限</button>}
                               {/* 個人単位の「ドライバーとして扱う」トグル（DRIVER ロールは固定 ON） */}
                               <button
                                 type="button"
@@ -545,6 +571,19 @@ export default function RolesPage() {
                           );
                         })}
                       </div>
+                      {roleMembers.filter(member => member.id === permissionMemberId).map(member => (
+                        <div key={member.id} className="mt-2 rounded-lg border border-slate-200 p-3">
+                          <div className="mb-2 text-sm font-semibold">{member.name}の追加権限</div>
+                          {[...r.capabilities, ...(member.additionalCapabilities ?? [])].includes("can_view_sales") && ![...r.capabilities, ...(member.additionalCapabilities ?? [])].includes("can_view_profit") && <p className="mb-2 text-xs text-slate-600">売上のみの閲覧では、支払・原価・請求は非表示です。</p>}
+                          <div className="grid gap-1 sm:grid-cols-2">
+                            {rows.flatMap(row => row.kind === "leveled" ? [{ key: row.view, label: `${row.label}の閲覧` }, { key: row.manage, label: `${row.label}の編集` }] : [{ key: row.capability, label: row.label }]).map(item => {
+                              const inherited = inheritedCapabilities(r.capabilities).has(item.key) || (r.isSystem && r.key === ADMIN_KEY);
+                              const added = (member.additionalCapabilities ?? []).includes(item.key);
+                              return <CheckboxField key={item.key} label={`${item.key === "can_view_profit" && !inherited && !added ? "利益（役割で設定）" : item.label}${inherited ? "（役割）" : added ? "（個人）" : ""}`} checked={inherited || added} disabled={inherited || grantBusy || (item.key === "can_view_profit" && !added)} onCheckedChange={checked => void setMemberCapability(member, item.key, checked)} />;
+                            })}
+                          </div>
+                        </div>
+                      ))}
                       {canWrite && !isDriverRole && (
                         <p className="mt-1.5 text-[11px] text-slate-400">
                           <FontAwesomeIcon icon={faTruck} className="mr-1 h-2.5 w-2.5" />

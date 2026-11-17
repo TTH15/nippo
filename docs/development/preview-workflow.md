@@ -33,6 +33,8 @@
 - 地図（`/preview/admin/map`）は Mapbox の公開キーが要るので `npm run preview:admin -- admin --port 3199 --mapbox` で起動する（`.env.local` の `NEXT_PUBLIC_MAPBOX_TOKEN` だけを読む）。シナリオは通常／位置なし／大量（40台密集）。共有ビューは Supabase Realtime を使うため常にオフのスタブ
 - 車両地図を統合したダッシュボードは `npm run preview:admin -- admin --port 3198 --mapbox` → `/preview/admin/dashboard?scenario=normal&role=admin`。`empty` は位置なし、`large` は40台、共通の `loading` / `error` も使える。本番の3D地図と地図fixtureを直接再利用し、地図の移動・車両選択・履歴・配置と要対応を試せる。地図タイルだけMapboxから取得し、本番の位置送信・DB・認証は呼ばない。モバイルのバックグラウンド測位はプレビュー対象外で、署名済み開発ビルドの実機で確認する。
 - 日報送信（`/preview/admin/submit`）はドライバー画面を同じ runner で開く。「車の置き場所」の候補・区画・別の場所・状況回答・未回答ブロック・保存失敗（上部バーの「次の保存を失敗させる」）を試せる。送信内容は console の `preview submit`
+- 日報のコース・便追加の入力画面試作: `npm run preview:admin -- admin --port 3197` → `/preview/admin/submit?scenario=course-add&role=admin`。本番の `SubmitPageClientV2` を再利用し、架空のC2と別コースを追加・取消できる。候補と送信はプレビューだけで、承認・DB・シフト・権限には未接続。
+- 単発案件: 同 runner の `/preview/admin/spot-jobs?scenario=normal&role=admin`。本番ページと架空データを使い、`no-pricing` と `sales-only` で金額権限の違いを確認できる。保存・削除はプレビュー内だけで、本番API・DB・通知には接続しない。
 - 日報の「画像から入力」: 同じ runner の `/preview/admin/submit`。架空の様式を1件返すので、画像を選ぶと端末内OCR→読み取り結果の確認画面→日報への反映まで試せる。`no-image-template` は様式が未登録で、画像は残せるが件数は手入力のままになる。様式に合わない画像を選ぶと「未対応」として手入力へ戻る経路を確認できる。原本の送信・読み取りの記録は fixture 止まりで、本番API・DB・通知には接続しない
 - 日報画像欄はPNG/JPEGスクリーンショットのドラッグ&ドロップにも対応する。選択ボタンと同じ画像読取処理へ渡す。`/preview/admin/submit?scenario=normal&role=admin` でPC/スマホ幅・非対応画像の手入力復帰を確認する。
 - 日報のログイン設定案内: `npm run preview:admin -- admin --port 3221` → `http://127.0.0.1:3221/preview/admin/submit?scenario=normal`。本番 `SubmitPageClientV2` / `LoginSetupPrompt` と `(user)/layout` のNav・UserBottomNavを再利用し、PCでも監査のため本文を表示。`normal`（SMS・鍵なし）/ `sms-only` / `complete` / `no-phone` / `setup-error` / `key-error` / `no-shifts` を切替。架空SMSコードは `123456`、`000000` は誤入力。SMS・OSのPasskey・本番API・DB・通知は呼ばない。入力保持・日報提出・設定完了での案内非表示、登録失敗→再試行、PC1280/スマホ390・320px（横はみ出しなし、操作高44px）を確認。実SMS到達・実端末の資格情報登録は別途確認が必要。
@@ -500,3 +502,13 @@ npx tsx scripts/db/bank-cleanup-review.ts --input <同じ読取JSON> --out-dir <
 `@repo/core/logic/bankHolder` の `bankHolderForTransfer` は保存値を変更せず、出力時のカナ・英数字・空白・対応記号の幅を揃える。濁点/半濁点は半角2文字として扱う。文字を切り詰めたり、漢字をカナへ推測したり、法人略称や小書き文字を勝手に置換しない。半角化できない文字は出力用処理でエラーにする。銀行ごとの許容記号/文字数/エンコーディングはファイル形式側で検査する。
 
 現時点でこのリポジトリには銀行向けCSV/全銀ファイル出力が見当たらないため、本番の振込出力への接続は対象の銀行・画面・形式の確認待ち。請求書・プロフィール表示や既存の保存値には出力変換を適用しない。
+
+### 売上権限・日報追加・午前3時確定（2026/11/17）
+
+`npm run preview:admin -- admin --port 3197`。本番ページを使う以下のfixtureを更新した。
+
+- `roles?scenario=normal&role=admin`: 架空の配車担当に個人の売上権限を追加・取消。利益は役割で設定する。
+- `submit?scenario=course-add&role=admin` → `daily?scenario=course-add&role=admin` → `shifts?scenario=correction&role=admin`: 追加・承認・確定・過去修正・再承認を通す。
+- `courses?scenario=no-pricing&role=admin`、`spot-jobs?scenario=no-pricing&role=admin`、`sales?scenario=sales-only&role=admin`: 金額の権限別表示と編集。
+
+日報・承認・シフトは専用のlocalStorageだけで架空状態を共有し、上部ボタンから移動できる。「午前3時の確定を試す」は時計の模擬操作。「初期化」は保存した架空状態と画面の入力状態を一緒に初期化する。SQL・実際のcron・本番認証・通知は動かさない。実装と隔離DB検証の詳細は [記録](sales-permissions-report-additions-2026-11-17.md) を参照。

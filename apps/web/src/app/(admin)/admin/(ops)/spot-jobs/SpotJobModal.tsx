@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus, faXmark, faUserPlus } from "@fortawesome/free-solid-svg-icons";
+import { hasCapability } from "@/lib/capabilities";
 import { DatePicker } from "@/lib/components/DatePicker";
 import { CustomSelect } from "@/lib/components/CustomSelect";
 import { TimePicker } from "@/lib/ui/time-picker";
@@ -18,6 +19,7 @@ import {
 // 参加者の下書き行。type="driver" は登録メンバー（正規/ゲスト）の選択、
 // type="name" は「名前だけの同行者」（work-model §3: display_name のみの行）。
 type MemberDraft = {
+  id?: string;
   key: string;
   type: "driver" | "name";
   driverId: string;
@@ -31,6 +33,7 @@ const nextKey = () => `m${draftSeq++}`;
 function toDrafts(job: SpotJob | undefined): MemberDraft[] {
   if (!job) return [];
   return job.members.map((m) => ({
+    id: m.id,
     key: nextKey(),
     type: m.driverId ? "driver" : "name",
     driverId: m.driverId ?? "",
@@ -56,6 +59,7 @@ export function SpotJobModal({
   onClose: () => void;
   createGuest: (name: string) => Promise<MemberCandidate>;
 }) {
+  const finance = hasCapability("can_view_sales") && hasCapability("can_view_profit");
   const [title, setTitle] = useState(initial?.title ?? "");
   const [date, setDate] = useState<Date | undefined>(reportDateStrToDate(initial?.jobDate ?? defaultDate));
   const [meetingTime, setMeetingTime] = useState<string | null>(initial?.meetingTime ?? null);
@@ -117,15 +121,17 @@ export function SpotJobModal({
       meetingTime,
       endTime,
       clientName: clientName.trim() || null,
-      billingAmount: billingAmount.trim() === "" ? null : Number(billingAmount),
+      ...(finance ? { billingAmount: billingAmount.trim() === "" ? null : Number(billingAmount) } : {}),
+      expectedVersion: initial?.updatedAt,
       note: note.trim() || null,
       status,
       members: members
         .filter((m) => (m.type === "driver" ? m.driverId : m.displayName.trim()))
         .map((m) => ({
+          ...(m.id ? { id: m.id } : {}),
           driverId: m.type === "driver" ? m.driverId : null,
           displayName: m.type === "name" ? m.displayName.trim() : null,
-          payAmount: m.payAmount.trim() === "" ? null : Number(m.payAmount),
+          ...(finance ? { payAmount: m.payAmount.trim() === "" ? null : Number(m.payAmount) } : {}),
         })),
     };
     setSaving(true);
@@ -205,7 +211,7 @@ export function SpotJobModal({
                 placeholder="例: ○○運輸"
               />
             </Field>
-            <Field label="請求額（参考・円）">
+            {finance && <Field label="請求額（参考・円）">
               <input
                 type="number"
                 min={0}
@@ -214,7 +220,7 @@ export function SpotJobModal({
                 className="w-full px-2 py-1.5 border border-slate-300 rounded text-right"
                 placeholder="未定"
               />
-            </Field>
+            </Field>}
           </div>
 
           {/* 参加者 */}
@@ -229,20 +235,20 @@ export function SpotJobModal({
                         size="sm"
                         clearable={false}
                         value={m.driverId || undefined}
-                        onChange={(v) => setMember(m.key, { driverId: v })}
+                        onChange={(v) => setMember(m.key, { driverId: v, ...(v !== m.driverId ? { id: undefined } : {}) })}
                         options={driverOptions}
                         placeholder="メンバーを選択"
                       />
                     ) : (
                       <input
                         value={m.displayName}
-                        onChange={(e) => setMember(m.key, { displayName: e.target.value })}
+                        onChange={(e) => setMember(m.key, { displayName: e.target.value, id: undefined })}
                         className="w-full px-2 py-1.5 border border-slate-300 rounded"
                         placeholder="名前（その日だけの人）"
                       />
                     )}
                   </div>
-                  <input
+                  {finance && <input
                     type="number"
                     min={0}
                     value={m.payAmount}
@@ -250,7 +256,7 @@ export function SpotJobModal({
                     className="w-24 px-2 py-1.5 border border-slate-300 rounded text-right"
                     placeholder="日当"
                     title="日当（参考・円）"
-                  />
+                  />}
                   <button
                     onClick={() => removeMember(m.key)}
                     className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-300 hover:text-red-600 hover:bg-red-50"

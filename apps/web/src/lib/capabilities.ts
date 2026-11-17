@@ -1,5 +1,6 @@
 "use client";
 
+import { restrictFinancialCapabilities } from "./financialCapabilities";
 import { getStoredDriver } from "@/lib/api";
 
 // ============================================================
@@ -36,7 +37,7 @@ function effectiveCapabilities(): Set<string> {
     out.add(c);
     for (const implied of IMPLIES[c] ?? []) stack.push(implied);
   }
-  return out;
+  return restrictFinancialCapabilities(out);
 }
 
 /** ログイン中 membership が capability を持つか。 */

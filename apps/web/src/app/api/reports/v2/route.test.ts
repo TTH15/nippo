@@ -1,66 +1,27 @@
 // @vitest-environment node
 import { beforeEach, expect, it, vi } from "vitest";
-import { NextRequest } from "next/server";
-
-const mocks = vi.hoisted(() => ({ shifts: [] as any[], existing: [] as any[], writes: vi.fn(), sync: vi.fn(), error: null as any, fieldError: null as string | null }));
-vi.mock("@/server/auth", () => ({ requireAuth: async () => ({ driverId: "self", orgId: "org" }), isAuthError: () => false }));
-vi.mock("@/server/db/tenant", () => ({ resolveOrgId: async () => "org" }));
-vi.mock("@/server/reports/validateFieldWrites", () => ({ validateReportFieldWrites: async () => mocks.fieldError }));
-vi.mock("@/server/reports/entries", () => ({ syncReportEntries: (...args: any[]) => mocks.sync(...args) }));
-vi.mock("@/server/reports/parking", () => ({ parseParkingReport: vi.fn(), saveParkingReport: vi.fn() }));
-vi.mock("@/server/db/client", () => ({ supabase: { from(table: string) {
-  let writing = false;
-  const query: any = {
-    select: () => query, eq: () => query, in: () => query, is: () => query,
-    update: (value: unknown) => { writing = true; mocks.writes(value); return query; },
-    insert: (value: unknown) => { writing = true; mocks.writes(value); return query; },
-    single: async () => ({ data: { id: "created" }, error: mocks.error }),
-    then: (resolve: (value: unknown) => unknown) => Promise.resolve({ data: writing ? null : table === "shifts" ? mocks.shifts : table === "report_entries" ? [] : mocks.existing, error: writing ? mocks.error : null }).then(resolve),
-  };
-  return query;
-} } }));
-import { POST } from "./route";
-const submit = (cycleNo = 0) => POST(new NextRequest("http://localhost/api/reports/v2", { method: "POST", body: JSON.stringify({ reportDate: "2026-10-16", items: [{ courseId: "course", cycleNo, entries: [] }] }) }));
-
-beforeEach(() => { vi.clearAllMocks(); mocks.shifts = []; mocks.existing = [{ id: "previous", course_id: "course", cycle_no: 0, vehicle_id: null }]; mocks.error = null; mocks.fieldError = null; });
-it("提出済みでも解除済みコースへの再送を拒否する", async () => {
-  const response = await submit();
-  expect(response.status).toBe(400);
-  expect((await response.json()).error).toContain("シフトにない");
-  expect(mocks.writes).not.toHaveBeenCalled();
+import { NextRequest, NextResponse } from "next/server";
+const m=vi.hoisted(() => ({ rpc:vi.fn(), parking:vi.fn(), parseParking:vi.fn(), denied:false }));
+vi.mock("@/server/auth", () => ({ requireAuth:async () => m.denied ? NextResponse.json({}, {status:401}) : ({driverId:"self"}), isAuthError:(x:unknown)=>x instanceof NextResponse }));
+vi.mock("@/server/db/tenant", () => ({resolveOrgId:async()=>"own-org"}));
+vi.mock("@/server/db/client", () => ({supabase:{rpc:m.rpc}}));
+vi.mock("@/server/reports/parking", () => ({parseParkingReport:m.parseParking,saveParkingReport:m.parking}));
+import {POST} from "./route";
+const course="00000000-0000-4000-8000-000000000001";
+const body=()=>({reportDate:"2026-11-16",expectedRevision:"revision",clientKey:"same-retry-key",items:[{courseId:course,cycleNo:1,entries:[]},{courseId:course,cycleNo:2,request:true,entries:[]}]});
+const request=(b:unknown)=>new NextRequest("http://localhost/api/reports/v2",{method:"POST",body:JSON.stringify(b)});
+beforeEach(()=>{vi.clearAllMocks();m.denied=false;m.rpc.mockResolvedValue({data:{reportIds:["r1"],requestIds:["q2"]},error:null});});
+it("本人・正式日報・追加分・読取版・再送キーを同じ原子的な保存へ渡す",async()=>{
+ const r=await POST(request({...body(),driverId:"another-person",orgId:"another-org"}));
+ expect(r.status).toBe(200);expect(await r.json()).toMatchObject({reportIds:["r1"],requestIds:["q2"]});
+ expect(m.rpc).toHaveBeenCalledWith("submit_report_day",expect.objectContaining({p_org:"own-org",p_driver:"self",p_expected:"revision",p_key:"same-retry-key",p_items:body().items}));
 });
-it("同じコースでも変更前の便への再送を拒否する", async () => {
-  mocks.shifts = [{ course_id: "course", cycle_no: 2 }];
-  expect((await submit(1)).status).toBe(400);
-  expect(mocks.writes).not.toHaveBeenCalled();
-});
-it("現在のシフトに一致すれば提出済み日報を更新する", async () => {
-  mocks.shifts = [{ course_id: "course", cycle_no: 0 }];
-  expect((await submit()).status).toBe(200);
-  expect(mocks.writes).toHaveBeenCalledOnce();
-  expect(mocks.sync).toHaveBeenCalledOnce();
-});
-it("確認後にシフトが変わったDBエラーは再確認可能な409で返す", async () => {
-  mocks.shifts = [{ course_id: "course", cycle_no: 0 }];
-  mocks.error = { code: "23514", message: "シフトが変更されています。" };
-  const response = await submit();
-  expect(response.status).toBe(409);
-  expect((await response.json()).error).toContain("最新のシフト");
-  expect(mocks.sync).not.toHaveBeenCalled();
-});
-
-it("項目の不整合はヘッダや承認を変更する前に止める", async () => {
-  mocks.shifts = [{ course_id: "course", cycle_no: 1 }]; mocks.fieldError = "便の設定と異なる項目があります。";
-  expect((await submit(1)).status).toBe(409); expect(mocks.writes).not.toHaveBeenCalled();
-});
-it("追加したC2だけを保存し、変更のない承認済みC1には書き込まない", async () => {
-  mocks.shifts = [{ course_id: "course", cycle_no: 1 }, { course_id: "course", cycle_no: 2 }];
-  mocks.existing = [{ id: "approved-c1", course_id: "course", cycle_no: 1, approved_at: "approved", vehicle_id: null, meter_value: null }];
-  const response = await POST(new NextRequest("http://localhost/api/reports/v2", { method: "POST", body: JSON.stringify({ reportDate: "2026-10-16", items: [1,2].map(cycleNo => ({ courseId: "course", cycleNo, entries: [] })) }) }));
-  expect(response.status).toBe(200); expect(mocks.writes).toHaveBeenCalledOnce();
-  expect(mocks.writes.mock.calls[0][0].cycle_no).toBe(2);
-});
-it("旧全体日報はコースの割当が残る場合だけ更新できる", async () => {
-  mocks.shifts = [{ course_id: "course", cycle_no: 1 }, { course_id: "course", cycle_no: 2 }];
-  expect((await submit(0)).status).toBe(200);
+it.each(["expectedRevision","clientKey"])("%s が欠けた旧/不正フォームは書き込まない",async key=>{const b:any=body();delete b[key];expect((await POST(request(b))).status).toBe(400);expect(m.rpc).not.toHaveBeenCalled();});
+it.each(["40001","23514","23505","55P03","40P01"])("%s の競合は入力を保って再確認できる409",async code=>{m.rpc.mockResolvedValue({error:{code,message:"日報が変更されています"}});expect((await POST(request(body()))).status).toBe(409);expect(m.parking).not.toHaveBeenCalled();});
+it("未認証では保存RPCへ到達しない",async()=>{m.denied=true;expect((await POST(request(body()))).status).toBe(401);expect(m.rpc).not.toHaveBeenCalled();});
+it("駐車申告の失敗後も同じ再送キーを使用でき、保存済み日報を返す",async()=>{
+ m.parseParking.mockReturnValue({ok:true,value:{}});m.parking.mockRejectedValue(new Error("駐車申告失敗"));
+ const b={...body(),parking:{status:"later"}};const r=await POST(request(b));expect(r.status).toBe(500);expect(await r.json()).toMatchObject({reportSaved:true,reportIds:["r1"]});
+ m.parking.mockResolvedValue({saved:true});expect((await POST(request(b))).status).toBe(200);
+ expect(m.rpc.mock.calls.map(c=>c[1].p_key)).toEqual(["same-retry-key","same-retry-key"]);
 });

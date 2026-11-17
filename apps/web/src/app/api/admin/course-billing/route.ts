@@ -24,6 +24,9 @@ export async function GET(req: NextRequest) {
   // 単価フォームを開けず 403 になる（2026-08-14 実地報告）。どちらかで可。
   const user = await requireAnyPermission(req, COURSE_BILLING_VIEW_CAPS);
   if (isAuthError(user)) return user;
+  if (!user.capabilities?.has("can_view_sales") || !user.capabilities.has("can_view_profit")) {
+    return NextResponse.json({ error: "権限がありません" }, { status: 403 });
+  }
   const orgId = await resolveOrgId(user.driverId);
 
   const courseId = req.nextUrl.searchParams.get("course_id") ?? "";
@@ -148,6 +151,9 @@ export async function PUT(req: NextRequest) {
   // 「コースの追加に失敗しました」と見える（2026-08-14 実地報告の原因）。
   const user = await requireAnyPermission(req, COURSE_BILLING_MANAGE_CAPS);
   if (isAuthError(user)) return user;
+  if (!user.capabilities?.has("can_view_sales") || !user.capabilities.has("can_view_profit")) {
+    return NextResponse.json({ error: "権限がありません" }, { status: 403 });
+  }
   const orgId = await resolveOrgId(user.driverId);
 
   const body = await req.json().catch(() => ({}));

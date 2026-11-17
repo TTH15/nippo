@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/daily-notifications",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/finalize-reports",
+      "schedule": "0 * * * *"
     }
   ]
 }

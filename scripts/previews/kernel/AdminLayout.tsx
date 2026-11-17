@@ -1,3 +1,4 @@
+import { isReportFlow, advanceReportFlow, resetReportFlow } from "../fixtures/reportLifecycle";
 import { bankHolderForTransfer } from "@repo/core/logic/bankHolder";
 import { getPreviewBank } from "../fixtures/bankPreviewStore";
 // "@/lib/components/AdminLayout" の差し替え。実画面の複製レイアウト（AdminPreviewLayout）に、
@@ -31,6 +32,10 @@ export function ScenarioBar() {
       <span className="font-bold text-slate-700">{store.fixture.title}</span>
       {store.scenario.startsWith("bank-") && ["bank-canonical", "bank-other", "bank-legacy", "bank-legacy-other", "bank-holder-full", "bank-holder-half"].includes(store.scenario) && <span className="flex items-center gap-1" aria-label="口座プレビューの画面">
         {[["管理画面", "/admin/users"], ["マイページ", "/me"], ["口座変更", "/account/bank-change"]].map(([label, path]) => <button key={path} type="button" className={pillOff} onClick={() => navigate(path)}>{label}</button>)}
+      </span>}
+      {isReportFlow(store.scenario) && <span className="flex flex-wrap gap-1" aria-label="日報の通し確認">
+        {[["日報入力", "/submit"], ["日報承認", "/admin/daily"], ["シフト表", "/admin/shifts"]].map(([label, path]) => <button key={path} type="button" className={pillOff} onClick={() => navigate(path)}>{label}</button>)}
+        <button type="button" className={pillOff} onClick={() => { try { advanceReportFlow(); store.invalidate(); } catch (e) { window.alert(e instanceof Error ? e.message : "確定できません"); } }}>午前3時の確定を試す</button>
       </span>}
       <span className="flex flex-wrap items-center gap-1" aria-label="シナリオ">
         {Object.entries(store.scenarios).map(([key, definition]) => (

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requirePermission, isAuthError } from "@/server/auth";
+import { requireAnyPermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { loadAggregationData } from "@/server/aggregation/load";
@@ -22,8 +22,10 @@ export const dynamic = "force-dynamic";
 // ============================================================
 
 export async function GET(req: NextRequest) {
-  const user = await requirePermission(req, "can_view_billing");
+  const user = await requireAnyPermission(req, ["can_view_sales", "can_view_profit"]);
   if (isAuthError(user)) return user;
+  const canViewSales = user.capabilities?.has("can_view_sales") === true;
+  const canViewProfit = user.capabilities?.has("can_view_profit") === true;
   const orgId = await resolveOrgId(user.driverId);
 
   const url = req.nextUrl;
@@ -129,7 +131,7 @@ export async function GET(req: NextRequest) {
     const cid = c.carrierId ?? "unknown";
     e.byCarrier[cid] = (e.byCarrier[cid] ?? 0) + revenue;
     e.byCarrierProfit[cid] = (e.byCarrierProfit[cid] ?? 0) + profit;
-    if (revenue !== 0 || profit !== 0) seenCarriers.add(cid);
+    if ((canViewSales && revenue !== 0) || (canViewProfit && profit !== 0)) seenCarriers.add(cid);
   }
 
   // リネージ用: その日の「承認済（集計対象）」「未承認（除外）」日報の件数を数える。
@@ -241,25 +243,21 @@ export async function GET(req: NextRequest) {
     const row: Record<string, unknown> = {
       iso,
       date: label,
-      yamato: d.yamato,
-      amazon: d.amazon,
-      other: d.other,
-      yamato_profit: d.yamato_profit,
-      amazon_profit: d.amazon_profit,
-      profit: d.profit,
+      ...(canViewSales ? { yamato: d.yamato, amazon: d.amazon, other: d.other } : {}),
+      ...(canViewProfit ? { yamato_profit: d.yamato_profit, amazon_profit: d.amazon_profit, profit: d.profit } : {}),
       reportCount: d.reportCount,
       pendingCount: d.pendingCount,
       logCount: d.logCount,
     };
     // 動的キャリア別 revenue/profit を平坦キーで載せる（グラフ系列・売上調整テーブル用）
     for (const c of carriersMeta) {
-      row[c.key] = d.byCarrier[c.id] ?? 0;
-      row[c.profitKey] = d.byCarrierProfit[c.id] ?? 0;
+      if (canViewSales) row[c.key] = d.byCarrier[c.id] ?? 0;
+      if (canViewProfit) row[c.profitKey] = d.byCarrierProfit[c.id] ?? 0;
     }
     return row;
   });
 
   const response = NextResponse.json({ startDate, endDate, basis, data: out, carriers: carriersMeta });
-  response.headers.set("Cache-Control", "private, max-age=60, stale-while-revalidate=600");
+  response.headers.set("Cache-Control", "private, no-store");
   return response;
 }

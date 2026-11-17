@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-const mock = vi.hoisted(() => ({ roleId: "role-1" as string | null, role: "DRIVER" }));
+const mock = vi.hoisted(() => ({ roleId: "role-1" as string | null, role: "DRIVER", individual: [] as string[], grantError: false }));
 
 vi.mock("@/server/db/client", () => ({
   supabase: {
@@ -8,7 +8,9 @@ vi.mock("@/server/db/client", () => ({
       select: () => ({
         eq: () => table === "drivers"
           ? { maybeSingle: async () => ({ data: { role: mock.role, role_id: mock.roleId, works_as_driver: true } }) }
-          : Promise.resolve({ data: [{ capability: "can_manage_org_settings" }] }),
+          : table === "member_capability_grants"
+            ? Promise.resolve({ data: mock.grantError ? null : mock.individual.map(capability => ({ capability })), error: mock.grantError ? { code: "offline" } : null })
+            : Promise.resolve({ data: [{ capability: "can_manage_org_settings" }] }),
       }),
     }),
   },
@@ -34,5 +36,18 @@ describe("resolveGrants", () => {
     const grants = await resolveGrants("driver-1", "ADMIN");
     expect(grants.capabilities.has("can_manage_courses")).toBe(true);
     expect(grants.capabilities.has("can_access_records")).toBe(true);
+  });
+
+  it("個人の追加を役割と合算し、削除と取得失敗を反映する", async () => {
+    mock.roleId = "role-1";
+    mock.individual = ["can_view_sales"];
+    expect((await resolveGrants("driver-1")).capabilities.has("can_view_sales")).toBe(true);
+    mock.individual = ["can_view_profit"];
+    expect((await resolveGrants("driver-1")).capabilities.has("can_view_profit")).toBe(false);
+    mock.individual = [];
+    expect((await resolveGrants("driver-1")).capabilities.has("can_view_sales")).toBe(false);
+    mock.grantError = true;
+    await expect(resolveGrants("driver-1")).rejects.toThrow();
+    mock.grantError = false;
   });
 });

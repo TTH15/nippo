@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
+import { isUuid, isDateOnly } from "@/server/db/adminResourceScope";
 import { resolveReportCycleChoices } from "@repo/core/logic/dailyReport";
 import { loadCourseReportFields } from "@/server/reports/courseReportFields";
 
@@ -21,8 +22,8 @@ export async function GET(req: NextRequest) {
 
   const driverId = req.nextUrl.searchParams.get("driverId") ?? "";
   const date = req.nextUrl.searchParams.get("date") ?? "";
-  if (!driverId) return NextResponse.json({ error: "driverId が必要です" }, { status: 400 });
-  if (!date) return NextResponse.json({ error: "date が必要です" }, { status: 400 });
+  if (!isUuid(driverId)) return NextResponse.json({ error: "driverId が必要です" }, { status: 400 });
+  if (!isDateOnly(date)) return NextResponse.json({ error: "date が必要です" }, { status: 400 });
 
   // driverId はクエリ由来。対象ドライバーが自 org のメンバーであることを先に確認する
   // （以降の shifts / courses / daily_reports_v2 の参照が他社に及ばないようにするため）。
@@ -35,6 +36,8 @@ export async function GET(req: NextRequest) {
     .maybeSingle();
   if (!targetDriver) return NextResponse.json({ error: "ドライバーが見つかりません" }, { status: 404 });
 
+  const expected = await supabase.rpc("report_day_revision", { p_org: orgId, p_driver: driverId, p_date: date });
+  if (expected.error) return NextResponse.json({ error: "日報を読み込めませんでした" }, { status: 500 });
   // その日のシフト（コース）
   const { data: shiftRows } = await supabase
     // tenant-scope-ok: 直上で自社のドライバーと確認済みの driverId に固定
@@ -83,7 +86,7 @@ export async function GET(req: NextRequest) {
       : null;
 
   if (courseIds.length === 0) {
-    return NextResponse.json({ shifts: [], shiftVehicleId });
+    return NextResponse.json({ shifts: [], shiftVehicleId, revision: expected.data });
   }
 
   const carrierIds = Array.from(new Set((courses ?? []).map((c: any) => c.carrier_id).filter(Boolean)));
@@ -182,5 +185,7 @@ export async function GET(req: NextRequest) {
     };
   });
 
-  return NextResponse.json({ shifts, shiftVehicleId });
+  const current = await supabase.rpc("report_day_revision", { p_org: orgId, p_driver: driverId, p_date: date });
+  if (current.error || current.data !== expected.data) return NextResponse.json({ error: "日報が変更されています。再読み込みしてください" }, { status: 409 });
+  return NextResponse.json({ shifts, shiftVehicleId, revision: expected.data }, { headers: { "Cache-Control": "private, no-store" } });
 }

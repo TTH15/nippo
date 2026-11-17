@@ -1,3 +1,4 @@
+import { restrictFinancialCapabilities } from "@/lib/financialCapabilities";
 // ============================================================
 // 認可モデル — capability カタログ（コードが知る固定集合）。
 // 各 capability は1つのサーバーガード（requirePermission）に対応する。
@@ -21,6 +22,8 @@ export const CAPABILITIES = [
   "can_manage_vehicles", // 車両の登録・管理（シフト画面の貸出切替を含む）
   "can_view_vehicle_cost", // 車両の金額情報（購入費用・リース代・初期費用回収）の閲覧
   "can_view_billing", // 請求・取引先の閲覧
+  "can_view_sales", // 売上の閲覧
+  "can_view_profit", // 利益の閲覧
   "can_manage_billing", // 請求の確定・取引先編集
   "can_view_members", // ドライバー名簿の閲覧
   "can_approve_members", // 参加承認・本人確認
@@ -70,7 +73,7 @@ export function expandCapabilities(granted: Iterable<Capability>): Set<Capabilit
     out.add(c);
     for (const implied of CAPABILITY_IMPLIES[c] ?? []) stack.push(implied);
   }
-  return out;
+  return restrictFinancialCapabilities(out);
 }
 
 // ============================================================
@@ -120,6 +123,8 @@ export const CAPABILITY_META: Record<Capability, { label: string; group: (typeof
   can_manage_vehicles: { label: "車両の管理", group: "車両" },
   can_view_vehicle_cost: { label: "車両の金額情報", group: "車両" },
   can_view_billing: { label: "請求・取引先の閲覧", group: "請求" },
+  can_view_sales: { label: "売上の閲覧", group: "請求" },
+  can_view_profit: { label: "利益の閲覧", group: "請求" },
   can_manage_billing: { label: "請求の管理（確定・取引先編集）", group: "請求" },
   can_view_bank_accounts: { label: "口座情報の閲覧", group: "本人確認・口座" },
   can_view_pii: { label: "顔・免許の閲覧", group: "本人確認・口座" },
@@ -230,6 +235,8 @@ export const PERMISSION_ROWS: PermissionRow[] = [
     view: "can_view_members",
     manage: "can_manage_members",
   },
+  { kind: "binary", key: "sales", label: "売上", description: "売上を閲覧", capability: "can_view_sales", onLabel: "閲覧可能" },
+  { kind: "binary", key: "profit", label: "利益", description: "利益を閲覧", capability: "can_view_profit", onLabel: "閲覧可能" },
   {
     kind: "binary",
     key: "approve_members",
@@ -320,6 +327,8 @@ export const DEFAULT_ROLE_CAPABILITIES: Record<string, Capability[]> = {
     "can_view_vehicles",
     "can_view_vehicle_cost", // 資産・コスト管理は経理の担当
     "can_view_billing",
+    "can_view_sales",
+    "can_view_profit",
     "can_manage_billing",
     "can_view_members",
     "can_view_org_settings",

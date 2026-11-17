@@ -21,6 +21,9 @@ export type UnitDef = {
 
 /** その日のシフト（コース）1件ぶんの日報フォーム */
 export type ShiftForm = {
+  /** 承認待ちの追加申請。正式なシフトとは分けて送信する。 */
+  requestId?: string;
+  requestAssigned?: boolean;
   courseId: string;
   /** 便。0はサイクル導入前の「コース全体」または便を使わないコース。 */
   cycleNo?: number;
@@ -31,6 +34,8 @@ export type ShiftForm = {
   carrierName: string;
   units: UnitDef[];
   existing: {
+    reportId?: string;
+    approvedAt?: string | null;
     requiresReview?: boolean;
     vehicleId: string | null;
     meterValue: number | null;

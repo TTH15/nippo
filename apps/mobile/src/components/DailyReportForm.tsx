@@ -1,5 +1,5 @@
 import { VehicleIdentity } from "./VehiclePlate";
-import { useEffect, useImperativeHandle, useState, forwardRef } from "react";
+import { useEffect, useImperativeHandle, useState, useRef, forwardRef } from "react";
 import { View, Text, Pressable, TextInput, ActivityIndicator } from "react-native";
 import { AppIcon } from "./AppIcon";
 import { apiFetch } from "@repo/core/api";
@@ -90,13 +90,18 @@ export const DailyReportForm = forwardRef<
     };
   }, []);
 
+  const revisionRef = useRef("");
+  const submissionKeyRef = useRef(`${Date.now()}-${Math.random()}`);
+
   useEffect(() => {
     let alive = true;
     setFormLoading(true);
     setMessage("");
-    apiFetch<{ shifts: ShiftForm[]; shiftVehicleId?: string | null }>(`/api/me/report-form?date=${date}`)
+    apiFetch<{ shifts: ShiftForm[]; revision: string; shiftVehicleId?: string | null }>(`/api/me/report-form?date=${date}`)
       .then((d) => {
         if (!alive) return;
+        revisionRef.current = d.revision;
+        submissionKeyRef.current = `${Date.now()}-${Math.random()}`;
         const sh = d.shifts ?? [];
         setShifts(sh);
         setShiftVehicleId(d.shiftVehicleId ?? null);
@@ -134,10 +139,13 @@ export const DailyReportForm = forwardRef<
     setError("");
     setMessage("");
     try {
-      const items = buildPhotoReportItems(shifts, values, confirmedVehicle?.id ?? vehicleId);
+      const items = buildPhotoReportItems(shifts, values, confirmedVehicle?.id ?? vehicleId).map(item => {
+        const shift = shifts.find(s => s.courseId === item.courseId && (s.cycleNo ?? 0) === (item.cycleNo ?? 0));
+        return { ...item, request: !!shift?.requestId && !shift.requestAssigned };
+      });
       await apiFetch("/api/reports/v2", {
         method: "POST",
-        body: JSON.stringify({ reportDate: date, driverIdentityId: identityId, items }),
+        body: JSON.stringify({ reportDate: date, driverIdentityId: identityId, items, expectedRevision: revisionRef.current, clientKey: submissionKeyRef.current }),
       });
       setMessage("日報を送信しました");
       onSubmitted?.();

@@ -944,6 +944,8 @@ export default function SalesPage() {
   const [logDeleteTarget, setLogDeleteTarget] = useState<SalesLogEntryRow | null>(null);
   const [logDeleteError, setLogDeleteError] = useState<string | null>(null);
   const [canWrite, setCanWrite] = useState(false);
+  const [canViewProfit, setCanViewProfit] = useState(false);
+  const [canViewSales, setCanViewSales] = useState(false);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
   // テーブルビューのドリルダウン（開いているドライバー行。アコーディオン式に1人だけ）
   const [expandedDriverId, setExpandedDriverId] = useState<string | null>(null);
@@ -951,7 +953,9 @@ export default function SalesPage() {
   const [manualRefreshing, setManualRefreshing] = useState(false);
 
   useEffect(() => {
-    setCanWrite(hasCapability("can_manage_billing"));
+    setCanViewProfit(hasCapability("can_view_profit"));
+    setCanViewSales(hasCapability("can_view_sales"));
+    setCanWrite(hasCapability("can_manage_billing") && hasCapability("can_view_profit") && hasCapability("can_view_sales"));
   }, []);
 
   const { data: coursesData } = useSWR<{ courses: CourseRow[] }>(
@@ -997,7 +1001,7 @@ export default function SalesPage() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
-    if (params.get("tab") === "log") setTab("log");
+    if (params.get("tab") === "log" && hasCapability("can_view_sales") && hasCapability("can_view_profit")) setTab("log");
   }, []);
 
   // テーブル・売上ログ・日別詳細の対象範囲: 期間指定なら任意範囲、それ以外は基準月
@@ -1429,7 +1433,7 @@ export default function SalesPage() {
         <UnderlineTabs
           tabs={[
             { value: "dashboard", label: "ダッシュボード" },
-            { value: "log", label: "売上調整" },
+            ...(canViewProfit && canViewSales ? [{ value: "log", label: "売上調整" }] : []),
           ]}
           value={tab === "log" ? "log" : "dashboard"}
           onChange={(v) => setTab(v === "log" ? "log" : "analytics")}
@@ -1541,8 +1545,8 @@ export default function SalesPage() {
               <>
                 {loadingAnalytics ? (
                   <>
-                    <div className="mb-4 grid grid-cols-2 md:grid-cols-4 gap-px rounded-lg border border-slate-200 bg-slate-200 overflow-hidden">
-                      {[...Array(4)].map((_, i) => (
+                    <div className={`mb-4 grid ${canViewSales ? canViewProfit ? "grid-cols-2 md:grid-cols-4" : "grid-cols-1 sm:grid-cols-3" : "grid-cols-1 sm:grid-cols-2"} gap-px rounded-lg border border-slate-200 bg-slate-200 overflow-hidden`}>
+                      {[...Array(canViewSales ? canViewProfit ? 4 : 3 : 2)].map((_, i) => (
                         <div key={i} className="bg-white p-4">
                           <Skeleton className="h-3 w-14 mb-2" />
                           <Skeleton className="h-6 w-24" />
@@ -1559,8 +1563,8 @@ export default function SalesPage() {
                 ) : (
                   <>
                     {/* KPI スタット行: 売上 / 粗利 / 平均 / 稼働率（旧右サイドバーの畳み込み） */}
-                    <div className="mb-4 grid grid-cols-2 md:grid-cols-4 gap-px rounded-lg border border-slate-200 bg-slate-200 overflow-hidden">
-                      <div className="bg-white p-4">
+                    <div className={`mb-4 grid ${canViewSales ? canViewProfit ? "grid-cols-2 md:grid-cols-4" : "grid-cols-1 sm:grid-cols-3" : "grid-cols-1 sm:grid-cols-2"} gap-px rounded-lg border border-slate-200 bg-slate-200 overflow-hidden`}>
+                      {canViewSales && <div className="bg-white p-4">
                         <div className="text-xs font-semibold text-slate-500">売上（{taxLabel}）</div>
                         <div className="mt-0.5 text-xl font-bold text-slate-900 tracking-tight tabular-nums">
                           {fmt(displayTotals.total)}
@@ -1582,17 +1586,17 @@ export default function SalesPage() {
                           )}
                           {!loadingPrev && revenueChangePct == null && <span>– 前期間比</span>}
                         </div>
-                      </div>
-                      <div className="bg-white p-4">
+                      </div>}
+                      {canViewProfit && <div className="bg-white p-4">
                         <div className="text-xs font-semibold text-slate-500">粗利（{taxLabel}）</div>
                         <div className="mt-0.5 text-xl font-bold text-slate-900 tracking-tight tabular-nums">
                           {fmt(displayTotals.profit)}
-                          {margin != null && (
+                          {canViewSales && margin != null && (
                             <span className="text-sm font-semibold text-slate-500"> ({margin.toFixed(1)}%)</span>
                           )}
                         </div>
                         <div className="mt-0.5 flex items-center gap-1 text-xs text-slate-500">
-                          {marginDiff != null ? (
+                          {canViewSales && marginDiff != null ? (
                             <>
                               <FontAwesomeIcon
                                 icon={marginDiff >= 0 ? faArrowTrendUp : faArrowTrendDown}
@@ -1608,29 +1612,29 @@ export default function SalesPage() {
                             <span>– 粗利率変化</span>
                           )}
                         </div>
-                      </div>
-                      <div className="bg-white p-4">
+                      </div>}
+                      {canViewSales && <div className="bg-white p-4">
                         <div className="text-xs font-semibold text-slate-500">
                           {chartUnit === "half" ? "半月平均売上" : chartUnit === "month" ? "月平均売上" : "1日平均売上"}
                         </div>
                         <div className="mt-0.5 text-xl font-bold text-slate-900 tracking-tight tabular-nums">
                           {fmt(Math.round(revenuePerDay))}
                         </div>
-                        <div className="mt-0.5 text-xs text-slate-500">
+                        {canViewProfit && <div className="mt-0.5 text-xs text-slate-500">
                           利益 <span className="font-semibold tabular-nums text-slate-700">{fmt(dailyAvg.profit)}</span>
-                        </div>
-                      </div>
+                        </div>}
+                      </div>}
                       <div className="bg-white p-4">
                         <div className="text-xs font-semibold text-slate-500">稼働率</div>
                         <div className="mt-0.5 text-xl font-bold text-slate-900 tracking-tight tabular-nums">
                           {displayData.length > 0 ? `${utilization.toFixed(1)}%` : "–"}
                         </div>
-                        <div className="mt-0.5 text-xs text-slate-500">
+                        {canViewSales && <div className="mt-0.5 text-xs text-slate-500">
                           1人あたり売上{" "}
                           <span className="font-semibold tabular-nums text-slate-700">
                             {fmt(Math.round(revenuePerDriver))}
                           </span>
-                        </div>
+                        </div>}
                       </div>
                     </div>
 
@@ -1640,11 +1644,11 @@ export default function SalesPage() {
                         <ComposedChart data={displayData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
                           <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
                           <XAxis dataKey="date" tick={{ fill: "#94a3b8", fontSize: 12 }} tickLine={false} axisLine={{ stroke: "#e2e8f0" }} />
-                          <YAxis yAxisId="left" domain={yAxisDomain.left} tick={{ fill: "#94a3b8", fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={yAxisTickFormatter} width={48} />
-                          <YAxis yAxisId="right" domain={yAxisDomain.right} orientation="right" tick={{ fill: "#94a3b8", fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={yAxisTickFormatter} width={48} />
+                          {canViewSales && <YAxis yAxisId="left" domain={yAxisDomain.left} tick={{ fill: "#94a3b8", fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={yAxisTickFormatter} width={48} />}
+                          {canViewProfit && <YAxis yAxisId="right" domain={yAxisDomain.right} orientation="right" tick={{ fill: "#94a3b8", fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={yAxisTickFormatter} width={48} />}
                           <Tooltip content={<CustomTooltip />} />
                           <Legend wrapperStyle={{ paddingTop: "16px", fontSize: "12px" }} iconType="square" iconSize={10} />
-                          {carriersMeta.map((c, i) => (
+                          {canViewSales && carriersMeta.map((c, i) => (
                             <Bar
                               key={c.key}
                               yAxisId="left"
@@ -1654,8 +1658,8 @@ export default function SalesPage() {
                               name={`${c.name}売上`}
                             />
                           ))}
-                          <Bar yAxisId="left" dataKey="other" stackId="revenue" fill="#cbd5f5" name="その他売上（調整）" radius={[3, 3, 0, 0]} />
-                          <Line yAxisId="right" type="monotone" dataKey="profit" stroke="#059669" strokeWidth={2.5} name="利益" dot={{ fill: "#059669", r: 3, strokeWidth: 0 }} activeDot={{ r: 5, strokeWidth: 2, stroke: "#fff" }} />
+                          {canViewSales && <Bar yAxisId="left" dataKey="other" stackId="revenue" fill="#cbd5f5" name="その他売上（調整）" radius={[3, 3, 0, 0]} />}
+                          {canViewProfit && <Line yAxisId="right" type="monotone" dataKey="profit" stroke="#059669" strokeWidth={2.5} name="利益" dot={{ fill: "#059669", r: 3, strokeWidth: 0 }} activeDot={{ r: 5, strokeWidth: 2, stroke: "#fff" }} />}
                         </ComposedChart>
                       </ResponsiveContainer>
                     </div>
@@ -1680,7 +1684,7 @@ export default function SalesPage() {
               </>
             )}
 
-            {tab === "log" && (
+            {tab === "log" && canViewProfit && canViewSales && (
               <>
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
                   {canWrite && (

@@ -1,3 +1,4 @@
+import { serializeOperationalCourse } from "@/server/courses/serialize";
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
@@ -32,7 +33,7 @@ export async function GET(req: NextRequest) {
   }
 
   const rows = (courses ?? []).map((c: Record<string, unknown>) => ({
-    ...c,
+    ...serializeOperationalCourse(c, user.capabilities),
     carrier_name: (c.carriers as { name?: string } | null)?.name ?? null,
     // 便番号順に整える（入れ子 join の順序は保証されない）
     course_cycles: ((c.course_cycles as { cycle_no: number }[] | null) ?? [])
@@ -155,6 +156,7 @@ export async function POST(req: NextRequest) {
     if (summaryTitle !== undefined) {
       insertRow.summary_title = typeof summaryTitle === "string" && summaryTitle.trim() !== "" ? summaryTitle.trim() : null;
     }
+    if (dailyLeaseRaw !== undefined && (!user.capabilities?.has("can_view_sales") || !user.capabilities.has("can_view_profit"))) return NextResponse.json({ error: "金額を変更する権限がありません" }, { status: 403 });
     if (dailyLeaseRaw !== undefined) {
       insertRow.daily_lease = Math.max(0, Math.trunc(Number(dailyLeaseRaw) || 0));
     }
@@ -177,7 +179,7 @@ export async function POST(req: NextRequest) {
     // Phase9-C: 旧 course_rates へのデフォルト投入は廃止。
     // 単価は新モデル（course_unit_rates / course_fixed_rates）を CourseRateEditor で設定する。
 
-    return NextResponse.json({ course });
+    return NextResponse.json({ course: serializeOperationalCourse(course, user.capabilities) });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

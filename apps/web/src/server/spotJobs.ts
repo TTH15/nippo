@@ -9,7 +9,7 @@ const TIME_RE = /^\d{2}:\d{2}(:\d{2})?$/;
 export const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export const SPOT_JOB_COLUMNS =
-  "id, title, job_date, meeting_place, meeting_time, end_time, client_name, billing_amount, note, status, created_at";
+  "id, title, job_date, meeting_place, meeting_time, end_time, client_name, billing_amount, note, status, created_at, updated_at";
 
 type SpotJobRow = {
   id: string;
@@ -23,6 +23,7 @@ type SpotJobRow = {
   note: string | null;
   status: string;
   created_at: string;
+  updated_at?: string;
 };
 
 type MemberRow = {
@@ -38,23 +39,24 @@ function trimTime(v: string | null): string | null {
   return v ? v.slice(0, 5) : null;
 }
 
-export function serializeSpotJob(row: SpotJobRow, members: MemberRow[]) {
+export function serializeSpotJob(row: SpotJobRow, members: MemberRow[], access: { sales: boolean; profit: boolean }) {
   return {
     id: row.id,
     title: row.title,
+    updatedAt: row.updated_at,
     jobDate: row.job_date,
     meetingPlace: row.meeting_place,
     meetingTime: trimTime(row.meeting_time),
     endTime: trimTime(row.end_time),
     clientName: row.client_name,
-    billingAmount: row.billing_amount,
+    billingAmount: access.sales ? row.billing_amount : null,
     note: row.note,
     status: row.status,
     members: members.map((m) => ({
       id: m.id,
       driverId: m.driver_id,
       displayName: m.display_name,
-      payAmount: m.pay_amount,
+      payAmount: access.sales && access.profit ? m.pay_amount : null,
     })),
   };
 }
@@ -146,7 +148,7 @@ export async function loadMembers(jobIds: string[]): Promise<Map<string, MemberR
 }
 
 /** org 内の1件を members 込みで取得（無ければ null）。 */
-export async function fetchSpotJob(orgId: string, jobId: string): Promise<SerializedSpotJob | null> {
+export async function fetchSpotJob(orgId: string, jobId: string, access: { sales: boolean; profit: boolean }): Promise<SerializedSpotJob | null> {
   const { data, error } = await supabase
     .from("spot_jobs")
     .select(SPOT_JOB_COLUMNS)
@@ -156,5 +158,5 @@ export async function fetchSpotJob(orgId: string, jobId: string): Promise<Serial
   if (error) throw error;
   if (!data) return null;
   const members = await loadMembers([data.id]);
-  return serializeSpotJob(data, members.get(data.id) ?? []);
+  return serializeSpotJob(data, members.get(data.id) ?? [], access);
 }
