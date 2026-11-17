@@ -2548,11 +2548,11 @@ export default function ShiftsPage() {
         >
         {/* 年月と前後半は同じ操作群に置き、表示項目・軸は共通の開閉パネルへ。 */}
         <h1 className="shrink-0 text-lg font-bold text-slate-900">シフト表</h1>
-        <ShiftDisplayPanel toolbar={trigger => <div className={"flex min-w-0 flex-1 flex-wrap items-center gap-2"}>
+        <ShiftDisplayPanel toolbar={trigger => <div className="flex min-w-0 flex-1 basis-auto flex-wrap items-center gap-2">
           {periodControl}
-          {/* 操作ボタン群（エクスポート／更新／設定）は右寄せで1行にまとめる。
+          {/* 操作ボタン群（エクスポート／更新／設定）は右寄せにし、狭い幅では折り返す。
               シフト表の AI 取り込みはボタンではなく、画面へのファイルドロップが入口。 */}
-          {workspaceView === "shift" && <div className="ml-auto flex items-center gap-2 shrink-0">
+          {workspaceView === "shift" && <div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-2">
             <div className="relative">
               {/* スマホは省スペースのためアイコンのみ（PC は従来のラベル付き） */}
               <button
@@ -2632,13 +2632,13 @@ export default function ShiftsPage() {
         </ShiftDisplayPanel>
 
         {workspaceView === "shift" && (canWrite || canLoan) && (
-          <div className="mb-2 flex items-center gap-2 text-[11px] md:text-xs text-slate-500">
+          <div role="status" className="mb-2 flex w-full min-w-0 items-center gap-2 text-[11px] md:text-xs text-slate-500">
             <span
-              className={`inline-block h-2 w-2 rounded-full ${
+              className={`inline-block h-2 w-2 shrink-0 rounded-full ${
                 autoSaving > 0 ? "bg-amber-400 animate-pulse" : "bg-emerald-500"
               }`}
             />
-            {autoSaving > 0 ? "自動保存中…" : "変更は自動保存されます"}
+            {autoSaving > 0 ? "自動保存中…" : "保存済み"}
           </div>
         )}
 
