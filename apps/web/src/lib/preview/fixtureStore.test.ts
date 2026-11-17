@@ -66,6 +66,17 @@ describe("createFixtureStore", () => {
     expect(store.resolve("/api/other")).toMatchObject({ status: "error", error: new Error(UNSUPPORTED_MESSAGE) });
     await expect(store.fetch("/api/other", { method: "DELETE" })).rejects.toThrow(UNSUPPORTED_MESSAGE);
   });
+  it("詳細だけを読み込み中にし、一覧は開ける。別シナリオでは通常応答へ戻る", () => {
+    const scoped: PreviewFixture<State> = { ...fixture,
+      isPending: (_state, request, context) => context.scenario === "normal" && request.path === "/api/items/1",
+      read: (state, request, context) => request.path === "/api/items/1" ? { item: state.items[0] ?? null } : fixture.read(state, request, context),
+    };
+    const loading = createFixtureStore(scoped, { scenario: "normal", role: "admin" });
+    expect(loading.resolve("/api/items").status).toBe("ok");
+    expect(loading.resolve("/api/items/1")).toEqual({ status: "pending" });
+    const restored = createFixtureStore(scoped, { scenario: "empty", role: "admin" });
+    expect(restored.resolve("/api/items/1")).toEqual({ status: "ok", data: { item: null } });
+  });
   it("書き込みで状態が進み、購読者に通知される", async () => {
     const store = createFixtureStore(fixture, { scenario: "normal", role: "admin" });
     let calls = 0;

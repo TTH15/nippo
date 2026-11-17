@@ -63,6 +63,21 @@ import SpotJobsPage from "@/app/(admin)/admin/(ops)/spot-jobs/page";
 import { spotJobsFixture } from "./spotJobs";
 import OrganizationPage from "@/app/(admin)/admin/(settings)/organization/page";
 import { organizationFixture } from "./organization";
+import CarriersPage from "@/app/(admin)/admin/(delivery)/carriers/page";
+import DeliveryPage from "@/app/(admin)/admin/(analytics)/delivery/page";
+import EventsPage from "@/app/(admin)/admin/(events)/events/page";
+import NotificationsPage from "@/app/(admin)/admin/(ops)/notifications/page";
+import AdjustmentsPage from "@/app/(admin)/admin/(accounting)/adjustments/page";
+import SubmitScreenPage from "@/app/(admin)/admin/(events)/submit-screen/page";
+import { DriverNotificationsPreview, RewardsPreview, HomeLoadingPreview, DriverRecordsPreview, PlatformHomePreview, PlatformApplicationsPreview } from "../driver-loading-pages";
+import AttendancePage from "@/app/(admin)/admin/(ops)/attendance/page";
+import CounterpartiesPage from "@/app/(admin)/admin/(accounting)/counterparties/page";
+import RecordsPage from "@/app/(admin)/admin/(ops)/records/page";
+import RecordFormsPage from "@/app/(admin)/admin/(ops)/record-forms/page";
+import MiscReportsPage from "@/app/(admin)/admin/(ops)/misc-reports/page";
+import OtherReportsPage from "@/app/(admin)/admin/(ops)/misc-reports/others/page";
+import { utilityLoadingFixture } from "./loadingAudit";
+import { carriersFixture, deliveryFixture, eventsFixture, notificationsFixture, driverNotificationsFixture, rewardsFixture, adjustmentsFixture, submitScreenFixture } from "./loadingAudit";
 
 export type PreviewPageEntry = {
   /** URLの末尾（/preview/admin/<slug>） */
@@ -75,6 +90,24 @@ export type PreviewPageEntry = {
 const entry = <S,>(slug: string, fixture: PreviewFixture<S>, Page: ComponentType): PreviewPageEntry => ({ slug, fixture: fixture as PreviewFixture<any>, Page });
 
 export const PREVIEW_PAGES: PreviewPageEntry[] = [
+  entry("attendance", { ...utilityLoadingFixture, id: "attendance", title: "勤怠", pathname: "/admin/attendance" }, AttendancePage),
+  entry("counterparties", { ...utilityLoadingFixture, id: "counterparties", title: "取引先", pathname: "/admin/counterparties" }, CounterpartiesPage),
+  entry("records", { ...utilityLoadingFixture, id: "records", title: "記録・報告", pathname: "/admin/records" }, RecordsPage),
+  entry("record-forms", { ...utilityLoadingFixture, id: "record-forms", title: "フォーム管理", pathname: "/admin/record-forms" }, RecordFormsPage),
+  entry("misc-reports", { ...utilityLoadingFixture, id: "misc-reports", title: "諸報告", pathname: "/admin/misc-reports" }, MiscReportsPage),
+  entry("other-reports", { ...utilityLoadingFixture, id: "other-reports", title: "その他の報告", pathname: "/admin/misc-reports/others" }, OtherReportsPage),
+  entry("driver-records", { ...utilityLoadingFixture, id: "driver-records", title: "本人の記録・報告", pathname: "/me/records" }, DriverRecordsPreview),
+  entry("platform-home", { ...utilityLoadingFixture, id: "platform-home", title: "運営窓口", pathname: "/platform" }, PlatformHomePreview),
+  entry("platform-applications", { ...utilityLoadingFixture, id: "platform-applications", title: "会社の申請", pathname: "/platform/applications" }, PlatformApplicationsPreview),
+  entry("home-loading", { id: "home-loading", title: "ホームの遷移待ち", pathname: "/", scenarios: { normal: { label: "通常" } }, createState: () => null, read: () => undefined }, HomeLoadingPreview),
+  entry("carriers", carriersFixture, CarriersPage),
+  entry("delivery", deliveryFixture, DeliveryPage),
+  entry("events", eventsFixture, EventsPage),
+  entry("notifications", notificationsFixture, NotificationsPage),
+  entry("driver-notifications", driverNotificationsFixture, DriverNotificationsPreview),
+  entry("rewards", rewardsFixture, RewardsPreview),
+  entry("adjustments", adjustmentsFixture, AdjustmentsPage),
+  entry("submit-screen", submitScreenFixture, SubmitScreenPage),
   entry("sales", salesFixture, SalesPage),
   entry("driver-report", reportFixture, ReportPreview),
   entry("organization", organizationFixture, OrganizationPage),

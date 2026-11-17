@@ -43,6 +43,7 @@ export const submitFixture: PreviewFixture<State> = {
   title: "日報入力・ログイン設定",
   pathname: "/submit",
   scenarios: {
+    "post-loading": { label: "送信後の読み込み中" },
     "image-multi": { label: "画像・同じ項目の複数コース",description: "反映先を選ぶまで数量を変更しない" },
     "image-reupload": { label: "画像・入力済み",description: "既存値と読み取り値を見比べて選んだ項目だけ変更する" },
     cycles: { label: "C1午前・C2午後", description: "実際の入力欄と便の色を確認し、別々の値を送信する" },
@@ -62,6 +63,7 @@ export const submitFixture: PreviewFixture<State> = {
     recent: false, smsSent: false, challenge: null, attempts: 0, statusFailures: scenario === "setup-error" ? 1 : 0,
     sourceImages: [], readings: [], imageTemplates: scenario !== "no-image-template" }),
   onReset: () => resetReportFlow(),
+  isPending: (_state, { path }, { scenario }) => scenario === "post-loading" && path === "/api/me/submit-screen",
   read: (state, request, { scenario }) => {
     const { path } = request;
     const flow = readReportFlow(request, scenario); if (flow !== undefined) return flow;

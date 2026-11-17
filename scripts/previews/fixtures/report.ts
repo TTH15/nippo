@@ -4,11 +4,13 @@ const vehicles = [1, 2].map(i => ({ id: `preview-vehicle-${i}`, number_prefix: "
 export const reportFixture: PreviewFixture<ReturnType<typeof meFixture.createState>> = {
   ...meFixture, id: "driver-report", title: "ドライバーのオイル交換報告", pathname: "/report",
   scenarios: {
+    "vehicle-loading": { label: "車両だけ読み込み中" },
     normal: { label: "紐付けなし", description: "他の車両だけで選択・送信" },
     linked: { label: "紐付けあり", description: "紐付け車から選択" },
     empty: { label: "車両なし", description: "両一覧とも空" },
     "vehicle-error": { label: "車両取得失敗", description: "車両だけ取得失敗" },
   },
+  isPending: (_state, { path }, { scenario }) => scenario === "vehicle-loading" && path.startsWith("/api/reports/vehicles"),
   read: (state, request, context) => {
     const { path } = request;
     if (path === "/api/me/report-kinds") return { kinds: [{ key: "oil_change", label: "オイル交換", vehicleMode: "required", fields: [{ id: "meter", type: "number", label: "走行距離", required: true, role: "odometer" }] }] };

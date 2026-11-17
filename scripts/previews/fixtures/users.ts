@@ -102,6 +102,7 @@ export const usersFixture: PreviewFixture<State> = {
   title: "ドライバー一覧",
   pathname: "/admin/users",
   scenarios: {
+    "detail-loading": { label: "詳細の読み込み中", description: "名簿から編集を開く" },
     ...bankPreviewScenarios,
     normal: { label: "通常", description: "稼働中8名・稼働終了2名。免許期限間近・コース未設定・電話未認証を含む" },
     empty: { label: "0件", description: "ドライバーが1人もいない" },
@@ -113,6 +114,7 @@ export const usersFixture: PreviewFixture<State> = {
     leases: new Map(),
   }),
   onReset: context => resetPreviewBank(context),
+  isPending: (_state, { path }, { scenario }) => scenario === "detail-loading" && /^\/api\/admin\/users\/[^/]+$/.test(path),
   read: (state, { path, params }, context) => {
     const shared = getPreviewBank(context); if (shared && state.drivers[0]) Object.assign(state.drivers[0], shared);
     if (path === "/api/admin/users") {
