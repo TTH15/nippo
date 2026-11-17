@@ -22,6 +22,8 @@ import VehiclesPage from "@/app/(admin)/admin/(resource)/vehicles/page";
 import BankCleanupPage from "../bank-cleanup";
 import { bankCleanupFixture } from "./bankCleanup";
 import UsersPage from "@/app/(admin)/admin/(resource)/users/page";
+import UsersPendingPage from "@/app/(admin)/admin/(resource)/users/pending/page";
+import { usersPendingFixture } from "./usersPending";
 import CoursesPage from "@/app/(admin)/admin/(delivery)/courses/page";
 import MapPage from "@/app/(admin)/admin/(ops)/map/page";
 import PaymentsPage from "@/app/(admin)/admin/(accounting)/payments/page";
@@ -92,6 +94,7 @@ export const PREVIEW_PAGES: PreviewPageEntry[] = [
   entry("dashboard", dashboardFixture, DashboardPage),
   entry("vehicles", vehiclesFixture, VehiclesPage),
   entry("users", usersFixture, UsersPage),
+  entry("users-pending", usersPendingFixture, UsersPendingPage),
   entry("bank-cleanup", bankCleanupFixture, BankCleanupPage),
   entry("courses", coursesFixture, CoursesPage),
   entry("roles", rolesFixture, RolesPage),

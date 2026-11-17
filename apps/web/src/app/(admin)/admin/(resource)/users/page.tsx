@@ -1155,8 +1155,8 @@ export default function UsersPage() {
                 </div>
               ))}
             </div>
-            <div className="hidden md:block">
-              <table className="w-full text-sm">
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full min-w-[900px] text-sm">
                 <thead className="bg-slate-50">
                   <tr>
                     {["No.", "ドライバー", "認証", "ドライバーコード", "表示名", "コース", "免許期限", "権限"].map((h) => (
@@ -1180,6 +1180,7 @@ export default function UsersPage() {
                       <td className="px-4 py-3"><Skeleton className="h-4 w-20" /></td>
                       <td className="px-4 py-3"><Skeleton className="h-4 w-28 rounded" /></td>
                       <td className="px-4 py-3"><Skeleton className="h-4 w-24" /></td>
+                      <td className="px-4 py-3"><Skeleton className="h-4 w-20" /></td>
                       <td className="px-4 py-3"><Skeleton className="h-7 w-32 rounded" /></td>
                     </tr>
                   ))}

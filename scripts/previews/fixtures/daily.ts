@@ -11,6 +11,7 @@ export const dailyFixture: PreviewFixture<State> = {
     correction: { label: "修正・再承認", description: "確定解除した日報を再承認" },
     finalization: { label: "午前3時の確定", description: "承認済みから確定へ進める" },
     normal: { label: "通常", description: "日報の車両番号" },
+    unsubmitted: { label: "未提出・代理入力", description: "シフトがあり日報は未提出" },
     mismatch: { label: "シフトと不一致", description: "シフト外のコースを提出した状態" },
     "legacy-whole": { label: "旧全体日報", description: "C1・C2の予定と旧全体日報1件を照合" },
     "duplicate-report": { label: "重複提出", description: "同じ便の日報が複数ある状態" },
@@ -24,7 +25,7 @@ export const dailyFixture: PreviewFixture<State> = {
     large: { label: "多数のコース", description: "1人の日報に多数のコース" },
     empty: { label: "提出なし", description: "日報が無い場合" },
   },
-  createState: ({ scenario }) => ({ empty: scenario === "empty", shiftChange: ["mismatch", "legacy-whole", "duplicate-report", "cycle-added", "shift-changed", "multi-course", "different-readings", "different-vehicles", "long-name", "large"].includes(scenario) ? createDailyShiftChange(scenario) : null }),
+  createState: ({ scenario }) => ({ empty: scenario === "empty", shiftChange: ["unsubmitted", "mismatch", "legacy-whole", "duplicate-report", "cycle-added", "shift-changed", "multi-course", "different-readings", "different-vehicles", "long-name", "large"].includes(scenario) ? createDailyShiftChange(scenario) : null }),
   onReset: () => resetReportFlow(),
   write(state, request, { scenario, role }) {
     const flow = writeReportFlow(request, scenario, role); if (flow !== undefined) return flow;

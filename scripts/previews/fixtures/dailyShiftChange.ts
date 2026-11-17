@@ -38,6 +38,7 @@ export function createDailyShiftChange(scenario = "shift-changed") {
   if (scenario === "mismatch") reports[0] = { ...reports[0], course_id: "wrong-course", course_name: "別コースの提出" };
   if (scenario === "legacy-whole") { assignments = [1,2].map(cycleNo => ({ courseId: reports[0].course_id!, cycleNo, courseName: reports[0].course_name ?? undefined, courseColor: reports[0].course_color ?? null, cycleLabel: `C${cycleNo}` })); reports = [{ ...reports[0], cycle_no: 0, cycle_label: null }]; }
   if (scenario === "duplicate-report") reports.push({ ...reports[0], id: "duplicate-report" });
+  if (scenario === "unsubmitted") { reports = []; assignments = assignments.slice(0, 1); }
   return { date, driver, reports, assignments: assignments.length > 1 && assignments[0].courseId === assignments[1].courseId ? [assignments[1],assignments[0],...assignments.slice(2)] : assignments };
 }
 
@@ -50,7 +51,7 @@ export function readDailyShiftChange(state: ReturnType<typeof createDailyShiftCh
       shiftCoursesByDriver: { [state.driver.id]: [...new Set(active.map(report => report.course_id))] },
       reportsByDriver: { [state.driver.id]: active } }],
   };
-  if (path === "/api/admin/daily/report-form") return { shiftVehicleId: active[0]?.vehicle_id ?? null, shifts: state.assignments.map(a => {
+  if (path === "/api/admin/daily/report-form") return { revision: `preview-${state.reports.length}`, shiftVehicleId: active[0]?.vehicle_id ?? null, shifts: state.assignments.map(a => {
     const r = active.find(r => r.course_id === a.courseId && (r.cycle_no ?? 0) === a.cycleNo);
     return { ...a, courseName: active[0]?.course_name ?? "日中サンプル", cycleLabel: `C${a.cycleNo}`, color: null,
       carrierId: null, carrierName: "サンプル配送", units: [{ id: "fictional-parcel", name: "配送", code: "PARCEL", billingType: "PER_PIECE",
@@ -67,7 +68,7 @@ export function writeDailyShiftChange(state: ReturnType<typeof createDailyShiftC
   if (path === "/api/admin/daily/reports/proxy") {
     for (const item of body.items as { courseId: string; cycleNo: number; entries: { valueNum: number }[] }[]) {
       if (state.reports.some(r => r.course_id === item.courseId && r.cycle_no === item.cycleNo && r.approved_at)) continue;
-      const template = state.reports[0];
+      const template = state.reports[0] ?? createDailyShiftChange("cycle-added").reports[0];
       state.reports.push({ ...template, id: "new-cycle-report", cycle_no: item.cycleNo, cycle_label: `C${item.cycleNo}`,
         content: [{ unitId: "fictional-parcel", unitName: "配送", fields: [{ fieldKey: "completed", label: "完了", inputType: "INT", groupLabel: "午後", valueNum: item.entries[0]?.valueNum ?? 0, valueText: null }] }],
         approved_at: new Date().toISOString() });

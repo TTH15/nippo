@@ -186,6 +186,7 @@ function DailyDecision({ status, needsProxy, canWrite, onApprove, onReject, assi
     <button type="button" onClick={onReject} className="min-h-11 rounded-full bg-slate-100 px-4 text-xs font-semibold text-slate-600 hover:bg-slate-200">却下</button>
   </div>;
   if (status === "approved") return <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2 py-1 text-[11px] font-semibold ${needsProxy ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}>{!needsProxy && <FontAwesomeIcon icon={faCircleCheck} className="mr-1" />}{needsProxy ? "一部未提出" : "承認済み"}</span>;
+  if (status === "unsubmitted" || status === "off") return null;
   return <span className={`text-xs ${status === "rejected" ? "text-rose-600" : "text-slate-400"}`}>{status === "pending" ? "未承認" : status === "rejected" ? "却下" : status === "excluded" ? "対象外" : "—"}</span>;
 }
 
