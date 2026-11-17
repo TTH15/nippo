@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { DriverSetupGate, DriverSetupPanel } from "./DriverSetupGate";
 const m = vi.hoisted(() => ({ api: vi.fn(), passkey: vi.fn(), verified: false, phone: "09000000000", hasKey: true,
   bank: { bankName: "", bankNo: "", bankHolder: "", bankBranch: "", bankType: "" }, failRead: false, failSave: false, persistPhone: true }));
@@ -62,11 +62,46 @@ it("両方登録済みならモーダルを省略する", async () => {
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   await waitFor(() => expect(screen.getByText("通常の業務画面").closest("[data-driver-setup-background]")).not.toHaveAttribute("inert"));
 });
-it("取得失敗では入力を開始せず再読み込みできる", async () => {
+it.each([true, false])("初回確認待ちは案内を出さず、取得結果に応じて入場する（完了=%s）", async complete => {
+  m.verified = complete; m.bank = complete ? readyBank : m.bank;
+  const read = m.api.getMockImplementation()!;
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  m.api.mockImplementation(async (...args: Parameters<typeof read>) => { await pending; return read(...args); });
+  const view = render(<DriverSetupGate><div>通常の業務画面</div></DriverSetupGate>);
+  expect(screen.getByText("通常の業務画面")).toBeInTheDocument();
+  expect(screen.getByText("通常の業務画面").closest("[data-driver-setup-background]")).toHaveAttribute("inert");
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(screen.queryByText(/登録状況を確認/)).toBeNull();
+  await act(async () => { release(); await pending; });
+  if (complete) {
+    await waitFor(() => expect(screen.getByText("通常の業務画面").closest("[data-driver-setup-background]")).not.toHaveAttribute("inert"));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    view.unmount(); gate();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await waitFor(() => expect(screen.getByText("通常の業務画面").closest("[data-driver-setup-background]")).not.toHaveAttribute("inert"));
+  } else {
+    await screen.findByRole("heading", { name: "電話番号を入力してください" });
+    expect(screen.getByText("通常の業務画面").closest("[data-driver-setup-background]")).toHaveAttribute("inert");
+  }
+  expect(m.api).toHaveBeenCalledWith("/api/reports/profile", { cache: "no-store" });
+  expect(m.api).toHaveBeenCalledWith("/api/me/registration", { cache: "no-store" });
+});
+it("マイページの登録情報も初回確認文を表示しない", () => {
+  m.api.mockImplementation(() => new Promise(() => {}));
+  render(<DriverSetupPanel />);
+  expect(screen.queryByText(/登録状況を確認/)).toBeNull();
+  expect(screen.queryByRole("dialog")).toBeNull();
+});
+it.each([true, false])("取得失敗では入力を開始せず再読み込みできる（完了=%s）", async complete => {
+  m.verified = complete; m.bank = complete ? readyBank : m.bank;
   m.failRead = true; gate(); await screen.findByText("登録状況を確認できませんでした。");
   expect(screen.queryByLabelText("電話番号")).toBeNull();
   m.failRead = false; fireEvent.click(screen.getByRole("button", { name: "再読み込み" }));
-  await screen.findByLabelText("電話番号");
+  if (complete) {
+    await waitFor(() => expect(screen.getByText("通常の業務画面").closest("[data-driver-setup-background]")).not.toHaveAttribute("inert"));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  } else await screen.findByLabelText("電話番号");
 });
 it("新しい電話を入力し、SMS誤コードから復帰して口座ページへ進み初回登録を完了する", async () => {
   m.phone = ""; gate(); fireEvent.change(await screen.findByLabelText("電話番号"), { target: { value: "09000000001" } });

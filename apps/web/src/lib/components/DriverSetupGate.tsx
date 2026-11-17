@@ -233,7 +233,7 @@ export function DriverSetupPanel({ required = false, bankChangePage = false, chi
   </section>;
   const status = <>
     {loadError && <div role="alert" className="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700"><p>登録状況を確認できませんでした。</p><button type="button" onClick={() => void retry()} disabled={loading || !!busy} className="mt-2 min-h-11 font-semibold underline">再読み込み</button></div>}
-    {loading && !state && <p role="status" className="py-6 text-sm text-slate-500">登録状況を確認中…</p>}
+    {bankChangePage && loading && !state && <p role="status" className="py-6 text-sm text-slate-500">登録状況を確認中…</p>}
   </>;
   const BankEditor = bankChangePage ? InlineBankEditor : EditorModal;
   const bankEditor = editingBank && state && typeof document !== "undefined" && <BankEditor title={bankReview ? "変更内容の確認" : "振込口座を変更"} variant="setup" fixedHeight onClose={cancelBank} dismissible={!busy} trapFocus footer={<div className="space-y-2">
@@ -254,6 +254,7 @@ export function DriverSetupPanel({ required = false, bankChangePage = false, chi
   if (!required) return <section className="mb-8" aria-label="登録情報"><h2 className="mb-3 text-base font-bold text-slate-900">登録情報</h2>{status}<div className="space-y-4">{phoneSection}{bankSection}</div>{bankEditor}</section>;
   const complete = !!state && state.profile.phoneVerified && hasSetupBank(state.bank) && !loadError;
   const blocked = !(entered && complete);
+  const showSetup = blocked && (!!state || loadError);
   const active = steps[stepIndex];
   const action = state && (phoneSuccess ? <button type="button" disabled className={`${buttonClass} w-full`}>確認しました</button>
     : complete ? <button key="complete" type="button" disabled={!!busy || loading || dirty} onClick={() => setEntered(true)} className={`${buttonClass} w-full`}>利用を開始する</button>
@@ -270,7 +271,7 @@ export function DriverSetupPanel({ required = false, bankChangePage = false, chi
   const footer = <>{action}<div className="mt-3 flex min-h-11 items-center">{stepIndex > 0 && <button type="button" disabled={!!busy} onClick={() => setStepIndex(stepIndex - 1)} className="min-h-11 px-2 text-xs text-slate-600">戻る</button>}</div></>;
   return <>
     <div key={entered ? "ready" : "setup"} data-driver-setup-background inert={blocked || undefined} aria-hidden={blocked || undefined}>{children}</div>
-    {blocked && typeof document !== "undefined" && <EditorModal title={setupTitle} header={progress} variant="setup" fixedHeight dismissible={false} onClose={() => {}} footer={footer}><div className="flex min-h-full flex-col justify-center">{status}<motion.div key={active} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={reduceMotion ? instantTransition : disclosureTransition}>{active === "phone" ? phoneSection : active === "bank" ? bankSection : null}</motion.div></div>{bankEditor}</EditorModal>}
+    {showSetup && typeof document !== "undefined" && <EditorModal title={setupTitle} header={progress} variant="setup" fixedHeight dismissible={false} onClose={() => {}} footer={footer}><div className="flex min-h-full flex-col justify-center">{status}<motion.div key={active} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={reduceMotion ? instantTransition : disclosureTransition}>{active === "phone" ? phoneSection : active === "bank" ? bankSection : null}</motion.div></div>{bankEditor}</EditorModal>}
   </>;
 }
 function BankSummary({ bank, reveal = false, compact = false }: { bank: BankAccount; reveal?: boolean; compact?: boolean }) {
