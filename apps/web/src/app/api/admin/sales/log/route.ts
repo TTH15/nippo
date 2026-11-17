@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requirePermission, isAuthError } from "@/server/auth";
+import { requirePermission, requireAnyPermission, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
 import { syncSalesLogDriverReward } from "@/server/salesLogDriverReward";
@@ -29,7 +29,7 @@ export type SalesLogEntryRow = {
 
 // GET: 期間内のログ明細（種別名・ドライバー名・車両ラベル付き）
 export async function GET(req: NextRequest) {
-  const user = await requirePermission(req, "can_view_billing");
+  const user = await requireAnyPermission(req, ["can_view_billing", "can_view_sales", "can_view_profit"]);
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
 
@@ -98,7 +98,12 @@ export async function GET(req: NextRequest) {
     };
   });
 
-  return NextResponse.json({ entries });
+  const canViewSales = user.capabilities?.has("can_view_sales") === true;
+  const canViewProfit = user.capabilities?.has("can_view_profit") === true;
+  return NextResponse.json({ entries: entries.map(entry => {
+    const { revenue, profit, amount, ...rest } = entry;
+    return { ...rest, ...(canViewSales ? { revenue } : {}), ...(canViewProfit ? { profit, amount } : {}) };
+  }) });
 }
 
 type CreateEntryBody = {
@@ -118,6 +123,7 @@ type CreateEntryBody = {
 export async function POST(req: NextRequest) {
   const user = await requirePermission(req, "can_manage_billing");
   if (isAuthError(user)) return user;
+  if (!user.capabilities?.has("can_view_sales") || !user.capabilities.has("can_view_profit")) return NextResponse.json({ error: "権限がありません" }, { status: 403 });
   const orgId = await resolveOrgId(user.driverId);
 
   let body: CreateEntryBody;

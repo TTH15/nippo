@@ -54,7 +54,7 @@ function RewardBlockView({ todayReward }: { todayReward: number }) {
         prefix="¥"
         className="mt-1 block text-[2.5rem] leading-none font-bold tabular-nums text-slate-900"
       />
-      <div className="mt-2 text-[11px] text-slate-400">承認後に確定します</div>
+      <div className="mt-2 text-[11px] text-slate-400">承認済みの日報は翌朝3時に確定</div>
     </Card>
   );
 }

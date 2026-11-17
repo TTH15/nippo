@@ -1,3 +1,5 @@
+import SalesPage from "@/app/(admin)/admin/(analytics)/sales/page";
+import { salesFixture } from "./sales";
 import InvoicePreviewPage from "@/app/(admin)/admin/(accounting)/invoices/[id]/preview/page";
 import InvoiceEditPage from "@/app/(admin)/admin/(accounting)/invoices/[id]/edit/page";
 import InvoiceListPage from "@/app/(admin)/admin/(accounting)/invoices/page";
@@ -55,6 +57,8 @@ import { loginFixture } from "./login";
 import ShiftMemosPage from "@/app/(admin)/admin/(ops)/shift-memos/page";
 import ShiftsPage from "@/app/(admin)/admin/(ops)/shifts/page";
 import { shiftsFixture } from "./shifts";
+import SpotJobsPage from "@/app/(admin)/admin/(ops)/spot-jobs/page";
+import { spotJobsFixture } from "./spotJobs";
 import OrganizationPage from "@/app/(admin)/admin/(settings)/organization/page";
 import { organizationFixture } from "./organization";
 
@@ -69,9 +73,11 @@ export type PreviewPageEntry = {
 const entry = <S,>(slug: string, fixture: PreviewFixture<S>, Page: ComponentType): PreviewPageEntry => ({ slug, fixture: fixture as PreviewFixture<any>, Page });
 
 export const PREVIEW_PAGES: PreviewPageEntry[] = [
+  entry("sales", salesFixture, SalesPage),
   entry("driver-report", reportFixture, ReportPreview),
   entry("organization", organizationFixture, OrganizationPage),
   entry("shifts", shiftsFixture, ShiftsPage),
+  entry("spot-jobs", spotJobsFixture, SpotJobsPage),
   entry("shift-memos", { ...shiftsFixture, title: "シフトメモ", pathname: "/admin/shift-memos" }, ShiftMemosPage),
   entry("report-kinds", reportKindsFixture, ReportKindsPage),
   entry("report-image-templates", reportImageTemplatesFixture, ReportImageTemplatesPage),

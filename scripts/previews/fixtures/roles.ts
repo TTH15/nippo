@@ -2,13 +2,14 @@ import type { PreviewFixture } from "@/lib/preview/fixtureStore";
 import roleCatalog from "@/lib/roleCatalog.json";
 
 type Role = { id: string; key: string; label: string; isSystem: boolean; sortOrder: number; capabilities: string[] };
-type Member = { id: string; name: string; roleId: string; worksAsDriver: boolean };
+type Member = { id: string; name: string; roleId: string; worksAsDriver: boolean; additionalCapabilities?: string[] };
 type State = { roles: Role[]; members: Member[] };
 
 const seedRoles = (): Role[] => [
   { id: "role-admin", key: "ADMIN", label: "管理者", isSystem: true, sortOrder: 0, capabilities: [...roleCatalog.capabilities] },
   { id: "role-accounting", key: "ACCOUNTING", label: "経理", isSystem: true, sortOrder: 10, capabilities: [...roleCatalog.defaultRoleCapabilities.ACCOUNTING] },
   { id: "role-viewer", key: "ADMIN_VIEWER", label: "閲覧者", isSystem: true, sortOrder: 20, capabilities: [...roleCatalog.defaultRoleCapabilities.ADMIN_VIEWER] },
+  { id: "role-dispatch", key: "CUSTOM_DISPATCH", label: "配車担当", isSystem: false, sortOrder: 25, capabilities: ["can_view_shifts", "can_manage_shifts", "can_dispatch", "can_view_reports", "can_edit_reports", "can_view_org_settings", "can_manage_courses"] },
   { id: "role-driver", key: "DRIVER", label: "ドライバー", isSystem: true, sortOrder: 30, capabilities: [] },
 ];
 
@@ -17,7 +18,7 @@ export const rolesFixture: PreviewFixture<State> = {
   title: "ロール・権限",
   pathname: "/admin/roles",
   scenarios: {
-    normal: { label: "通常", description: "4つの既定ロールと架空メンバー" },
+    normal: { label: "通常", description: "既定ロール・配車担当と架空メンバー" },
     empty: { label: "メンバーなし", description: "メンバー割当が空" },
   },
   createState: ({ scenario }) => ({
@@ -25,11 +26,22 @@ export const rolesFixture: PreviewFixture<State> = {
     members: scenario === "empty" ? [] : [
       { id: "member-1", name: "佐藤 翔太", roleId: "role-admin", worksAsDriver: true },
       { id: "member-2", name: "田中 美咲", roleId: "role-accounting", worksAsDriver: false },
+      { id: "member-dispatch", name: "配車担当（サンプル）", roleId: "role-dispatch", worksAsDriver: false },
       { id: "member-3", name: "鈴木 大輔", roleId: "role-driver", worksAsDriver: true },
     ],
   }),
-  read: (state, { path }) => path === "/api/admin/roles" ? { ...state, rows: roleCatalog.permissionRows } : undefined,
+  read: (state, { path }) => path === "/api/admin/roles" ? { roles: state.roles.map(role => ({ ...role, capabilities: [...role.capabilities] })), members: state.members.map(member => ({ ...member, additionalCapabilities: [...(member.additionalCapabilities ?? [])] })), rows: roleCatalog.permissionRows } : undefined,
   write: (state, { path, method, body }) => {
+    const grantId = path.match(/^\/api\/admin\/users\/([^/]+)\/capabilities$/)?.[1];
+    if (grantId && method === "PUT") {
+      const member = state.members.find(item => item.id === grantId);
+      if (!member || typeof body.capability !== "string" || typeof body.enabled !== "boolean") throw new Error("権限を保存できませんでした");
+      if (body.capability === "can_view_profit" && body.enabled) throw new Error("利益の閲覧は経営・経理の役割で設定してください");
+      const caps = new Set(member.additionalCapabilities ?? []);
+      if (body.enabled) caps.add(body.capability); else caps.delete(body.capability);
+      member.additionalCapabilities = [...caps];
+      return { ok: true };
+    }
     if (path === "/api/admin/roles" && method === "POST") {
       const role: Role = { id: `role-${state.roles.length + 1}`, key: `CUSTOM_${state.roles.length + 1}`, label: String(body.label ?? "新規ロール"), isSystem: false, sortOrder: state.roles.length * 10, capabilities: Array.isArray(body.capabilities) ? body.capabilities as string[] : [] };
       state.roles.push(role);

@@ -68,6 +68,7 @@ export async function PUT(
     if (summaryTitle !== undefined) {
       updates.summary_title = typeof summaryTitle === "string" && summaryTitle.trim() !== "" ? summaryTitle.trim() : null;
     }
+    if (dailyLeaseRaw !== undefined && (!user.capabilities?.has("can_view_sales") || !user.capabilities.has("can_view_profit"))) return NextResponse.json({ error: "金額を変更する権限がありません" }, { status: 403 });
     if (dailyLeaseRaw !== undefined) {
       updates.daily_lease = Math.max(0, Math.trunc(Number(dailyLeaseRaw) || 0));
     }

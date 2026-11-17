@@ -99,9 +99,9 @@ describe("domainCaps（ロールUIの領域 ↔ ルート要求の対応）", ()
     expect(satisfies(["can_manage_carriers"], UNITS_MANAGE_CAPS)).toBe(true);
   });
 
-  it("請求編集のみのロールが、売上ログの種別を閲覧・追加できる", () => {
-    expect(satisfies(["can_view_billing"], SALES_LOG_TYPES_VIEW_CAPS)).toBe(true);
-    expect(satisfies(["can_manage_billing"], SALES_LOG_TYPES_MANAGE_CAPS)).toBe(true);
+  it("売上と利益を持つ請求担当だけ売上ログの種別を閲覧・追加できる", () => {
+    expect(satisfies(["can_view_billing"], SALES_LOG_TYPES_VIEW_CAPS)).toBe(false);
+    expect(satisfies(["can_manage_billing", "can_view_sales", "can_view_profit"], SALES_LOG_TYPES_MANAGE_CAPS)).toBe(true);
   });
 
   it("設定（全領域）の編集ロールも、含意経由で各領域のルート要求を満たす（後方互換）", () => {

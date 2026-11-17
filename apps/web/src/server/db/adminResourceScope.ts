@@ -34,6 +34,10 @@ export async function coursesBelongToOrg(courseLists: readonly unknown[], orgId:
 export function adminMutationError(error: unknown): NextResponse {
   const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
   if (code === "P0002") return NextResponse.json({ error: "対象のデータが見つかりません。" }, { status: 404 });
+  if (code === "23514") {
+    const message = error && typeof error === "object" && "message" in error ? String(error.message) : "";
+    return NextResponse.json({ error: /[ぁ-龠]/.test(message) ? message : "シフトまたは日報を確認し、最新の内容で保存してください。" }, { status: 409 });
+  }
   if (code === "40001") return NextResponse.json({ error: "別の変更が保存されています。入力内容は残っています。最新の内容を確認してから保存し直してください。" }, { status: 409 });
   if (code === "22023" || code === "22P02" || code === "22007" || code === "22008") return NextResponse.json({ error: "入力内容を確認してください。" }, { status: 400 });
   if (code === "42501") return NextResponse.json({ error: "この操作は許可されていません。" }, { status: 403 });

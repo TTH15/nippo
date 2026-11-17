@@ -9,7 +9,7 @@ import { NextRequest } from "next/server";
 const m = vi.hoisted(() => ({ from: vi.fn(), belongs: vi.fn() }));
 vi.mock("@/server/db/client", () => ({ supabase: { from: m.from } }));
 vi.mock("@/server/auth", () => ({
-  requireAnyPermission: async () => ({ driverId: "actor", orgId: "org-1", capabilities: new Set() }),
+  requireAnyPermission: async () => ({ driverId: "actor", orgId: "org-1", capabilities: new Set(["can_view_sales", "can_view_profit"]) }),
   isAuthError: () => false,
 }));
 vi.mock("@/server/auth/domainCaps", () => ({

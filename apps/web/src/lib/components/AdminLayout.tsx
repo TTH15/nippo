@@ -1,5 +1,7 @@
 "use client";
 
+import { restrictFinancialCapabilities } from "@/lib/financialCapabilities";
+
 import { useEffect, useLayoutEffect, useState, useRef } from "react";
 import Link from "next/link";
 import Image from "next/image";
@@ -11,7 +13,7 @@ import { activeAdminNavGroup, activeAdminNavHref, adminNavItems as navItems, typ
 import { AdminSidebar } from "@/lib/components/AdminSidebar";
 import { scrollAdminNavItemIntoView } from "@/lib/ui/scrollAdminNavItemIntoView";
 import { SmoothCollapse } from "./SmoothCollapse";
-import { clearAuth, getStoredDriver, type StoredDriver } from "@/lib/api";
+import { clearAuth, getStoredDriver, getToken, setAuth, apiFetch, type StoredDriver } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { getCompany } from "@/config/companies";
 import { canAdminWrite, isAdminViewerRole } from "@/lib/authz";
@@ -50,6 +52,30 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
   const [driver, setDriver] = useState<StoredDriver | null>(null);
   const [openMenu, setOpenMenu] = useState<string | null>(() => activeAdminNavGroup(pathname));
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  useEffect(() => {
+    let active = true;
+    let checking = false;
+    const refreshCapabilities = async () => {
+      if (checking || !active || document.visibilityState === "hidden") return;
+      const stored = getStoredDriver(), token = getToken();
+      if (!stored || !token) return;
+      checking = true;
+      try {
+        const latest = await apiFetch<{ capabilities: string[]; role: string }>("/api/admin/capabilities", { cache: "no-store" });
+        if (!active || getStoredDriver()?.id !== stored.id) return;
+        if (latest.role !== stored.role || JSON.stringify([...latest.capabilities].sort()) !== JSON.stringify([...(stored.capabilities ?? [])].sort())) {
+          setAuth(token, { ...stored, role: latest.role, capabilities: latest.capabilities });
+          // 古い金額キャッシュと画面内の権限状態をまとめて破棄する。
+          window.location.reload();
+        }
+      } catch { /* 個々のAPIは毎回DB認可し、取得失敗時は拒否する。 */ }
+      finally { checking = false; }
+    };
+    void refreshCapabilities();
+    const timer = window.setInterval(() => void refreshCapabilities(), 60_000);
+    window.addEventListener("focus", refreshCapabilities);
+    return () => { active = false; window.clearInterval(timer); window.removeEventListener("focus", refreshCapabilities); };
+  }, []);
   // 要対応件数は統合エンドポイント1本（/api/admin/badges）を SWR でグローバルに
   // キャッシュする。ページ遷移で AdminLayout が再マウントされても前回値が即返るため、
   // バッジが一瞬消えない。60秒ごとに自動更新（従来の5本×60秒ポーリングを1本に統合）。
@@ -73,8 +99,8 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
   const isViewer = isAdminViewerRole(driver?.role);
   // メニューのロック判定。capabilities 未取得（旧セッション・読込前）のときはロックしない
   //（誤ロックを避ける。最終的な防壁はサーバー側の requirePermission 403）。
-  const capList = driver?.capabilities;
-  const isLocked = (cap?: string) => Array.isArray(capList) && !!cap && !capList.includes(cap);
+  const capList = driver?.capabilities ? [...restrictFinancialCapabilities(new Set(driver.capabilities))] : undefined;
+  const isLocked = (cap?: string | string[]) => Array.isArray(capList) && !!cap && !(Array.isArray(cap) ? cap.some(item => capList.includes(item)) : capList.includes(cap));
 
   useEffect(() => {
     setDriver(getStoredDriver());

@@ -1,3 +1,4 @@
+import { previewFinancialError } from "./financialPolicy";
 // ============================================================
 // fixture（架空データと読み書きの定義）を、URLで指定したシナリオ・役割で動かす小さなストア。
 // 画面側の useApi / apiFetch / useSWR の差し替え先（scripts/previews/kernel）から呼ばれる。
@@ -99,6 +100,8 @@ export function createFixtureStore<S>(fixture: PreviewFixture<S>, location: { sc
     if (cached) return cached;
     let result: Resolution;
     try {
+      const financialError = previewFinancialError(parseRequest(key).path, "GET", context.driver.capabilities);
+      if (financialError) throw financialError;
       const data = fixture.read(state, parseRequest(key), context);
       result = data === undefined ? { status: "error", error: new Error(UNSUPPORTED_MESSAGE) } : { status: "ok", data };
     } catch (error) {
@@ -142,6 +145,8 @@ export function createFixtureStore<S>(fixture: PreviewFixture<S>, location: { sc
         notify();
         throw new Error(FAILED_SAVE_MESSAGE);
       }
+      const financialError = previewFinancialError(request.path, request.method, context.driver.capabilities);
+      if (financialError) throw financialError;
       const result = fixture.write?.(state, request, context);
       if (result === undefined) throw new Error(UNSUPPORTED_MESSAGE);
       notify();

@@ -52,7 +52,7 @@ export function resolveCategoryTaxBases(versionData: any, course: any) {
   } as const;
 }
 
-/** 承認時点の適用単価を日報へ固定する。以後の単価マスタ変更で過去集計を動かさない。 */
+/** 補修スクリプト専用。通常承認は固定せず、午前3時の確定処理を使う。 */
 export async function captureReportRateSnapshots(
   supabase: SupabaseClient,
   orgId: string,
@@ -113,6 +113,23 @@ export async function captureReportRateSnapshots(
   const { data: fields } = unitIds.length
     ? await supabase.from("unit_fields").select("unit_id, field_key, is_billable").in("unit_id", unitIds)
     : { data: [] as any[] };
+  const snapshots = buildFinalizationSnapshots({ reports: reports ?? [], courses: courses ?? [], unitRates: unitRates ?? [], fixedRates: fixedRates ?? [],
+    fixedBundles: fixedBundles ?? [], entries: entries ?? [], versions: versions ?? [], fields: fields ?? [], shifts: [] }, options);
+  for (const [id, snapshot] of Object.entries(snapshots)) {
+    const { error } = await supabase.from("daily_reports_v2").update({ rate_snapshot: snapshot }).eq("id", id).eq("org_id", orgId);
+    if (error) throw error;
+  }
+}
+
+/** DBで一度に読み取った確定候補。finalize_report_day が保存時に全ソースを再照合する。 */
+export type FinalizationSource = {
+  reports: any[]; courses: any[]; unitRates: any[]; fixedRates: any[];
+  fixedBundles: any[]; entries: any[]; versions: any[]; fields: any[]; shifts: any[];
+};
+
+export function buildFinalizationSnapshots(source: FinalizationSource, options: { ignoreRateVersions?: boolean } = {}): Record<string, ReportRateSnapshot> {
+  const { reports, courses, unitRates, fixedRates, fixedBundles, entries, versions, fields } = source;
+  const snapshots: Record<string, ReportRateSnapshot> = {};
   const billable = new Set(
     (fields ?? []).filter((f) => f.is_billable).map((f) => `${f.unit_id}:${f.field_key}`),
   );
@@ -258,11 +275,7 @@ export async function captureReportRateSnapshots(
       });
     }
     const snapshot: ReportRateSnapshot = { version: 1, capturedAt, components, fixedBundle: bundle };
-    const { error } = await supabase
-      .from("daily_reports_v2")
-      .update({ rate_snapshot: snapshot })
-      .eq("id", report.id)
-      .eq("org_id", orgId);
-    if (error) throw error;
+    snapshots[report.id] = snapshot;
   }
+  return snapshots;
 }

@@ -12,6 +12,9 @@ export async function GET(req: NextRequest) {
   // 単価表は「コース／単価表の編集」領域でもある（course-billing と同基準・2026-08-14）
   const user = await requireAnyPermission(req, COURSE_BILLING_VIEW_CAPS);
   if (isAuthError(user)) return user;
+  if (!user.capabilities?.has("can_view_sales") || !user.capabilities.has("can_view_profit")) {
+    return NextResponse.json({ error: "権限がありません" }, { status: 403 });
+  }
 
   // ★course_rates は org 列を持たない（migration 178 で追加・移行中は NULL もありうる）。
   //   絞りを入れないと **全社の単価（売上・支払・利益）をそのまま返す**。
@@ -54,6 +57,9 @@ export async function GET(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const user = await requireAnyPermission(req, COURSE_BILLING_MANAGE_CAPS);
   if (isAuthError(user)) return user;
+  if (!user.capabilities?.has("can_view_sales") || !user.capabilities.has("can_view_profit")) {
+    return NextResponse.json({ error: "権限がありません" }, { status: 403 });
+  }
 
   try {
     const body = await req.json();

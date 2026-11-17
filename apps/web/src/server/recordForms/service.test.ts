@@ -101,6 +101,7 @@ function setup(manager = false) {
     works_as_driver: true,
   });
   enqueue("organizations", { status: "active" });
+  enqueue("member_capability_grants", []);
 }
 beforeEach(() => {
   vi.resetAllMocks();
@@ -249,6 +250,7 @@ describe("記録APIの組織・権限境界", () => {
     expect(mocks.from.mock.calls.map((c) => c[0])).toEqual([
       "drivers",
       "organizations",
+      "member_capability_grants",
       "org_record_forms",
     ]);
   });

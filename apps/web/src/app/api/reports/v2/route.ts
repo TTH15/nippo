@@ -1,227 +1,41 @@
-import { validateReportFieldWrites } from "@/server/reports/validateFieldWrites";
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
-import { syncReportEntries } from "@/server/reports/entries";
-import { reportMeterPatch } from "@/server/reports/meterPatch";
+import { isDateOnly, isUuid } from "@/server/db/adminResourceScope";
 import { parseParkingReport, saveParkingReport } from "@/server/reports/parking";
+import { reportLifecycleError } from "@/server/reports/lifecycleError";
 
 export const dynamic = "force-dynamic";
-
-// ============================================================
-// 新モデルの日報送信（daily_reports_v2 + report_entries）
-//   1日に複数シフト(コース)がある場合、items を複数渡す。
-//   各 item = 1コース分の日報。(driver, date, course) 単位で上書き。
-// ============================================================
-
-type EntryInput = { unitId: string; fieldKey: string; valueNum?: number | null; valueText?: string | null };
-type ItemInput = {
-  courseId: string;
-  cycleNo?: number;
-  carrierId?: string | null;
-  vehicleId?: string | null;
-  meterValue?: number | null;
-  entries: EntryInput[];
-};
-
-class ReportChangedError extends Error {}
-
-class ShiftChangedError extends ReportChangedError {
-  constructor() {
-    super("シフトが変更されています。最新のシフトを確認して日報を入力し直してください。");
-  }
-}
 
 export async function POST(req: NextRequest) {
   const user = await requireAuth(req, "DRIVER");
   if (isAuthError(user)) return user;
-
-  const body = await req.json().catch(() => ({}));
-  const reportDate = typeof body.reportDate === "string" ? body.reportDate : "";
-  const driverIdentityId = typeof body.driverIdentityId === "string" ? body.driverIdentityId : null;
-  const items: ItemInput[] = Array.isArray(body.items) ? body.items : [];
-
-  if (!reportDate) return NextResponse.json({ error: "reportDate が必要です" }, { status: 400 });
-  if (items.length === 0) return NextResponse.json({ error: "items が空です" }, { status: 400 });
-
-  // 車の置き場所（任意）。日報より先に検証し、不正なら日報ごと保存しない（入力を残して直してもらう）
-  const parking = body.parking != null
-    ? parseParkingReport(body.parking, { reportDate, itemVehicleIds: items.map((i) => i.vehicleId) })
-    : null;
+  const body = await req.json().catch(() => null);
+  const reportDate = body?.reportDate;
+  const items = body?.items;
+  if (!isDateOnly(reportDate) || !Array.isArray(items) || !items.length || items.length > 100 ||
+    typeof body.expectedRevision !== "string" || typeof body.clientKey !== "string" || !body.clientKey || body.clientKey.length > 100 ||
+    (body.driverIdentityId != null && !isUuid(body.driverIdentityId)) ||
+    items.some(i => !i || !isUuid(i.courseId) || !Number.isInteger(i.cycleNo ?? 0) || (i.cycleNo ?? 0) < 0 ||
+      (i.request != null && typeof i.request !== "boolean") || (i.vehicleId != null && !isUuid(i.vehicleId)) ||
+      (i.meterValue != null && (!Number.isInteger(i.meterValue) || i.meterValue < 0)) ||
+      !Array.isArray(i.entries) || i.entries.length > 200 || i.entries.some((e: any) => !e || !isUuid(e.unitId) ||
+        typeof e.fieldKey !== "string" || !e.fieldKey || e.fieldKey.length > 100 ||
+        (e.valueNum != null && (typeof e.valueNum !== "number" || !Number.isFinite(e.valueNum))) ||
+        (e.valueText != null && (typeof e.valueText !== "string" || e.valueText.length > 2000))))) {
+    return NextResponse.json({ error: "日報の内容を確認し、画面を開き直してください" }, { status: 400 });
+  }
+  const parking = body.parking != null ? parseParkingReport(body.parking, { reportDate, itemVehicleIds: items.map(i => i.vehicleId) }) : null;
   if (parking && !parking.ok) return NextResponse.json({ error: parking.error }, { status: 400 });
-
-  // 勤務区分の本人確認（指定がある場合）
-  if (driverIdentityId) {
-    const { data: identity } = await supabase
-      .from("driver_identities")
-      .select("id")
-      .eq("id", driverIdentityId)
-      .eq("driver_id", user.driverId)
-      .maybeSingle();
-    if (!identity) return NextResponse.json({ error: "勤務区分が不正です" }, { status: 403 });
-  }
-
-  const nowIso = new Date().toISOString();
   const orgId = await resolveOrgId(user.driverId);
-
-  const validItems = items.filter((i) => i.courseId);
-  const itemKeys = validItems.map((item) => `${item.courseId}:${Number(item.cycleNo) || 0}`);
-  if (new Set(itemKeys).size !== itemKeys.length) {
-    return NextResponse.json({ error: "同じコース・便が重複しています" }, { status: 400 });
-  }
-
-  // 既存（未却下）の同 (driver,date,course,cycle) を1クエリでまとめて引く
-  // （旧: item ごとに SELECT→UPDATE/INSERT→DELETE→INSERT の4往復を直列実行）
-  const [{ data: existingRows, error: existingErr }, { data: shiftRows, error: shiftErr }] = await Promise.all([
-    supabase
-      .from("daily_reports_v2")
-      .select("id, course_id, cycle_no, vehicle_id, meter_value, approved_at")
-      .eq("org_id", orgId)
-      .eq("driver_id", user.driverId)
-      .eq("report_date", reportDate)
-      .in("course_id", validItems.map((i) => i.courseId))
-      .is("rejected_at", null),
-    supabase
-      // tenant-scope-ok: 認証済みの本人（user.driverId）に固定。org 絞りより狭い
-      .from("shifts")
-      .select("course_id, cycle_no")
-      .eq("driver_id", user.driverId)
-      .eq("shift_date", reportDate),
-  ]);
-  if (existingErr) {
-    console.error(existingErr);
-    return NextResponse.json({ error: "日報の保存に失敗しました" }, { status: 500 });
-  }
-  if (shiftErr) {
-    console.error(shiftErr);
-    return NextResponse.json({ error: "シフトの確認に失敗しました" }, { status: 500 });
-  }
-  const existingByCourseCycle = new Map(
-    (existingRows ?? []).map((r: { id: string; course_id: string | null; cycle_no: number | null }) => [
-      `${r.course_id}:${Number(r.cycle_no) || 0}`,
-      r.id,
-    ]),
-  );
-  const allowedShiftKeys = new Set(
-    (shiftRows ?? [])
-      .filter((row) => row.course_id)
-      .map((row) => `${row.course_id}:${Number(row.cycle_no) || 0}`),
-  );
-  const existingVehicleByCourseCycle = new Map(
-    (existingRows ?? []).map((r) => [`${r.course_id}:${Number(r.cycle_no) || 0}`, r.vehicle_id as string | null]),
-  );
-  const invalidItem = validItems.find((item) => {
-    const key = `${item.courseId}:${Number(item.cycleNo) || 0}`;
-    const legacyWholeDay = !(Number(item.cycleNo) || 0) && existingByCourseCycle.has(key)
-      && (shiftRows ?? []).some(s => s.course_id === item.courseId)
-      && !(existingRows ?? []).some(r => r.course_id === item.courseId && (Number(r.cycle_no) || 0) > 0);
-    return !allowedShiftKeys.has(key) && !legacyWholeDay;
+  const { data, error } = await supabase.rpc("submit_report_day", {
+    p_org: orgId, p_driver: user.driverId, p_date: reportDate, p_identity: body.driverIdentityId ?? null,
+    p_items: items, p_expected: body.expectedRevision, p_key: body.clientKey,
   });
-  if (invalidItem) {
-    return NextResponse.json({ error: "シフトにないコース・便は提出できません" }, { status: 400 });
-  }
-
-  try {
-    const fieldError = await validateReportFieldWrites(supabase, orgId, validItems, existingRows ?? []);
-    if (fieldError) return NextResponse.json({ error: fieldError }, { status: 409 });
-  } catch (error) {
-    console.error(error);
-    return NextResponse.json({ error: "日報項目の確認に失敗しました" }, { status: 500 });
-  }
-
-  // 便の追加で再送される既存の承認済み実績は、内容が同じなら承認・単価を保持する。
-  const approvedIds = (existingRows ?? []).filter(r => r.approved_at).map(r => r.id);
-  // tenant-scope-ok: approvedIds は上記 org/本人/日付で照合した日報のID集合
-  const { data: approvedEntries, error: approvedReadError } = approvedIds.length
-    ? await supabase
-      // tenant-scope-ok: 日報IDは呼出元で会社・本人・対象日を照合済み
-      .from("report_entries").select("report_id, unit_id, field_key, value_num, value_text").in("report_id", approvedIds)
-    : { data: [], error: null };
-  if (approvedReadError) return NextResponse.json({ error: "提出済みの日報を確認できませんでした" }, { status: 500 });
-
-  // item 同士は独立（コースが異なる）ため並列で保存する
-  const saveItem = async (item: ItemInput): Promise<string> => {
-    const cycleNo = Number.isInteger(item.cycleNo) && Number(item.cycleNo) >= 0 ? Number(item.cycleNo) : 0;
-    const previous = (existingRows ?? []).find(r => r.course_id === item.courseId && (Number(r.cycle_no) || 0) === cycleNo);
-    if (previous?.approved_at && (previous.vehicle_id ?? null) === (item.vehicleId ?? null) &&
-      (previous.meter_value == null ? null : Number(previous.meter_value)) === (item.meterValue ?? null)) {
-      const oldEntries = (approvedEntries ?? []).filter(e => e.report_id === previous.id);
-      if (oldEntries.length === item.entries.length && item.entries.every(e => oldEntries.some(old =>
-        old.unit_id === e.unitId && old.field_key === e.fieldKey && (old.value_num == null ? null : Number(old.value_num)) === (e.valueNum ?? null) &&
-        (old.value_text ?? null) === (e.valueText ?? null)))) return previous.id;
-    }
-    const header = {
-      org_id: orgId,
-      driver_id: user.driverId,
-      report_date: reportDate,
-      course_id: item.courseId,
-      cycle_no: cycleNo,
-      carrier_id: item.carrierId ?? null,
-      identity_id: driverIdentityId,
-      vehicle_id: item.vehicleId ?? null,
-      ...reportMeterPatch(item, existingVehicleByCourseCycle.get(`${item.courseId}:${cycleNo}`)),
-      submitted_at: nowIso,
-      // 再提出時は承認状態をリセット
-      approved_at: null,
-      approved_by: null,
-      rejected_at: null,
-      rejected_by: null,
-      rejection_reason: null,
-    };
-
-    let reportId: string;
-    const existingId = existingByCourseCycle.get(`${item.courseId}:${cycleNo}`);
-    if (existingId) {
-      const { error } = await supabase.from("daily_reports_v2").update(header).eq("id", existingId).eq("org_id", orgId);
-      if (error) {
-        console.error(error);
-        if (error.code === "23514" && error.message.includes("シフトが変更")) throw new ShiftChangedError();
-        throw new Error("日報の更新に失敗しました");
-      }
-      reportId = existingId;
-    } else {
-      const { data, error } = await supabase.from("daily_reports_v2").insert(header).select("id").single(); // tenant-scope-ok: header に org_id を含む（本人の org）
-      if (error || !data) {
-        console.error(error);
-        if (error?.code === "23514" && error.message.includes("シフトが変更")) throw new ShiftChangedError();
-        throw new Error("日報の作成に失敗しました");
-      }
-      reportId = data.id;
-    }
-
-    const entryRows = (item.entries ?? [])
-      .filter((e) => e.unitId && e.fieldKey)
-      .map((e) => ({
-        report_id: reportId,
-        unit_id: e.unitId,
-        field_key: e.fieldKey,
-        value_num: typeof e.valueNum === "number" ? e.valueNum : null,
-        value_text: e.valueText != null ? String(e.valueText) : null,
-      }));
-    try {
-      // 差分 upsert（変わった項目だけ書く。全削除→全挿入を廃止）
-      await syncReportEntries(supabase, orgId, reportId, entryRows);
-    } catch (e) {
-      console.error(e);
-      if (e && typeof e === "object" && "code" in e && e.code === "23514") throw new ReportChangedError("日報項目が変更されています。再読み込みして入力し直してください。");
-      throw new Error("報告項目の保存に失敗しました");
-    }
-    return reportId;
-  };
-
-  let savedReportIds: string[];
-  try {
-    savedReportIds = await Promise.all(validItems.map(saveItem));
-  } catch (e) {
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "日報の保存に失敗しました" },
-      { status: e instanceof ReportChangedError ? 409 : 500 },
-    );
-  }
-
-  // Phase9 カットオーバー: v2 を source of truth とし、旧 daily_reports への
-  // dual-write は廃止（旧テーブルはバックアップとして凍結）。
+  if (error) return reportLifecycleError(error, "日報を保存できませんでした。入力を残して再送してください");
+  const savedReportIds: string[] = data.reportIds ?? [];
+  const savedRequestIds: string[] = data.requestIds ?? [];
 
   // 車の置き場所。日報が保存できた後に記録する。失敗したら日報は保存済みのまま再送してもらう
   // （client_key で二重登録しない。日報側は (driver,date,course) 単位の上書きなので再送しても増えない）。
@@ -245,5 +59,5 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: true, reportIds: savedReportIds, parkingSaved, parkingPlaceName, parkingUnavailable });
+  return NextResponse.json({ ok: true, reportIds: savedReportIds, requestIds: savedRequestIds, parkingSaved, parkingPlaceName, parkingUnavailable });
 }

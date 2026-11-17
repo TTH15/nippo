@@ -25,7 +25,7 @@ export const SHIFT_SLOTS_VIEW_CAPS: Capability[] = ["can_view_shifts", "can_view
 
 /** 売上ログの種別マスタ。編集UIは売上（請求領域）のログタブにある。
  *  既存ロール互換のため設定系 capability でも引き続き許可する。 */
-export const SALES_LOG_TYPES_VIEW_CAPS: Capability[] = ["can_view_billing", "can_view_org_settings"];
+export const SALES_LOG_TYPES_VIEW_CAPS: Capability[] = ["can_view_billing", "can_view_org_settings", "can_view_sales", "can_view_profit"];
 export const SALES_LOG_TYPES_MANAGE_CAPS: Capability[] = ["can_manage_billing", "can_manage_org_settings"];
 
 /** コース担当ドライバーの割当。コース管理と名簿管理のどちらからでも行える。 */

@@ -112,29 +112,8 @@ describe("会社をまたぐID指定", () => {
     expect((await reject(req({ id: "a-report" }))).status).toBe(200);
     expect(h.tables.driver_ad_hoc_expenses.map(r => r.id)).toEqual(["b-expense"]);
   });
-  it.each([dailyApprove, dailyReject])("他社ドライバーの日報に副作用を起こさない", async run => {
-    expect((await run(req({ driverId: "b-driver", date: "2026-09-12" }))).status).toBe(404);
-    expect(h.mutations).toEqual([]); expect(h.snapshots).not.toHaveBeenCalled();
-  });
-  it.each([150, null])("日報の他社車両はメーター有無を問わず承認・単価固定の前に拒否", async meter => {
-    h.tables.daily_reports_v2[0].vehicle_id = "b-vehicle";
-    h.tables.daily_reports_v2[0].meter_value = meter;
-    expect((await dailyApprove(req({ driverId: "a-driver", date: "2026-09-12" }))).status).toBe(404);
-    expect(h.mutations).toEqual([]); expect(h.snapshots).not.toHaveBeenCalled();
-  });
-  it("正式な当日貸与なら他社所有車の走行距離も更新できる", async () => {
-    h.tables.daily_reports_v2[0].vehicle_id = "b-vehicle";
-    h.tables.daily_reports_v2[0].meter_value = 250;
-    h.tables.vehicle_loans = [{ vehicle_id: "b-vehicle", borrower_org_id: "a", loan_date: "2026-09-12" }];
-    expect((await dailyApprove(req({ driverId: "a-driver", date: "2026-09-12" }))).status).toBe(200);
-    expect(h.tables.vehicles[1].current_mileage).toBe(250);
-  });
-  it("別日の貸与では他社車両の報告を承認できない", async () => {
-    h.tables.daily_reports_v2[0].vehicle_id = "b-vehicle";
-    h.tables.vehicle_loans = [{ vehicle_id: "b-vehicle", borrower_org_id: "a", loan_date: "2026-09-11" }];
-    expect((await dailyApprove(req({ driverId: "a-driver", date: "2026-09-12" }))).status).toBe(404);
-    expect(h.mutations).toEqual([]); expect(h.snapshots).not.toHaveBeenCalled();
-  });
+  // 日報承認の会社/車両境界は原子的RPCへ移行。
+  // test-report-lifecycle.py で本番ガードを載せた実DBに対して検証する。
   it.each([true, false])("勤怠一覧は当日貸与された他社車両だけナンバーを表示する", async loaned => {
     h.tables.vehicles[1].number_numeric = "9999";
     h.tables.vehicle_sessions = [{ id: "a-session", org_id: "a", recorded_by: "a-driver", vehicle_id: "b-vehicle", started_at: "2026-09-12T09:00:00+09:00" }];
@@ -142,10 +121,6 @@ describe("会社をまたぐID指定", () => {
     const response = await attendanceList(new NextRequest("http://localhost/api/admin/attendance?date=2026-09-12"));
     expect(response.status).toBe(200);
     expect((await response.json()).items[0].plate).toBe(loaned ? "9999" : "");
-  });
-  it("自社の日報は走行距離を更新して承認できる", async () => {
-    expect((await dailyApprove(req({ driverId: "a-driver", date: "2026-09-12" }))).status).toBe(200);
-    expect(h.tables.vehicles[0].current_mileage).toBe(150); expect(h.tables.vehicles[1].current_mileage).toBe(200);
   });
   it("他社の打刻・報告種別は404", async () => {
     expect((await attendance(req({ action: "approve" }), ctx("b-session"))).status).toBe(404);
@@ -178,23 +153,5 @@ describe("車検証のナンバー確認", () => {
     h.denied = true;
     expect((await checkVehicleNumber(request)).status).toBe(403);
     expect(h.mutations).toEqual([]);
-  });
-});
-
-describe("日報の便設定と承認", () => {
-  it("設定外の数量がある日報は車両更新・単価固定より前に止める", async () => {
-    Object.assign(h.tables.daily_reports_v2[0], { course_id: "course", cycle_no: 1 });
-    h.tables.course_report_fields = [{ course_id: "course", cycle_no: 1, unit_id: "unit", field_key: "am" }];
-    h.tables.report_entries = [{ id: "entry", report_id: "a-daily", unit_id: "unit", field_key: "pm", value_num: 5, value_text: null }];
-    expect((await dailyApprove(req({ driverId: "a-driver", date: "2026-09-12" }))).status).toBe(409);
-    expect(h.mutations).toEqual([]); expect(h.snapshots).not.toHaveBeenCalled();
-  });
-  it("追加した便だけ承認し、既に承認された便と単価を保持する", async () => {
-    Object.assign(h.tables.daily_reports_v2[0], { approved_at: "original", approved_by: "original-admin", rate_snapshot: { fixed: 100 } });
-    h.tables.daily_reports_v2.push({ ...h.tables.daily_reports_v2[0], id: "new-cycle", approved_at: null, approved_by: null, rate_snapshot: null });
-    expect((await dailyApprove(req({ driverId: "a-driver", date: "2026-09-12" }))).status).toBe(200);
-    expect(h.tables.daily_reports_v2[0].approved_at).toBe("original");
-    expect(h.tables.daily_reports_v2[0].rate_snapshot).toEqual({ fixed: 100 });
-    expect(h.snapshots.mock.calls[0][2]).toEqual(["new-cycle"]);
   });
 });

@@ -9,6 +9,7 @@ export type SpotJobMember = {
 };
 
 export type SpotJob = {
+  updatedAt?: string;
   id: string;
   title: string;
   jobDate: string; // YYYY-MM-DD
@@ -31,10 +32,11 @@ export type SpotJobSavePayload = {
   meetingTime: string | null;
   endTime: string | null;
   clientName: string | null;
-  billingAmount: number | null;
+  billingAmount?: number | null;
+  expectedVersion?: string;
   note: string | null;
   status: SpotJobStatus;
-  members: { driverId: string | null; displayName: string | null; payAmount: number | null }[];
+  members: { id?: string; driverId: string | null; displayName: string | null; payAmount?: number | null }[];
 };
 
 export const STATUS_LABEL: Record<SpotJobStatus, string> = {

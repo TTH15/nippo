@@ -1,3 +1,4 @@
+import { isReportFlow, readReportFlow, writeReportFlow, resetReportFlow, flowShiftRows, FLOW_DRIVER } from "./reportLifecycle";
 import type { PreviewFixture } from "@/lib/preview/fixtureStore";
 import { createDailyShiftChange, readDailyShiftChange, writeDailyShiftChange } from "./dailyShiftChange";
 const names = ["紐付け車両", "報告した車両", "原本の確認済み", "OCR未確認", "番号なし", "他社からの貸与"];
@@ -6,6 +7,9 @@ type State = { empty: boolean; shiftChange: ReturnType<typeof createDailyShiftCh
 export const dailyFixture: PreviewFixture<State> = {
   id: "daily", title: "日報", pathname: "/admin/daily",
   scenarios: {
+    "course-add": { label: "コース追加から承認", description: "日報入力・シフト表と架空データを共有" },
+    correction: { label: "修正・再承認", description: "確定解除した日報を再承認" },
+    finalization: { label: "午前3時の確定", description: "承認済みから確定へ進める" },
     normal: { label: "通常", description: "日報の車両番号" },
     mismatch: { label: "シフトと不一致", description: "シフト外のコースを提出した状態" },
     "legacy-whole": { label: "旧全体日報", description: "C1・C2の予定と旧全体日報1件を照合" },
@@ -21,11 +25,15 @@ export const dailyFixture: PreviewFixture<State> = {
     empty: { label: "提出なし", description: "日報が無い場合" },
   },
   createState: ({ scenario }) => ({ empty: scenario === "empty", shiftChange: ["mismatch", "legacy-whole", "duplicate-report", "cycle-added", "shift-changed", "multi-course", "different-readings", "different-vehicles", "long-name", "large"].includes(scenario) ? createDailyShiftChange(scenario) : null }),
-  write(state, request) {
+  onReset: () => resetReportFlow(),
+  write(state, request, { scenario, role }) {
+    const flow = writeReportFlow(request, scenario, role); if (flow !== undefined) return flow;
     if (state.shiftChange) return writeDailyShiftChange(state.shiftChange, request);
     return undefined;
   },
-  read(state, request) {
+  read(state, request, { scenario }) {
+    const flow = readReportFlow(request, scenario); if (flow !== undefined) return flow;
+    if (request.path === "/api/admin/daily/course-requests") return { days: [] };
     if (state.shiftChange) return readDailyShiftChange(state.shiftChange, request);
     const { path } = request;
     if (path === "/api/admin/badges") return { dailyUnread: 0, otherUnread: 0 };

@@ -1,5 +1,7 @@
 "use client";
 
+import { restrictFinancialCapabilities } from "@/lib/financialCapabilities";
+
 import { useEffect, useLayoutEffect, useState, useRef } from "react";
 import { PreviewLink as Link, PreviewImage as Image } from "./layout-adapters";
 import { previewConnectionLabel } from "./mapbox-config";
@@ -59,7 +61,8 @@ export function AdminPreviewLayout({ children, pathname, onReset, viewer, compan
   // capability を持たないメニューはロック表示にする。
   const canWrite = viewer ? viewer.role === "ADMIN" : true;
   const isViewer = viewer?.role === "ADMIN_VIEWER";
-  const isLocked = (cap?: string) => !!viewer && !!cap && !viewer.capabilities.includes(cap);
+  const effectiveCaps = restrictFinancialCapabilities(new Set(viewer?.capabilities ?? []));
+  const isLocked = (cap?: string | string[]) => !!viewer && !!cap && !(Array.isArray(cap) ? cap.some(item => effectiveCaps.has(item)) : effectiveCaps.has(cap));
   const [openMenu, setOpenMenu] = useState<string | null>(() => activeAdminNavGroup(pathname));
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const dailyUnreadCount = 0;

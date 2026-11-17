@@ -1,3 +1,4 @@
+import { isReportFlow, readReportFlow, writeReportFlow, resetReportFlow, flowShiftRows, FLOW_DRIVER } from "./reportLifecycle";
 // 日報送信（本番 /submit の SubmitPageClientV2）用の架空データ。認証も外部へ送信しない。
 // 送信内容は console.info("preview submit", …) に出す（アプリ内ブラウザから確認する）。
 import type { PreviewFixture } from "@/lib/preview/fixtureStore";
@@ -45,6 +46,7 @@ export const submitFixture: PreviewFixture<State> = {
     "image-multi": { label: "画像・同じ項目の複数コース",description: "反映先を選ぶまで数量を変更しない" },
     "image-reupload": { label: "画像・入力済み",description: "既存値と読み取り値を見比べて選んだ項目だけ変更する" },
     cycles: { label: "C1午前・C2午後", description: "実際の入力欄と便の色を確認し、別々の値を送信する" },
+    "course-add": { label: "コース・便の追加", description: "架空のC2と別コースを追加" },
     normal: { label: "通常", description: "車庫3件（豊中は区画あり・veh-1 は A-1 がいつもの）" },
     "no-places": { label: "車庫なし", description: "登録車庫が無い会社。別の場所と状況だけ選べる" },
     "sms-only": { label: "かんたんログイン未設定", description: "SMS確認済み。本人確認後にかんたんログインを設定する" },
@@ -56,10 +58,13 @@ export const submitFixture: PreviewFixture<State> = {
     "no-image-template": { label: "様式なし", description: "画像の様式が未登録。画像は残せるが件数は手入力" },
   },
   createState: ({ scenario }) => ({ places: scenario === "no-places" ? [] : PLACES, submissions: [],
-    phoneVerified: ["sms-only", "complete", "cycles", "image-multi", "image-reupload"].includes(scenario), hasPasskey: ["complete", "cycles", "image-multi", "image-reupload"].includes(scenario),
+    phoneVerified: ["sms-only", "complete", "cycles", "course-add", "image-multi", "image-reupload"].includes(scenario), hasPasskey: ["complete", "cycles", "course-add", "image-multi", "image-reupload"].includes(scenario),
     recent: false, smsSent: false, challenge: null, attempts: 0, statusFailures: scenario === "setup-error" ? 1 : 0,
     sourceImages: [], readings: [], imageTemplates: scenario !== "no-image-template" }),
-  read: (state, { path }, { scenario }) => {
+  onReset: () => resetReportFlow(),
+  read: (state, request, { scenario }) => {
+    const { path } = request;
+    const flow = readReportFlow(request, scenario); if (flow !== undefined) return flow;
     if (path === "/api/me/login-setup") {
       if (state.statusFailures-- > 0) throw new Error("設定を読み込めませんでした");
       return { phoneVerified: state.phoneVerified, phoneMasked: scenario === "no-phone" ? null : "下4桁 0000", hasPasskey: state.hasPasskey };
@@ -69,7 +74,7 @@ export const submitFixture: PreviewFixture<State> = {
     if (path === "/api/reports/vehicles-unlinked") return { vehicles: [] };
     if (path === "/api/reports/vehicles") return { vehicles: VEHICLES };
     if (path === "/api/reports/parking-places") return { places: state.places };
-    if (path === "/api/me/report-form") return { shifts: scenario === "no-shifts" ? [] : scenario === "image-multi" ? [SHIFT,{ ...SHIFT,courseId: "course-2",courseName: "南ルート" }] : scenario === "image-reupload" ? CYCLE_SHIFTS.map(shift => ({ ...shift,existing: { vehicleId: "veh-1",meterValue: 50063,values: { "unit-1": Object.fromEntries(shift.units[0].fields.map((field,i) => [field.fieldKey,shift.cycleNo === 1 ? [71,63][i] : [52,47][i]])) } } })).reverse() : scenario === "cycles" ? [...CYCLE_SHIFTS].reverse() : [SHIFT], shiftVehicleId: "veh-1" };
+    if (path === "/api/me/report-form") return { shifts: scenario === "no-shifts" ? [] : scenario === "course-add" ? [CYCLE_SHIFTS[0]] : scenario === "image-multi" ? [SHIFT,{ ...SHIFT,courseId: "course-2",courseName: "南ルート" }] : scenario === "image-reupload" ? CYCLE_SHIFTS.map(shift => ({ ...shift,existing: { vehicleId: "veh-1",meterValue: 50063,values: { "unit-1": Object.fromEntries(shift.units[0].fields.map((field,i) => [field.fieldKey,shift.cycleNo === 1 ? [71,63][i] : [52,47][i]])) } } })).reverse() : scenario === "cycles" ? [...CYCLE_SHIFTS].reverse() : [SHIFT], shiftVehicleId: "veh-1" };
     if (path === "/api/me/report-image-templates") {
       return { templates: state.imageTemplates ? [scenario === "cycles" || scenario === "image-reupload" ? CYCLE_IMAGE_TEMPLATE : (() => { const template=previewImageTemplate({ unitId: "unit-1", doneKey: "delivered", backKey: "undelivered" }); return scenario === "image-multi" ? { ...template,definition:{ ...template.definition,fields:template.definition.fields.filter(field => ["takkyubin-done","takkyubin-back"].includes(field.id)) } } : template; })()] : [] };
     }
@@ -80,7 +85,9 @@ export const submitFixture: PreviewFixture<State> = {
     if (path.startsWith("/api/")) return {};
     return undefined;
   },
-  write: (state, { path, method, body }, { scenario }) => {
+  write: (state, request, { scenario, role }) => {
+    const { path, method, body } = request;
+    const flow = writeReportFlow(request, scenario, role); if (flow !== undefined) return flow;
     if (path === "/api/me/phone/send" || path === "/api/auth/reauth/options") {
       if (scenario === "no-phone") throw new Error("電話番号を運営にご確認ください");
       state.smsSent = true; return { ok: true };

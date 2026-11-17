@@ -23,7 +23,7 @@ type MidnightRow = {
 };
 
 export async function GET(req: NextRequest) {
-  const user = await requirePermission(req, "can_view_billing");
+  const user = await requirePermission(req, "can_view_sales");
   if (isAuthError(user)) return user;
   const orgId = await resolveOrgId(user.driverId);
 

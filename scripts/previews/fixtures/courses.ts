@@ -25,13 +25,16 @@ const blankBilling = (courseName: string): CourseRatePreviewData => ({
 export const coursesFixture: PreviewFixture<State> = {
   id: "courses", title: "コース管理", pathname: "/admin/courses",
   scenarios: {
+    "no-pricing": { label: "単価権限なし", description: "コースの編集権限があり、売上と利益の権限がない状態" },
     "cycle-fields": { label: "便と日報項目", description: "C1を午前、C2を午後に設定し、4便は別コースにする" },
     "save-error": { label: "保存失敗", description: "設定の入力を残して再試行する" },
     normal: { label: "通常", description: "コース作成と単価設定を操作する" },
     empty: { label: "0件", description: "コースがない状態から作成する" },
     "long-name": { label: "長い名前", description: "長いコース名で表示を確認する" },
   },
-  createState: ({ scenario }) => ({
+  createState: ({ scenario, driver }) => {
+    if (scenario === "no-pricing") driver.capabilities = driver.capabilities.filter(cap => cap !== "can_view_sales" && cap !== "can_view_profit");
+    return {
     courses: scenario === "empty" ? [] : [{
       id: "preview-course-1", name: scenario === "long-name" ? "西大阪集配センター・午前午後混合配送コース" : "豊中",
       color: "#fbbf24", sort_order: 0, carrier_id: carrierId,
@@ -48,7 +51,8 @@ export const coursesFixture: PreviewFixture<State> = {
         { cycleNo: 2, unitId: "unit-delivery", fieldKey: "pm_completed" },
       ] : [],
     }, scenario,
-  }),
+  };
+  },
   read: (state, { path, params }) => {
     if (path === "/api/admin/courses") return { courses: state.courses };
     if (path === "/api/admin/users") return { drivers: [] };
@@ -61,6 +65,7 @@ export const coursesFixture: PreviewFixture<State> = {
         units: reportUnits, selected: state.reportFields[course?.id ?? ""] ?? [] };
     }
     if (path === "/api/admin/course-billing") {
+      if (state.scenario === "no-pricing") throw new Error("権限がありません");
       const course = state.courses.find((item) => item.id === params.get("course_id"));
       return state.billing[course?.id ?? ""] ?? blankBilling(course?.name ?? "新規コース");
     }
@@ -86,6 +91,7 @@ export const coursesFixture: PreviewFixture<State> = {
       return { ok: true };
     }
     if (path === "/api/admin/course-billing" && (method === "PUT" || method === "POST")) {
+      if (state.scenario === "no-pricing") throw new Error("権限がありません");
       const courseId = String(body.courseId ?? body.course_id ?? "");
       const course = state.courses.find((item) => item.id === courseId);
       if (!course) throw new Error("コースが見つかりません");

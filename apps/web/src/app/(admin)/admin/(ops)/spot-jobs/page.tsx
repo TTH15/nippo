@@ -39,12 +39,15 @@ const STATUS_BADGE: Record<SpotJob["status"], string> = {
 
 export default function SpotJobsPage() {
   const [canWrite, setCanWrite] = useState(false);
+  const [canViewSales, setCanViewSales] = useState(false);
   const [month, setMonth] = useState(currentMonthJST());
   const [modal, setModal] = useState<{ mode: "create" | "edit"; job?: SpotJob } | null>(null);
   const [confirmState, setConfirmState] = useState<{ message: string; onConfirm: () => void } | null>(null);
   const [errorState, setErrorState] = useState<{ message: string } | null>(null);
 
   useEffect(() => {
+    const canViewSales = hasCapability("can_view_sales");
+    setCanViewSales(canViewSales);
     setCanWrite(hasCapability("can_manage_shifts"));
   }, []);
 
@@ -198,7 +201,7 @@ export default function SpotJobsPage() {
                   <th className="text-left font-medium px-3 py-2.5 whitespace-nowrap">時間</th>
                   <th className="whitespace-nowrap text-left font-medium px-3 py-2.5">集合場所</th>
                   <th className="whitespace-nowrap text-left font-medium px-3 py-2.5">参加者</th>
-                  <th className="text-right font-medium px-3 py-2.5 whitespace-nowrap">請求（参考）</th>
+                  {canViewSales && <th className="text-right font-medium px-3 py-2.5 whitespace-nowrap">請求（参考）</th>}
                   <th className="text-left font-medium px-3 py-2.5 whitespace-nowrap">状態</th>
                   {canWrite && <th className="px-3 py-2.5" />}
                 </tr>
@@ -223,9 +226,9 @@ export default function SpotJobsPage() {
                     <td className="px-3 py-2.5 whitespace-nowrap text-slate-600">{timeLabel(job)}</td>
                     <td className="px-3 py-2.5 text-slate-600">{job.meetingPlace ?? "—"}</td>
                     <td className="px-3 py-2.5 text-slate-600">{memberLabel(job)}</td>
-                    <td className="px-3 py-2.5 text-right whitespace-nowrap text-slate-600">
+                    {canViewSales && <td className="px-3 py-2.5 text-right whitespace-nowrap text-slate-600">
                       {job.billingAmount != null ? `¥${job.billingAmount.toLocaleString()}` : "—"}
-                    </td>
+                    </td>}
                     <td className="px-3 py-2.5 whitespace-nowrap">
                       <span className={`text-[10px] px-1.5 py-0.5 rounded ${STATUS_BADGE[job.status]}`}>
                         {STATUS_LABEL[job.status]}

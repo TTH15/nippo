@@ -38,6 +38,11 @@ export async function resolveGrants(driverId: string, fallbackRole?: string): Pr
 
   if (driverError || !driver) throw new AuthzUnavailableError();
 
+  const { data: individual, error: individualError } = await supabase
+    .from("member_capability_grants").select("capability").eq("driver_id", driverId);
+  if (individualError || !individual) throw new AuthzUnavailableError();
+  const additions = individual.filter(entry => entry.capability !== "can_view_profit").map((entry) => entry.capability as Capability);
+
   let capabilities: Set<Capability>;
   if (driver?.role_id) {
     const { data: caps, error: capsError } = await supabase
@@ -45,10 +50,10 @@ export async function resolveGrants(driverId: string, fallbackRole?: string): Pr
       .select("capability")
       .eq("role_id", driver.role_id);
     if (capsError || !caps) throw new AuthzUnavailableError();
-    capabilities = expandCapabilities((caps ?? []).map((c) => c.capability as Capability));
+    capabilities = expandCapabilities([...(caps ?? []).map((c) => c.capability as Capability), ...additions]);
   } else {
     const roleKey = driver?.role ?? fallbackRole ?? "";
-    capabilities = expandCapabilities(DEFAULT_ROLE_CAPABILITIES[roleKey] ?? []);
+    capabilities = expandCapabilities([...(DEFAULT_ROLE_CAPABILITIES[roleKey] ?? []), ...additions]);
   }
 
   // migration 104 未適用の環境でも壊れないよう、role テキスト 'DRIVER' も稼働とみなす。

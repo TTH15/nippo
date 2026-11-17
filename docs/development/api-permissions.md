@@ -1,12 +1,14 @@
 # API・権限一覧
 
-この表は `node scripts/generate-api-permissions.mjs` でAPIルートの実装から生成する。対象は 320 操作（225 ルート）。
+この表は `node scripts/generate-api-permissions.mjs` でAPIルートの実装から生成する。対象は 340 操作（238 ルート）。
 
 - 「入口の権限・条件」はルート先頭のガードを示す。会社・所有者・対象状態・追加権限などの処理内条件も適用されるため、この列だけで実行可否は確定しない。
 - `requireAuth(req, "DRIVER")` はDRIVERロール限定ではない。認証済み本人の操作を表し、所属状態も検証する。
 - `can_*` は会社内ロールの権限。管理者は全権限固定、カスタムロール・経理・閲覧者の実際の付与は会社ごとの `role_capabilities` を参照する。下表は旧ロールデータの既定値であり、現在の会社で付与された権限は「ロール・権限」画面を参照する。
 - 自分の希望休などは `works_as_driver` の本人権限も使う。公開API、LINE Webhook、cronは通常のロール認証と別の検証を行う。
 - 「個別条件を要確認」は自動抽出できなかった箇所。MCP等の外部公開前に手動監査する。
+
+売上と利益は独立して判定する。利益の個人追加は禁止。請求・取引先・単価の金額には売上と利益の両方が必要で、売上のみの場合は支払・報酬・原価の全社閲覧を無効にする。詳細は [実装・検証記録](sales-permissions-report-additions-2026-11-17.md) を参照。
 
 ## 権限と既定ロール
 
@@ -27,6 +29,8 @@
 | `can_manage_vehicles` | 車両の管理 | ○ | — | — | — |
 | `can_view_vehicle_cost` | 車両の金額情報 | ○ | ○ | — | — |
 | `can_view_billing` | 請求・取引先の閲覧 | ○ | ○ | ○ | — |
+| `can_view_sales` | 売上の閲覧 | ○ | ○ | — | — |
+| `can_view_profit` | 利益の閲覧 | ○ | ○ | — | — |
 | `can_manage_billing` | 請求の管理（確定・取引先編集） | ○ | ○ | — | — |
 | `can_view_members` | ドライバー名簿の閲覧 | ○ | ○ | ○ | — |
 | `can_approve_members` | 参加承認・本人確認 | ○ | — | — | — |
@@ -41,26 +45,29 @@
 
 「ドライバーとして扱う」が有効なメンバーには、ロールを問わず本人の日報提出、希望休管理、シフト・報酬閲覧、プロフィール管理の本人権限が付く。本人権限は全社の `can_*` と別に判定される。
 
-## 管理（226件）
+## 管理（234件）
 
 | Method | エンドポイント | APIの概要 | 入口の権限・条件 |
 | --- | --- | --- | --- |
 | GET | `/api/admin/account` | アカウントの取得 | 認証（本人・対象範囲は処理内で確認） |
+| GET | `/api/admin/account-recovery` | account recoveryの取得 | 個別条件を要確認 |
+| POST | `/api/admin/account-recovery` | account recoveryの作成・送信 | 個別条件を要確認 |
 | GET | `/api/admin/attendance` | 指定日の勤怠（車両セッション）一覧。出退勤・稼働時間・メーター・GPS状態・打刻手段・承認状態 | can_view_vehicles |
 | POST | `/api/admin/attendance/[id]` | manual打刻の承認/却下（§8.5）。pending のセッションのみ対象 | can_manage_vehicles |
 | GET | `/api/admin/badges` | 管理メニューのバッジ件数をまとめて返す統合エンドポイント | いずれか [ can_view_reports, can_view_vehicles, can_view_members, ] |
+| GET | `/api/admin/capabilities` | 本人の最新の実効権限 | 管理セッション＋本人 |
 | GET | `/api/admin/carriers` | キャリア一覧（units / unit_fields をネストして返す）。当 org が有効化したキャリアのみ | can_view_org_settings |
 | POST | `/api/admin/carriers` | キャリア追加 | can_manage_carriers |
 | DELETE | `/api/admin/carriers/[id]` | キャリア削除（依存があればハード削除を拒否し、無効化を促す） | can_manage_carriers |
 | PATCH | `/api/admin/carriers/[id]` | キャリア更新（name / code / sort_order / active） | can_manage_carriers |
-| GET | `/api/admin/counterparties/[id]/billing-detail` | 取引先・請求明細の取得 | can_view_billing |
-| PATCH | `/api/admin/counterparties/[id]/custom-lines/[lineId]` | 取引先・調整行の一部更新 | can_manage_billing |
-| PATCH | `/api/admin/counterparties/[id]/line-label` | 取引先・行名の一部更新 | can_manage_billing |
-| POST | `/api/admin/counterparties/[id]/merge-lines` | 取引先・行統合の作成・送信 | can_manage_billing |
-| DELETE | `/api/admin/counterparties/[id]/merged-lines/[mergeId]` | 取引先・統合行の削除 | can_manage_billing |
-| PATCH | `/api/admin/counterparties/[id]/merged-lines/[mergeId]` | 取引先・統合行の一部更新 | can_manage_billing |
-| PUT | `/api/admin/counterparties/[id]/month-lines` | 取引先・月別明細の更新 | can_manage_billing |
-| GET | `/api/admin/counterparties/summary` | 取引先・集計の取得 | can_view_billing |
+| GET | `/api/admin/counterparties/[id]/billing-detail` | 取引先・請求明細の取得 | can_view_billing（金額は can_view_sales＋can_view_profit） |
+| PATCH | `/api/admin/counterparties/[id]/custom-lines/[lineId]` | 取引先・調整行の一部更新 | can_manage_billing（金額は can_view_sales＋can_view_profit） |
+| PATCH | `/api/admin/counterparties/[id]/line-label` | 取引先・行名の一部更新 | can_manage_billing（金額は can_view_sales＋can_view_profit） |
+| POST | `/api/admin/counterparties/[id]/merge-lines` | 取引先・行統合の作成・送信 | can_manage_billing（金額は can_view_sales＋can_view_profit） |
+| DELETE | `/api/admin/counterparties/[id]/merged-lines/[mergeId]` | 取引先・統合行の削除 | can_manage_billing（金額は can_view_sales＋can_view_profit） |
+| PATCH | `/api/admin/counterparties/[id]/merged-lines/[mergeId]` | 取引先・統合行の一部更新 | can_manage_billing（金額は can_view_sales＋can_view_profit） |
+| PUT | `/api/admin/counterparties/[id]/month-lines` | 取引先・月別明細の更新 | can_manage_billing（金額は can_view_sales＋can_view_profit） |
+| GET | `/api/admin/counterparties/summary` | 取引先・集計の取得 | can_view_billing（金額は can_view_sales＋can_view_profit） |
 | GET | `/api/admin/course-billing` | ?course_id=... → そのコースのキャリア配下 unit と現単価 | いずれか [can_view_billing, can_manage_courses] |
 | PUT | `/api/admin/course-billing` | 単価保存（新テーブル upsert ＋ 旧 course_rates 同期） | いずれか [can_manage_billing, can_manage_courses] |
 | GET | `/api/admin/course-rates` | 全コースの単価 | いずれか [can_view_billing, can_manage_courses] |
@@ -79,6 +86,7 @@
 | GET | `/api/admin/daily` | 日報の取得 | can_view_reports |
 | GET | `/api/admin/daily/all` | 日報・全件の取得 | can_view_reports |
 | POST | `/api/admin/daily/approve` | 日報を承認 | can_edit_reports |
+| GET | `/api/admin/daily/course-requests` | 追加申請と同日の日報内容 | can_view_reports |
 | GET | `/api/admin/daily/day-summary` | 日報・日別集計の取得 | can_view_reports |
 | GET | `/api/admin/daily/day-summary-range` | 日報・期間集計の取得 | can_view_reports |
 | GET | `/api/admin/daily/pending` | 日報・pendingの取得 | can_view_reports |
@@ -120,15 +128,15 @@
 | DELETE | `/api/admin/invoice-addresses/[id]` | 法人アドレス削除 | can_manage_billing |
 | PUT | `/api/admin/invoice-addresses/[id]` | 法人アドレス更新 | can_manage_billing |
 | GET | `/api/admin/invoice-principal` | invoice principalの取得 | can_view_billing |
-| GET | `/api/admin/invoices` | 請求書の取得 | can_view_billing |
-| POST | `/api/admin/invoices` | 請求書の作成・送信 | can_manage_billing |
-| DELETE | `/api/admin/invoices/[id]` | 請求書の削除 | can_manage_billing |
-| GET | `/api/admin/invoices/[id]` | 請求書の取得 | can_view_billing |
-| PATCH | `/api/admin/invoices/[id]` | 請求書の一部更新 | can_manage_billing |
-| GET | `/api/admin/invoices/[id]/staleness` | 請求書・stalenessの取得 | can_view_billing |
-| POST | `/api/admin/invoices/attachments` | 請求書・attachmentsの作成・送信 | can_manage_billing |
-| GET | `/api/admin/invoices/draft` | 請求書・draftの取得 | can_view_billing |
-| POST | `/api/admin/invoices/from-source` | 請求書・from sourceの作成・送信 | can_manage_billing |
+| GET | `/api/admin/invoices` | 請求書の取得 | can_view_billing（金額は can_view_sales＋can_view_profit） |
+| POST | `/api/admin/invoices` | 請求書の作成・送信 | can_manage_billing（金額は can_view_sales＋can_view_profit） |
+| DELETE | `/api/admin/invoices/[id]` | 請求書の削除 | can_manage_billing（金額は can_view_sales＋can_view_profit） |
+| GET | `/api/admin/invoices/[id]` | 請求書の取得 | can_view_billing（金額は can_view_sales＋can_view_profit） |
+| PATCH | `/api/admin/invoices/[id]` | 請求書の一部更新 | can_manage_billing（金額は can_view_sales＋can_view_profit） |
+| GET | `/api/admin/invoices/[id]/staleness` | 請求書・stalenessの取得 | can_view_billing（金額は can_view_sales＋can_view_profit） |
+| POST | `/api/admin/invoices/attachments` | 請求書・attachmentsの作成・送信 | can_manage_billing（金額は can_view_sales＋can_view_profit） |
+| GET | `/api/admin/invoices/draft` | 請求書・draftの取得 | can_view_billing（金額は can_view_sales＋can_view_profit） |
+| POST | `/api/admin/invoices/from-source` | 請求書・from sourceの作成・送信 | can_manage_billing（金額は can_view_sales＋can_view_profit） |
 | GET | `/api/admin/join-code` | 当 org の現在の参加コードを返す | can_view_members |
 | POST | `/api/admin/join-code` | 参加コードの作成・送信 | can_manage_members |
 | GET | `/api/admin/map/course-areas` | 地図に重ねるためのコース一覧（色付き）。エリア未設定のコースも返す | can_view_vehicles |
@@ -193,20 +201,23 @@
 | POST | `/api/admin/roles` | ロールの作成・送信 | can_manage_members |
 | DELETE | `/api/admin/roles/[id]` | ロールの削除 | can_manage_members |
 | PATCH | `/api/admin/roles/[id]` | ロールの一部更新 | can_manage_members |
-| GET | `/api/admin/sales` | salesの取得 | can_view_billing |
-| GET | `/api/admin/sales/log` | 期間内のログ明細（種別名・ドライバー名・車両ラベル付き） | can_view_billing |
+| GET | `/api/admin/sales` | salesの取得 | いずれか [can_view_sales, can_view_profit] |
+| GET | `/api/admin/sales/log` | 期間内のログ明細（種別名・ドライバー名・車両ラベル付き） | いずれか [can_view_billing, can_view_sales, can_view_profit] |
 | POST | `/api/admin/sales/log` | 1件追加 | can_manage_billing |
 | DELETE | `/api/admin/sales/log/[id]` | sales・logの削除 | can_manage_billing |
 | PATCH | `/api/admin/sales/log/[id]` | sales・logの一部更新 | can_manage_billing |
 | GET | `/api/admin/sales/log/types` | 種別一覧 | いずれか [can_view_billing, can_view_org_settings] |
 | POST | `/api/admin/sales/log/types` | 種別を追加 | いずれか [can_manage_billing, can_manage_org_settings] |
-| GET | `/api/admin/sales/reports` | sales・日報の取得 | can_view_billing |
+| GET | `/api/admin/sales/reports` | sales・日報の取得 | can_view_sales |
 | GET | `/api/admin/shift-deadlines` | ルール一覧 + ドライバー一覧 | can_view_shifts |
 | PUT | `/api/admin/shift-deadlines` | ルールを全置換で保存 | can_manage_shifts |
 | GET | `/api/admin/shift-slots` | 便一覧 + ドライバー一覧 | いずれか [can_view_shifts, can_view_org_settings] |
 | PUT | `/api/admin/shift-slots` | 便マスタ＋割り当てを保存 | can_manage_shifts |
 | GET | `/api/admin/shifts` | 指定期間のシフト取得 | can_view_shifts |
 | POST | `/api/admin/shifts` | シフト登録/更新 | can_manage_shifts |
+| GET | `/api/admin/shifts/corrections` | 修正中・確定済みシフトを取得 | can_view_shifts |
+| PATCH | `/api/admin/shifts/corrections` | 再承認した日報を再確定 | can_manage_members＋can_manage_shifts＋can_edit_reports |
+| POST | `/api/admin/shifts/corrections` | 過去シフトの修正を開始 | can_manage_members＋can_manage_shifts＋can_edit_reports |
 | PATCH | `/api/admin/shifts/driver-order` | シフト・driver orderの一部更新 | can_manage_shifts |
 | POST | `/api/admin/shifts/import` | シフト表ファイル（PDF/画像）を AI で読み取り、 | can_manage_shifts |
 | POST | `/api/admin/shifts/import/apply` | AI 取り込みで確定した割当を shifts に一括登録する | can_manage_shifts |
@@ -231,9 +242,9 @@
 | POST | `/api/admin/shifts/vehicle` | シフト行への車両割当（配車）。シフト編集（can_manage_shifts）から独立した | can_dispatch |
 | POST | `/api/admin/shifts/vehicle-loans` | 車両の日毎の貸出中を設定/解除（loaned で切替） | いずれか [can_dispatch, can_manage_vehicles] |
 | GET | `/api/admin/spot-jobs` | 単発案件一覧＋参加者ピッカー候補 | can_view_shifts |
-| POST | `/api/admin/spot-jobs` | 単発案件を作成（参加者込み） | can_manage_shifts |
+| POST | `/api/admin/spot-jobs` | 単発案件を作成（参加者込み） | can_manage_shifts（金額の読取・変更は can_view_sales＋can_view_profit） |
 | DELETE | `/api/admin/spot-jobs/[id]` | 単発案件を削除（参加者は CASCADE で消える） | can_manage_shifts |
-| PATCH | `/api/admin/spot-jobs/[id]` | 単発案件の編集。members を渡すと参加者を丸ごと置き換える | can_manage_shifts |
+| PATCH | `/api/admin/spot-jobs/[id]` | 単発案件の編集。members を渡すと参加者を丸ごと置き換える | can_manage_shifts（金額の読取・変更は can_view_sales＋can_view_profit） |
 | POST | `/api/admin/spot-jobs/guests` | ゲストメンバーを作成 { name } | can_manage_shifts |
 | GET | `/api/admin/submit-screen` | 設定 ＋ 設定UI用の drivers / carriers→units→fields | can_view_org_settings |
 | PUT | `/api/admin/submit-screen` | 設定を保存 | can_manage_submit_screen |
@@ -248,6 +259,7 @@
 | DELETE | `/api/admin/users/[id]` | ドライバー削除 | can_manage_members |
 | GET | `/api/admin/users/[id]` | ドライバー詳細（編集用） | can_view_members |
 | PUT | `/api/admin/users/[id]` | ドライバー更新 | can_manage_members |
+| PUT | `/api/admin/users/[id]/capabilities` | メンバー・capabilitiesの更新 | can_manage_members |
 | GET | `/api/admin/users/[id]/kyc` | メンバー・kycの取得 | can_view_pii |
 | POST | `/api/admin/users/[id]/kyc-check` | メンバー・kyc checkの作成・送信 | can_view_pii |
 | DELETE | `/api/admin/users/[id]/phone` | メンバー・phoneの削除 | can_manage_members |
@@ -278,26 +290,32 @@
 | --- | --- | --- | --- |
 | POST | `/api/apply` | applyの作成・送信 | 公開応募。入力検証・レート制限を個別確認 |
 
-## 認証（10件）
+## 認証（15件）
 
 | Method | エンドポイント | APIの概要 | 入口の権限・条件 |
 | --- | --- | --- | --- |
+| POST | `/api/auth/admin/logout` | 認証・logoutの作成・送信 | 個別条件を要確認 |
+| POST | `/api/auth/admin/refresh` | 認証・refreshの作成・送信 | 認証（本人・対象範囲は処理内で確認） |
 | POST | `/api/auth/login` | 認証・loginの作成・送信 | 公開ログイン。資格情報を検証 |
+| POST | `/api/auth/logout` | 認証・logoutの作成・送信 | 個別条件を要確認 |
 | GET | `/api/auth/reauth` | 認証・reauthの取得 | 認証（本人・対象範囲は処理内で確認） |
 | POST | `/api/auth/reauth/options` | 認証・reauth・optionsの作成・送信 | 認証（本人・対象範囲は処理内で確認） |
 | POST | `/api/auth/reauth/verify` | 認証・reauthを検証 | 認証（本人・対象範囲は処理内で確認） |
 | POST | `/api/auth/recover/verify` | 認証・recoverを検証 | 公開のアカウント復旧。復旧コード等を検証 |
+| GET | `/api/auth/recovery-request` | 認証・recovery requestの取得 | 個別条件を要確認 |
+| POST | `/api/auth/recovery-request` | 認証・recovery requestの作成・送信 | 個別条件を要確認 |
 | GET | `/api/auth/session` | 現在のトークンの持ち主について、DB上の最新ロール・capabilityでセッションを再発行する | 認証（本人・対象範囲は処理内で確認） |
 | POST | `/api/auth/webauthn/login/options` | 認証・webauthn・login・optionsの作成・送信 | 公開のPasskeyログイン開始。チャレンジを発行 |
 | POST | `/api/auth/webauthn/login/verify` | 認証・webauthn・loginを検証 | 公開のPasskeyログイン。署名とチャレンジを検証 |
 | POST | `/api/auth/webauthn/register/options` | 認証・webauthn・register・optionsの作成・送信 | 認証（本人・対象範囲は処理内で確認） |
 | POST | `/api/auth/webauthn/register/verify` | 認証・webauthn・registerを検証 | 認証（本人・対象範囲は処理内で確認） |
 
-## 定期処理（1件）
+## 定期処理（2件）
 
 | Method | エンドポイント | APIの概要 | 入口の権限・条件 |
 | --- | --- | --- | --- |
 | GET | `/api/cron/daily-notifications` | 定期処理・daily notificationsの取得 | CRON_SECRETで認証する定期処理 |
+| GET | `/api/cron/finalize-reports` | 日本時間午前3時の承認済み日報確定・失敗分の再実行 | CRON_SECRET |
 
 ## 参加（2件）
 
@@ -312,7 +330,7 @@
 | --- | --- | --- | --- |
 | POST | `/api/line/webhook` | LINE・Webhookの作成・送信 | LINE署名を検証する外部Webhook |
 
-## 本人（35件）
+## 本人（36件）
 
 | Method | エンドポイント | APIの概要 | 入口の権限・条件 |
 | --- | --- | --- | --- |
@@ -345,6 +363,7 @@
 | GET | `/api/me/report-image-templates` | 本人・report image templatesの取得 | 認証（本人・対象範囲は処理内で確認） |
 | GET | `/api/me/report-kinds` | 本人・報告種別の取得 | 認証（本人・対象範囲は処理内で確認） |
 | GET | `/api/me/rewards` | 本人・報酬の取得 | 認証（本人・対象範囲は処理内で確認） |
+| POST | `/api/me/sessions/revoke-all` | 本人・sessions・revoke allの作成・送信 | 個別条件を要確認 |
 | GET | `/api/me/shift-confirmations` | 本人・shift confirmationsの取得 | 範囲 { own: own_view_shifts, any: can_view_shifts } |
 | POST | `/api/me/shift-confirmations` | 本人・shift confirmationsの作成・送信 | 範囲 { own: own_view_shifts, any: can_view_shifts } |
 | GET | `/api/me/shift-deadline-reminder` | 本人・shift deadline reminderの取得 | 認証（本人・対象範囲は処理内で確認） |
@@ -358,10 +377,12 @@
 | --- | --- | --- | --- |
 | POST | `/api/otp/send` | 認証コードを送信 | 認証コード送信。送信先・レート制限を検証 |
 
-## platform（3件）
+## platform（5件）
 
 | Method | エンドポイント | APIの概要 | 入口の権限・条件 |
 | --- | --- | --- | --- |
+| GET | `/api/platform/account-recovery` | platform・account recoveryの取得 | 個別条件を要確認 |
+| POST | `/api/platform/account-recovery` | platform・account recoveryの作成・送信 | 個別条件を要確認 |
 | GET | `/api/platform/applications` | platform・applicationsの取得 | プラットフォーム運営者限定 |
 | PATCH | `/api/platform/applications/[id]` | platform・applicationsの一部更新 | プラットフォーム運営者限定 |
 | GET | `/api/platform/orgs` | platform・orgsの取得 | プラットフォーム運営者限定 |
@@ -378,12 +399,15 @@
 | GET | `/api/record-forms/[formId]/records/[recordId]` | 記録フォーム・記録の取得 | 認証＋フォーム・記録ごとの閲覧範囲 |
 | PATCH | `/api/record-forms/[formId]/records/[recordId]` | 記録フォーム・記録の一部更新 | 認証＋フォーム・記録ごとの編集範囲 |
 
-## 日報（19件）
+## 日報（22件）
 
 | Method | エンドポイント | APIの概要 | 入口の権限・条件 |
 | --- | --- | --- | --- |
-| POST | `/api/reports` | 日報の作成・送信 | 認証（本人・対象範囲は処理内で確認） |
+| POST | `/api/reports` | 旧日報送信を終了（410、新画面へ移動） | 認証 |
 | POST | `/api/reports/attachments` | 日報・attachmentsの作成・送信 | 認証（本人・対象範囲は処理内で確認） |
+| DELETE | `/api/reports/course-requests` | 本人の未承認追加申請を取消 | 認証＋会社所属＋本人 |
+| GET | `/api/reports/course-requests` | 本人の追加申請を取得 | 認証＋会社所属＋本人 |
+| POST | `/api/reports/course-requests` | 本人の追加申請を保存 | 認証＋会社所属＋本人＋revision |
 | GET | `/api/reports/day` | 日報・dayの取得 | 認証（本人・対象範囲は処理内で確認） |
 | GET | `/api/reports/me` | 日報・本人の取得 | 認証（本人・対象範囲は処理内で確認） |
 | GET | `/api/reports/monthly-totals` | 日報・monthly totalsの取得 | 認証（本人・対象範囲は処理内で確認） |

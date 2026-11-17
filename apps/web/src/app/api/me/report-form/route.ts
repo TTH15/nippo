@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, isAuthError } from "@/server/auth";
 import { resolveOrgId } from "@/server/db/tenant";
 import { supabase } from "@/server/db/client";
+import { isDateOnly } from "@/server/db/adminResourceScope";
 import { resolveReportCycleChoices } from "@repo/core/logic/dailyReport";
 import { loadCourseReportFields } from "@/server/reports/courseReportFields";
 
@@ -21,8 +22,14 @@ export async function GET(req: NextRequest) {
   const orgId = await resolveOrgId(user.driverId);
 
   const date = req.nextUrl.searchParams.get("date") ?? "";
-  if (!date) return NextResponse.json({ error: "date が必要です" }, { status: 400 });
+  if (!isDateOnly(date)) return NextResponse.json({ error: "date が必要です" }, { status: 400 });
+  const includeCandidates = req.nextUrl.searchParams.get("candidates") === "1";
 
+  const { data: revision, error: revisionError } = await supabase.rpc("report_day_revision", { p_org: orgId, p_driver: user.driverId, p_date: date });
+  const { data: requests, error: requestError } = await supabase.from("report_course_requests")
+    .select("id,course_id,cycle_no,payload,status,decided_at").eq("org_id", orgId).eq("driver_id", user.driverId).eq("report_date", date).in("status", ["pending", "rejected"]);
+  if (revisionError || requestError) return NextResponse.json({ error: "日報を読み込めませんでした" }, { status: 500 });
+  const pending = (requests ?? []).filter(q => q.status === "pending");
   // その日のシフト（コース）
   const { data: shiftRows } = await supabase
     // tenant-scope-ok: 認証済みの本人（user.driverId）に固定。org 絞りより狭い
@@ -34,7 +41,11 @@ export async function GET(req: NextRequest) {
 
   const rawShiftVehicleId: string | null =
     (shiftRows ?? []).map((s: any) => s.vehicle_id).find((v: string | null) => !!v) ?? null;
-  const courseIds = Array.from(new Set((shiftRows ?? []).map((s: any) => s.course_id).filter(Boolean)));
+  const { data: candidateCourses, error: candidateError } = includeCandidates
+    ? await supabase.from("courses").select("id").eq("org_id", orgId).is("archived_at", null)
+    : { data: [], error: null };
+  if (candidateError) return NextResponse.json({ error: "コースを読み込めませんでした" }, { status: 500 });
+  const courseIds = Array.from(new Set([...(shiftRows ?? []).map((s: any) => s.course_id).filter(Boolean), ...(candidateCourses ?? []).map(c => c.id), ...pending.map(q => q.course_id)]));
   const rawShiftChoices = Array.from(
     new Map(
       (shiftRows ?? [])
@@ -52,7 +63,7 @@ export async function GET(req: NextRequest) {
       : Promise.resolve({ data: null as { is_disposed: boolean; is_unavailable: boolean } | null }),
     // コース → キャリア
     courseIds.length
-      ? supabase.from("courses").select("id, name, color, summary_title, carrier_id, course_cycles(cycle_no, label)").in("id", courseIds).eq("org_id", orgId)
+      ? supabase.from("courses").select("id, name, color, summary_title, carrier_id, uses_cycles, archived_at, course_cycles(cycle_no, label, active)").in("id", courseIds).eq("org_id", orgId)
       : Promise.resolve({ data: [] as any[] }),
     // 既存 v2 レポート（prefill）
     courseIds.length
@@ -70,7 +81,7 @@ export async function GET(req: NextRequest) {
       : null;
 
   if (courseIds.length === 0) {
-    return NextResponse.json({ shifts: [], shiftVehicleId });
+    return NextResponse.json({ shifts: [], candidates: [], shiftVehicleId, revision });
   }
 
   const carrierIds = Array.from(new Set((courses ?? []).map((c: any) => c.carrier_id).filter(Boolean)));
@@ -141,7 +152,7 @@ export async function GET(req: NextRequest) {
 
   const courseById = new Map<string, any>((courses ?? []).map((c: any) => [c.id, c]));
 
-  const shifts = shiftChoices.map(({ courseId, cycleNo }) => {
+  const makeShift = ({ courseId, cycleNo }: { courseId: string; cycleNo: number }) => {
     const c = courseById.get(courseId);
     const existing = reportByCourseCycle.get(`${courseId}:${cycleNo}`);
     const cycle = (c?.course_cycles ?? []).find((item: any) => Number(item.cycle_no) === cycleNo);
@@ -167,7 +178,37 @@ export async function GET(req: NextRequest) {
           }
         : null,
     };
-  });
+  };
 
-  return NextResponse.json({ shifts, shiftVehicleId });
+  const shifts = shiftChoices.filter(s => !pending.some(q => q.course_id === s.courseId && q.cycle_no === s.cycleNo)).map(makeShift);
+
+  const shiftKeys = new Set(rawShiftChoices.map((choice: any) => `${choice.courseId}:${choice.cycleNo}`));
+  const legacyCourses = new Set((existingReports ?? []).filter((report: any) => !report.rejected_at && (Number(report.cycle_no) || 0) === 0).map((report: any) => report.course_id));
+  const candidates = includeCandidates ? (courses ?? []).flatMap((c: any) => {
+    if (c.archived_at || (c.uses_cycles && legacyCourses.has(c.id))) return [];
+    const cycles: { cycle_no: number; label: string | null }[] = c.uses_cycles
+      ? (c.course_cycles ?? []).filter((cycle: any) => cycle.active !== false)
+      : [{ cycle_no: 0, label: null }];
+    return cycles.filter(cycle => !shiftKeys.has(`${c.id}:${cycle.cycle_no}`)).map(cycle => ({
+      courseId: c.id, cycleNo: Number(cycle.cycle_no), cycleLabel: cycle.label,
+      courseName: c.summary_title?.trim() || c.name || "", color: c.color ?? null,
+      carrierId: c.carrier_id ?? null, carrierName: c.carrier_id ? carrierName.get(c.carrier_id) ?? "" : "",
+      units: c.carrier_id ? unitsFor(c.carrier_id, c.id, Number(cycle.cycle_no)) : [], existing: null,
+    }));
+  }) : [];
+  const requestedShifts = pending.map(q => {
+    const form = makeShift({ courseId: q.course_id, cycleNo: q.cycle_no });
+    const payload = q.payload as { vehicleId?: string; meterValue?: number; entries?: { unitId: string; fieldKey: string; valueNum?: number; valueText?: string }[] };
+    const values: Record<string, Record<string, number | string>> = {};
+    for (const e of payload.entries ?? []) { values[e.unitId] ??= {}; values[e.unitId][e.fieldKey] = e.valueNum ?? e.valueText ?? ""; }
+    const c = courseById.get(q.course_id);
+    return { ...form, requestId: q.id, requestAssigned: shiftKeys.has(`${q.course_id}:${q.cycle_no}`), existing: { reportId: q.id, vehicleId: payload.vehicleId ?? null, meterValue: payload.meterValue ?? null,
+      approvedAt: null, rejectedAt: null, values, requiresReview: !c || !!c.archived_at || (c.uses_cycles && !(c.course_cycles ?? []).some((cycle: any) => cycle.cycle_no === q.cycle_no && cycle.active !== false)) ||
+        (payload.entries ?? []).some(e => hasMeaningfulReportValue(e.valueNum, e.valueText) && !reportFieldFilter.allows(q.course_id, q.cycle_no, e.unitId, e.fieldKey)) } };
+  });
+  const { data: currentRevision, error: currentError } = await supabase.rpc("report_day_revision", { p_org: orgId, p_driver: user.driverId, p_date: date });
+  if (currentError || currentRevision !== revision) return NextResponse.json({ error: "日報が変更されています。再読み込みしてください" }, { status: 409 });
+  return NextResponse.json({ shifts: [...shifts, ...requestedShifts], shiftVehicleId, revision,
+    rejectedRequests: (requests ?? []).filter(q => q.status === "rejected").map(q => ({ id: q.id, courseName: courseById.get(q.course_id)?.name ?? "コース", cycleNo: q.cycle_no })),
+    ...(includeCandidates ? { candidates } : {}) }, { headers: { "Cache-Control": "private, no-store" } });
 }

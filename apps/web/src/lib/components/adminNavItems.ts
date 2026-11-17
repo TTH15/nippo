@@ -25,7 +25,7 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 
 // 各リンクのcapは対象ページの主要APIの閲覧権限と揃える。
-export type NavChild = { href: string; label: string; icon?: IconDefinition; cap?: string; beta?: boolean };
+export type NavChild = { href: string; label: string; icon?: IconDefinition; cap?: string | string[]; beta?: boolean };
 export type NavItem =
   | { href: string; label: string; icon?: IconDefinition; cap?: string; beta?: boolean; children?: undefined }
   | { label: string; icon?: IconDefinition; children: NavChild[]; href?: undefined; cap?: undefined; beta?: undefined };
@@ -60,7 +60,7 @@ export const adminNavItems: NavItem[] = [
   },
   {
     label: "収支", icon: faFileInvoice, children: [
-      { href: "/admin/sales", label: "売上", icon: faChartColumn, cap: "can_view_billing" },
+      { href: "/admin/sales", label: "売上", icon: faChartColumn, cap: ["can_view_sales", "can_view_profit"] },
       { href: "/admin/payments", label: "ペイメント", icon: faMoneyBill1Wave, cap: "can_view_rewards" },
       { href: "/admin/invoices", label: "請求書", icon: faAddressBook, cap: "can_view_billing" },
       { href: "/admin/counterparties", label: "取引先", icon: faBuilding, cap: "can_view_billing" },

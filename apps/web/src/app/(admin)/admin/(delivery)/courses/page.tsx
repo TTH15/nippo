@@ -170,6 +170,7 @@ const EMPTY_COURSE_FORM: CourseFormState = {
 
 export default function CoursesPage() {
   const [canWrite, setCanWrite] = useState(false);
+  const [canViewPricing, setCanViewPricing] = useState(false);
   const [courses, setCourses] = useState<Course[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [invoiceAddresses, setInvoiceAddresses] = useState<InvoiceAddress[]>([]);
@@ -369,6 +370,7 @@ export default function CoursesPage() {
 
   useEffect(() => {
     setCanWrite(hasCapability("can_manage_courses"));
+    setCanViewPricing(hasCapability("can_view_sales") && hasCapability("can_view_profit"));
   }, []);
 
   // 担当ドライバーの割当（コース作成直後にそのまま担当を決められるようにする・2026-08-03）。
@@ -481,7 +483,7 @@ export default function CoursesPage() {
           carrier_id: newCourse.carrierId || null,
           carrier: legacyCarrierOf(newCourse.carrierId),
           summary_title: newCourse.summary_title.trim() ? newCourse.summary_title.trim() : null,
-          daily_lease: Math.max(0, parseInt(newCourse.daily_lease, 10) || 0),
+          ...(canViewPricing ? { daily_lease: Math.max(0, parseInt(newCourse.daily_lease, 10) || 0) } : {}),
           principal_invoice_address_id: newCourse.principal_invoice_address_id || null,
           counterparty_invoice_address_id: newCourse.counterparty_invoice_address_id || null,
           slot_id: newCourse.slotId || null,
@@ -590,7 +592,7 @@ export default function CoursesPage() {
         payload.carrier = legacyCarrierOf(editForm.carrierId);
       }
       if (changed("summary_title")) payload.summary_title = editForm.summary_title.trim() ? editForm.summary_title.trim() : null;
-      if (changed("daily_lease")) payload.daily_lease = dailyLease;
+      if (canViewPricing && changed("daily_lease")) payload.daily_lease = dailyLease;
       if (changed("principal_invoice_address_id")) payload.principal_invoice_address_id = editForm.principal_invoice_address_id || null;
       if (changed("counterparty_invoice_address_id")) payload.counterparty_invoice_address_id = editForm.counterparty_invoice_address_id || null;
       if (changed("slotId")) payload.slot_id = editForm.slotId || null;
@@ -1162,7 +1164,7 @@ export default function CoursesPage() {
 
               {/* 列2: 日額リース＋単価設定 */}
               <div className="min-w-0 space-y-4 lg:border-l lg:border-slate-100 lg:pl-6">
-                <div>
+                {canViewPricing && <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1">日額リース代（円/稼働日）</label>
                   <input
                     type="text"
@@ -1173,8 +1175,8 @@ export default function CoursesPage() {
                     placeholder="0"
                     className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                   />
-                </div>
-                <div className="pt-2 border-t border-slate-100">
+                </div>}
+                {canViewPricing && <div className="pt-2 border-t border-slate-100">
                   <CourseRateEditor
                     ref={createBillingRef}
                     courseId={null}
@@ -1182,7 +1184,7 @@ export default function CoursesPage() {
                     compact
                     onError={(msg) => setErrorState({ title: "単価設定", message: msg })}
                   />
-                </div>
+                </div>}
               </div>
             </div>
 
@@ -1238,7 +1240,7 @@ export default function CoursesPage() {
                 ["settings", "コース設定", faGear],
                 ["pricing", "単価設定", faCoins],
                 ["reportFields", "日報設定", faListCheck],
-              ] as const).map(([key, label, icon]) => (
+              ] as const).filter(([key]) => key !== "pricing" || canViewPricing).map(([key, label, icon]) => (
                 <button key={key} type="button" onClick={async () => { if (reportFieldsRef.current && !(await reportFieldsRef.current.save())) return; setEditModalTab(key); }}
                   className={`-mb-px inline-flex items-center gap-2 whitespace-nowrap border-b-2 px-3 py-2 text-xs sm:px-4 sm:text-sm font-medium transition-colors ${editModalTab === key ? "border-amber-500 text-amber-700" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
                   <span className="hidden sm:inline-flex"><FontAwesomeIcon icon={icon} className="h-3.5 w-3.5" /></span>
@@ -1400,7 +1402,7 @@ export default function CoursesPage() {
 
               {/* 列2: 日額リース＋単価設定 */}
               {editModalTab === "pricing" && <div className="space-y-4">
-                <div>
+                {canViewPricing && <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1">日額リース代（円/稼働日）</label>
                   <input
                     type="text"
@@ -1411,8 +1413,8 @@ export default function CoursesPage() {
                     placeholder="0"
                     className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
                   />
-                </div>
-                <div className="pt-2 border-t border-slate-100">
+                </div>}
+                {canViewPricing && <div className="pt-2 border-t border-slate-100">
                   <CourseRateEditor
                     ref={billingRef}
                     courseId={editingCourse.id}
@@ -1421,7 +1423,7 @@ export default function CoursesPage() {
                     onDirty={() => setEditBillingRevision((revision) => revision + 1)}
                     onError={(msg) => setErrorState({ title: "単価設定", message: msg })}
                   />
-                </div>
+                </div>}
               </div>}
 
               {/* 日報で使う入力項目（コース／便ごと） */}

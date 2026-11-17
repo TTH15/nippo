@@ -7,6 +7,18 @@
   },
   {
     "method": "GET",
+    "endpoint": "/api/admin/account-recovery",
+    "description": "account recoveryの取得",
+    "guard": "個別条件を要確認"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/account-recovery",
+    "description": "account recoveryの作成・送信",
+    "guard": "個別条件を要確認"
+  },
+  {
+    "method": "GET",
     "endpoint": "/api/admin/attendance",
     "description": "指定日の勤怠（車両セッション）一覧。出退勤・稼働時間・メーター・GPS状態・打刻手段・承認状態",
     "guard": "can_view_vehicles"
@@ -51,49 +63,49 @@
     "method": "GET",
     "endpoint": "/api/admin/counterparties/[id]/billing-detail",
     "description": "取引先・請求明細の取得",
-    "guard": "can_view_billing"
+    "guard": "can_view_billing（金額は can_view_sales＋can_view_profit）"
   },
   {
     "method": "PATCH",
     "endpoint": "/api/admin/counterparties/[id]/custom-lines/[lineId]",
     "description": "取引先・調整行の一部更新",
-    "guard": "can_manage_billing"
+    "guard": "can_manage_billing（金額は can_view_sales＋can_view_profit）"
   },
   {
     "method": "PATCH",
     "endpoint": "/api/admin/counterparties/[id]/line-label",
     "description": "取引先・行名の一部更新",
-    "guard": "can_manage_billing"
+    "guard": "can_manage_billing（金額は can_view_sales＋can_view_profit）"
   },
   {
     "method": "POST",
     "endpoint": "/api/admin/counterparties/[id]/merge-lines",
     "description": "取引先・行統合の作成・送信",
-    "guard": "can_manage_billing"
+    "guard": "can_manage_billing（金額は can_view_sales＋can_view_profit）"
   },
   {
     "method": "DELETE",
     "endpoint": "/api/admin/counterparties/[id]/merged-lines/[mergeId]",
     "description": "取引先・統合行の削除",
-    "guard": "can_manage_billing"
+    "guard": "can_manage_billing（金額は can_view_sales＋can_view_profit）"
   },
   {
     "method": "PATCH",
     "endpoint": "/api/admin/counterparties/[id]/merged-lines/[mergeId]",
     "description": "取引先・統合行の一部更新",
-    "guard": "can_manage_billing"
+    "guard": "can_manage_billing（金額は can_view_sales＋can_view_profit）"
   },
   {
     "method": "PUT",
     "endpoint": "/api/admin/counterparties/[id]/month-lines",
     "description": "取引先・月別明細の更新",
-    "guard": "can_manage_billing"
+    "guard": "can_manage_billing（金額は can_view_sales＋can_view_profit）"
   },
   {
     "method": "GET",
     "endpoint": "/api/admin/counterparties/summary",
     "description": "取引先・集計の取得",
-    "guard": "can_view_billing"
+    "guard": "can_view_billing（金額は can_view_sales＋can_view_profit）"
   },
   {
     "method": "GET",
@@ -453,55 +465,55 @@
     "method": "GET",
     "endpoint": "/api/admin/invoices",
     "description": "請求書の取得",
-    "guard": "can_view_billing"
+    "guard": "can_view_billing（金額は can_view_sales＋can_view_profit）"
   },
   {
     "method": "POST",
     "endpoint": "/api/admin/invoices",
     "description": "請求書の作成・送信",
-    "guard": "can_manage_billing"
+    "guard": "can_manage_billing（金額は can_view_sales＋can_view_profit）"
   },
   {
     "method": "DELETE",
     "endpoint": "/api/admin/invoices/[id]",
     "description": "請求書の削除",
-    "guard": "can_manage_billing"
+    "guard": "can_manage_billing（金額は can_view_sales＋can_view_profit）"
   },
   {
     "method": "GET",
     "endpoint": "/api/admin/invoices/[id]",
     "description": "請求書の取得",
-    "guard": "can_view_billing"
+    "guard": "can_view_billing（金額は can_view_sales＋can_view_profit）"
   },
   {
     "method": "PATCH",
     "endpoint": "/api/admin/invoices/[id]",
     "description": "請求書の一部更新",
-    "guard": "can_manage_billing"
+    "guard": "can_manage_billing（金額は can_view_sales＋can_view_profit）"
   },
   {
     "method": "GET",
     "endpoint": "/api/admin/invoices/[id]/staleness",
     "description": "請求書・stalenessの取得",
-    "guard": "can_view_billing"
+    "guard": "can_view_billing（金額は can_view_sales＋can_view_profit）"
   },
   {
     "method": "POST",
     "endpoint": "/api/admin/invoices/attachments",
     "description": "請求書・attachmentsの作成・送信",
-    "guard": "can_manage_billing"
+    "guard": "can_manage_billing（金額は can_view_sales＋can_view_profit）"
   },
   {
     "method": "GET",
     "endpoint": "/api/admin/invoices/draft",
     "description": "請求書・draftの取得",
-    "guard": "can_view_billing"
+    "guard": "can_view_billing（金額は can_view_sales＋can_view_profit）"
   },
   {
     "method": "POST",
     "endpoint": "/api/admin/invoices/from-source",
     "description": "請求書・from sourceの作成・送信",
-    "guard": "can_manage_billing"
+    "guard": "can_manage_billing（金額は can_view_sales＋can_view_profit）"
   },
   {
     "method": "GET",
@@ -891,13 +903,13 @@
     "method": "GET",
     "endpoint": "/api/admin/sales",
     "description": "salesの取得",
-    "guard": "can_view_billing"
+    "guard": "いずれか [can_view_sales, can_view_profit]"
   },
   {
     "method": "GET",
     "endpoint": "/api/admin/sales/log",
     "description": "期間内のログ明細（種別名・ドライバー名・車両ラベル付き）",
-    "guard": "can_view_billing"
+    "guard": "いずれか [can_view_billing, can_view_sales, can_view_profit]"
   },
   {
     "method": "POST",
@@ -933,7 +945,7 @@
     "method": "GET",
     "endpoint": "/api/admin/sales/reports",
     "description": "sales・日報の取得",
-    "guard": "can_view_billing"
+    "guard": "can_view_sales"
   },
   {
     "method": "GET",
@@ -1119,7 +1131,7 @@
     "method": "POST",
     "endpoint": "/api/admin/spot-jobs",
     "description": "単発案件を作成（参加者込み）",
-    "guard": "can_manage_shifts"
+    "guard": "can_manage_shifts（金額の読取・変更は can_view_sales＋can_view_profit）"
   },
   {
     "method": "DELETE",
@@ -1131,7 +1143,7 @@
     "method": "PATCH",
     "endpoint": "/api/admin/spot-jobs/[id]",
     "description": "単発案件の編集。members を渡すと参加者を丸ごと置き換える",
-    "guard": "can_manage_shifts"
+    "guard": "can_manage_shifts（金額の読取・変更は can_view_sales＋can_view_profit）"
   },
   {
     "method": "POST",
@@ -1215,6 +1227,12 @@
     "method": "PUT",
     "endpoint": "/api/admin/users/[id]",
     "description": "ドライバー更新",
+    "guard": "can_manage_members"
+  },
+  {
+    "method": "PUT",
+    "endpoint": "/api/admin/users/[id]/capabilities",
+    "description": "メンバー・capabilitiesの更新",
     "guard": "can_manage_members"
   },
   {
@@ -1363,9 +1381,27 @@
   },
   {
     "method": "POST",
+    "endpoint": "/api/auth/admin/logout",
+    "description": "認証・logoutの作成・送信",
+    "guard": "個別条件を要確認"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/auth/admin/refresh",
+    "description": "認証・refreshの作成・送信",
+    "guard": "認証（本人・対象範囲は処理内で確認）"
+  },
+  {
+    "method": "POST",
     "endpoint": "/api/auth/login",
     "description": "認証・loginの作成・送信",
     "guard": "公開ログイン。資格情報を検証"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/auth/logout",
+    "description": "認証・logoutの作成・送信",
+    "guard": "個別条件を要確認"
   },
   {
     "method": "GET",
@@ -1390,6 +1426,18 @@
     "endpoint": "/api/auth/recover/verify",
     "description": "認証・recoverを検証",
     "guard": "公開のアカウント復旧。復旧コード等を検証"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/auth/recovery-request",
+    "description": "認証・recovery requestの取得",
+    "guard": "個別条件を要確認"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/auth/recovery-request",
+    "description": "認証・recovery requestの作成・送信",
+    "guard": "個別条件を要確認"
   },
   {
     "method": "GET",
@@ -1620,6 +1668,12 @@
     "guard": "認証（本人・対象範囲は処理内で確認）"
   },
   {
+    "method": "POST",
+    "endpoint": "/api/me/sessions/revoke-all",
+    "description": "本人・sessions・revoke allの作成・送信",
+    "guard": "個別条件を要確認"
+  },
+  {
     "method": "GET",
     "endpoint": "/api/me/shift-confirmations",
     "description": "本人・shift confirmationsの取得",
@@ -1660,6 +1714,18 @@
     "endpoint": "/api/otp/send",
     "description": "認証コードを送信",
     "guard": "認証コード送信。送信先・レート制限を検証"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/platform/account-recovery",
+    "description": "platform・account recoveryの取得",
+    "guard": "個別条件を要確認"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/platform/account-recovery",
+    "description": "platform・account recoveryの作成・送信",
+    "guard": "個別条件を要確認"
   },
   {
     "method": "GET",
@@ -1724,8 +1790,8 @@
   {
     "method": "POST",
     "endpoint": "/api/reports",
-    "description": "日報の作成・送信",
-    "guard": "認証（本人・対象範囲は処理内で確認）"
+    "description": "旧日報送信を終了（410、新画面へ移動）",
+    "guard": "認証"
   },
   {
     "method": "POST",
@@ -1918,5 +1984,59 @@
     "endpoint": "/api/work/today",
     "description": "ドライバーの当日の業務状態。アプリ復帰時の同期に使う",
     "guard": "認証＋会社所属"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/capabilities",
+    "description": "本人の最新の実効権限",
+    "guard": "管理セッション＋本人"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/daily/course-requests",
+    "description": "追加申請と同日の日報内容",
+    "guard": "can_view_reports"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/cron/finalize-reports",
+    "description": "日本時間午前3時の承認済み日報確定・失敗分の再実行",
+    "guard": "CRON_SECRET"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/reports/course-requests",
+    "description": "本人の追加申請を取得",
+    "guard": "認証＋会社所属＋本人"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/reports/course-requests",
+    "description": "本人の追加申請を保存",
+    "guard": "認証＋会社所属＋本人＋revision"
+  },
+  {
+    "method": "DELETE",
+    "endpoint": "/api/reports/course-requests",
+    "description": "本人の未承認追加申請を取消",
+    "guard": "認証＋会社所属＋本人"
+  },
+  {
+    "method": "GET",
+    "endpoint": "/api/admin/shifts/corrections",
+    "description": "修正中・確定済みシフトを取得",
+    "guard": "can_view_shifts"
+  },
+  {
+    "method": "POST",
+    "endpoint": "/api/admin/shifts/corrections",
+    "description": "過去シフトの修正を開始",
+    "guard": "can_manage_members＋can_manage_shifts＋can_edit_reports"
+  },
+  {
+    "method": "PATCH",
+    "endpoint": "/api/admin/shifts/corrections",
+    "description": "再承認した日報を再確定",
+    "guard": "can_manage_members＋can_manage_shifts＋can_edit_reports"
   }
 ]

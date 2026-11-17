@@ -56,6 +56,7 @@ interface ProxyReportModalProps {
 export default function ProxyReportModal({ target, onClose, onSaved }: ProxyReportModalProps) {
   const [shifts, setShifts] = useState<ShiftForm[]>([]);
   const [shiftVehicleId, setShiftVehicleId] = useState<string | null>(null);
+  const [revision, setRevision] = useState("");
   const [values, setValues] = useState<Values>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -74,7 +75,7 @@ export default function ProxyReportModal({ target, onClose, onSaved }: ProxyRepo
     data: formData,
     error: formError,
     isInitialLoading: loading,
-  } = useApi<{ shifts: ShiftForm[]; shiftVehicleId: string | null }>(formKey, {
+  } = useApi<{ shifts: ShiftForm[]; revision: string; shiftVehicleId: string | null }>(formKey, {
     revalidateOnFocus: false,
   });
   const initializedKeyRef = useRef<string | null>(null);
@@ -90,6 +91,7 @@ export default function ProxyReportModal({ target, onClose, onSaved }: ProxyRepo
     if (!formData || !formKey) return;
     if (initializedKeyRef.current === formKey) return;
     initializedKeyRef.current = formKey;
+    setRevision(formData.revision);
     const loaded = orderCourseCycles((formData.shifts ?? []).filter(s => !s.existing?.approvedAt), s => s.courseId, s => s.cycleNo ?? 0);
     setShifts(loaded);
     setShiftVehicleId(formData.shiftVehicleId ?? null);
@@ -155,7 +157,7 @@ export default function ProxyReportModal({ target, onClose, onSaved }: ProxyRepo
       }));
       await apiFetch("/api/admin/daily/reports/proxy", {
         method: "POST",
-        body: JSON.stringify({ driverId: target.driverId, reportDate: target.date, items }),
+        body: JSON.stringify({ driverId: target.driverId, reportDate: target.date, items, expectedRevision: revision }),
       });
       onSaved();
     } catch (e) {
