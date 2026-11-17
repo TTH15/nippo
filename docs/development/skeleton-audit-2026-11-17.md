@@ -73,3 +73,4 @@ PR #80をmain `34d09063` へ取り込み、App CI `44034554909` の全項目成�
 - 実ページと共通ShiftDisplayPanelを使う隔離fixtureへautosave-slowを追加。320／360／390／430／600／768／1024／1280pxの8幅で保存済み・自動保存中を計測し、状態とボタン・ボタン同士の交差0件、画面外のボタン0件、表示中ボタンの中心点へのクリック到達を確認。設定／表示を実際にクリックして開閉した。
 - 保存失敗は4幅で表示し、閉じる→元の割当へ復帰→再操作→保存完了を確認。共有メモの未同期／保存中も4幅で操作群に重ならないことを確認した。
 - 関連2ファイル・7テストとWeb／プレビュー／mobile／base型検査成功。証跡は `/Users/H.Takaya/Developer/backups/hakotora-shift-status-20261117/`。本番公開結果は作業ログへ追記する。実機・全ブラウザ差は対象外。
+- PR #81をmain `7fdb008d` にマージ。本番deployment `dpl_Dx17CnEgSEtR5jS8UKaWnu2wsHyy` のREADYと `hakotora.jp` の切替を確認。App CI `44037950952` でWeb2054／mobile68テスト、全型、隔離認証DB、監査、ビルドとCSP／未認証ガードが成功。公開後のトップ／ログイン200・CSP nonce、シフト／capabilities APIの未認証401を確認した。保存処理・DB・個人権限の変更なし。
