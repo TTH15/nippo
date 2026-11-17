@@ -27,7 +27,13 @@ try:
     CREATE TABLE roles(id uuid PRIMARY KEY, key text, is_system boolean);
     CREATE TABLE role_capabilities(role_id uuid, capability text, PRIMARY KEY(role_id,capability));
     GRANT SELECT, UPDATE ON drivers TO service_role;""")
+    sql("""INSERT INTO roles(id,key,is_system) VALUES
+    ('00000000-0000-4000-8000-000000000071','ACCOUNTING',false),
+    ('00000000-0000-4000-8000-000000000072','CUSTOM_DISPATCH',false),
+    ('00000000-0000-4000-8000-000000000073','ADMIN',true);""")
     sql(migration.read_text())
+    assert sql("SELECT count(*) FROM role_capabilities") == "4"
+    assert sql("SELECT count(*) FROM role_capabilities WHERE role_id='00000000-0000-4000-8000-000000000072'") == "0"
     org = "00000000-0000-4000-8000-000000000001"
     other = "00000000-0000-4000-8000-000000000002"
     actor = "00000000-0000-4000-8000-000000000003"

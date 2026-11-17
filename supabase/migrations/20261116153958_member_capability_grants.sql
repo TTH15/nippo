@@ -62,7 +62,7 @@ GRANT EXECUTE ON FUNCTION public.set_member_capability_grant(uuid, uuid, uuid, t
 INSERT INTO public.role_capabilities(role_id, capability)
 SELECT r.id, cap.capability FROM public.roles r
 CROSS JOIN (VALUES ('can_view_sales'), ('can_view_profit')) AS cap(capability)
-WHERE r.is_system = true AND r.key IN ('ADMIN', 'ACCOUNTING')
+WHERE r.key IN ('ADMIN', 'ACCOUNTING')
 ON CONFLICT DO NOTHING;
 
 COMMIT;
