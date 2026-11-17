@@ -200,7 +200,7 @@ function PendingListSkeleton({ canWrite }: { canWrite: boolean }) {
   return (
     <ul className="divide-y divide-slate-100">
       {[0, 1].map((i) => (
-        <li key={i} className="py-3 flex items-center justify-between gap-3">
+        <li key={i} className="py-3 grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3 sm:flex sm:justify-between">
           <Skeleton className="w-14 h-14 rounded-full shrink-0" />
           <div className="min-w-0 flex-1">
             <Skeleton className="h-4 w-32 mb-1.5" />
@@ -208,7 +208,7 @@ function PendingListSkeleton({ canWrite }: { canWrite: boolean }) {
             <Skeleton className="h-4 w-24 mt-1.5 rounded" />
           </div>
           {canWrite && (
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="col-start-2 flex items-center gap-2 shrink-0">
               <Skeleton className="h-7 w-16 rounded" />
               <Skeleton className="h-7 w-16 rounded" />
             </div>
@@ -613,7 +613,7 @@ export default function PendingApprovalPage() {
           ) : (
             <ul className="divide-y divide-slate-100">
               {pending.map((d) => (
-                <li key={d.id} className="py-3 flex items-center justify-between gap-3">
+                <li key={d.id} className="py-3 grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3 sm:flex sm:justify-between">
                   {/* 提出済みの顔写真をアバター表示（対面済みの運営が「誰か」を直感できるように） */}
                   {d.faceUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -646,7 +646,7 @@ export default function PendingApprovalPage() {
                     </span>
                   </div>
                   {canWrite && (
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="col-start-2 flex items-center gap-2 shrink-0">
                       <button
                         type="button"
                         onClick={() => openApprove(d)}

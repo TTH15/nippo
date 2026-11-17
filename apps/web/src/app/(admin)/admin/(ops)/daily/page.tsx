@@ -486,13 +486,11 @@ export default function AdminDailyPage() {
                 </div>
               ))}
             </div>
-            {/* 日付見出し＋一覧。スマホはカード、PC はテーブルと表示形が違うので
-                スケルトンも同じ分岐で出し分ける（読み込み後にレイアウトが動かない）。 */}
+            {/* 読み込み後と同じ切替幅・列構成で表示する。 */}
             {[0, 1].map((d) => (
               <div key={d} className="mb-8">
                 <Skeleton className="h-5 w-52 mb-2" />
-                {/* スマホ: カード */}
-                <div className="md:hidden space-y-2">
+                <div className="lg:hidden space-y-2">
                   {[0, 1, 2].map((i) => (
                     <div key={i} className="rounded-lg border border-slate-200 bg-white p-3">
                       <div className="flex items-center justify-between gap-2">
@@ -507,46 +505,18 @@ export default function AdminDailyPage() {
                     </div>
                   ))}
                 </div>
-                {/* PC: テーブル（列構成は実表と同じ 名前/種別/車両/メーター/内容/承認/操作/送信時刻） */}
-                <div className="hidden md:block bg-white rounded-lg border border-slate-200 overflow-hidden">
-                  <table className="w-full text-sm table-fixed">
-                    <colgroup>
-                      <col className="w-28" />
-                      <col className="w-20" />
-                      <col className="w-40" />
-                      <col className="w-24" />
-                      <col className="w-auto" />
-                      <col className="w-36" />
-                      {canWrite && <col className="w-24" />}
-                      <col className="w-24" />
-                    </colgroup>
-                    <thead className="bg-slate-50">
-                      <tr className="border-b border-slate-200 text-left">
-                        {["名前", "種別", "車両", "メーター", "内容", "承認", ...(canWrite ? ["操作"] : []), "送信時刻"].map(
-                          (h) => (
-                            <th key={h} className="py-3 px-2 font-semibold text-slate-600">
-                              <Skeleton className="h-4 w-12" />
-                            </th>
-                          ),
-                        )}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {[...Array(4)].map((_, i) => (
-                        <tr key={i} className="border-b border-slate-100">
-                          <td className="py-3 px-3"><Skeleton className="h-4 w-20" /></td>
-                          <td className="py-3 px-2"><Skeleton className="h-4 w-10 mx-auto" /></td>
-                          <td className="py-3 px-2"><Skeleton className="h-8 w-24 mx-auto rounded" /></td>
-                          <td className="py-3 px-2"><Skeleton className="h-4 w-12 mx-auto" /></td>
-                          <td className="py-3 px-2"><Skeleton className="h-4 w-40" /></td>
-                          <td className="py-3 px-2"><Skeleton className="h-6 w-20 mx-auto rounded-full" /></td>
-                          {canWrite && <td className="py-3 px-2"><Skeleton className="h-7 w-16 mx-auto rounded" /></td>}
-                          <td className="py-3 px-3"><Skeleton className="h-4 w-10 ml-auto" /></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <DailyReportTable>
+                  {[0, 1, 2, 3].map((i) => (
+                    <tr key={i} className="border-b border-slate-100">
+                      <td className="px-3 py-3"><Skeleton className="h-4 w-20" /></td>
+                      <td className="px-3 py-3"><Skeleton className="h-8 w-24 rounded" /></td>
+                      <td className="px-3 py-3"><Skeleton className="h-6 w-24 rounded" /></td>
+                      <td className="px-3 py-3"><Skeleton className="h-4 w-40" /></td>
+                      <td className="px-3 py-3"><Skeleton className="h-7 w-20 rounded-full" /></td>
+                      <td className="px-3 py-3"><Skeleton className="h-4 w-10 ml-auto" /></td>
+                    </tr>
+                  ))}
+                </DailyReportTable>
               </div>
             ))}
           </>

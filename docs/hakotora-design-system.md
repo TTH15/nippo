@@ -262,6 +262,7 @@ Motion
 | カードの詳細開閉 | `src/lib/components/SmoothCollapse.tsx` | 高さ0↔autoと透明度を250ms、ease `[0.22, 1, 0.36, 1]` で変化。初期描画では展開アニメーションをしない。ツールバー直下の短い設定パネルは `speed="quick"` の140msを使える |
 | PCの管理サイドバー | `AdminSidebar.tsx` / `SmoothCollapse.tsx` | 幅224↔64pxを共通250msで補間。通常メニューを同じDOM・固定幅で保ち、閉じた時は文字だけを隠す。開いている小メニューもアイコンを残し、各アイコンの縦横位置・メニューのスクロール位置を変えない。ロゴ・アカウント欄は非表示/inert。閉じた大分類を押すと展開し見出しへフォーカス。現在地・権限・通知は共通。開閉状態はブラウザ内のページ遷移で保持し、再読み込みで初期化。下層メニューは現在地から初期化し、遷移時の展開やり直しを避ける。自動スクロールはメニュー内の縦方向だけ。OSの動きを減らす設定では即時切替 |
 | 縦リストの並べ替え | `src/lib/components/SortableList.tsx` | Font Awesomeの`faGripVertical`をハンドルに使う。カード全体がポインタに追従し、他のカードはspringで移動する |
+| 読み込み中の表示 | `Skeleton.tsx` | 親の幅を超えない。カード／表の切替幅と列数を本表示に揃え、表は同じスクロール枠を使う。狭い幅で操作欄が名前を押し潰す場合は操作を下段へ配置する |
 | チェック項目 | `src/lib/components/CheckboxField.tsx` | 標準inputの操作を維持。チャコールの面＋アンバーのチェック印、選択行は淡いアンバー。ラベル全体を押せる |
 | ラジオ・選択肢の回答 | `RadioField.tsx` / `ChoiceInput.tsx` | 単一選択は標準radio、複数選択はCheckboxField。同じ44px操作領域とチャコール＋アンバーの配色 |
 | 選択・日付 | `CustomSelect.tsx` / `DatePicker.tsx` | 既存の共通部品を使用。OS依存の見た目に戻さない |

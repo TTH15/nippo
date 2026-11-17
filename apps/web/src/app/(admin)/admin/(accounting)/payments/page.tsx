@@ -554,7 +554,7 @@ export default function PaymentsPage() {
 
         {loading ? (
           <div className="bg-white rounded border border-slate-200 overflow-hidden">
-            {/* スマホ: カード（開閉行＋金額）。PC は8列テーブル */}
+            {/* スマホ: カード（開閉行＋金額）。PC は7列テーブル */}
             <div className="md:hidden divide-y divide-slate-100">
               {[...Array(6)].map((_, i) => (
                 <div key={i} className="px-3 py-2.5">
@@ -573,12 +573,12 @@ export default function PaymentsPage() {
                 </div>
               ))}
             </div>
-            <table className="hidden md:table w-full text-sm">
+            <div className="hidden md:block overflow-x-auto">
+            <table className="w-full min-w-[760px] text-sm">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50">
                   <th className="py-2.5 px-2 text-left"><Skeleton className="h-4 w-6" /></th>
                   <th className="py-2.5 px-4 text-left"><Skeleton className="h-4 w-16" /></th>
-                  <th className="py-2.5 px-4 text-right"><Skeleton className="h-4 w-20" /></th>
                   <th className="py-2.5 px-4 text-right"><Skeleton className="h-4 w-20" /></th>
                   <th className="py-2.5 px-4 text-right"><Skeleton className="h-4 w-20" /></th>
                   <th className="py-2.5 px-4 text-right"><Skeleton className="h-4 w-20" /></th>
@@ -595,12 +595,12 @@ export default function PaymentsPage() {
                     <td className="py-2.5 px-4 text-right"><Skeleton className="h-4 w-16" /></td>
                     <td className="py-2.5 px-4 text-right"><Skeleton className="h-4 w-16" /></td>
                     <td className="py-2.5 px-4 text-right"><Skeleton className="h-4 w-16" /></td>
-                    <td className="py-2.5 px-4 text-right"><Skeleton className="h-4 w-16" /></td>
                     <td className="py-2.5 px-4 text-right"><Skeleton className="h-4 w-12" /></td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         ) : rows.length === 0 ? (
           <p className="text-sm text-slate-500">この月に稼働していたドライバーはいません</p>

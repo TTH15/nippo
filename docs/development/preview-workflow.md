@@ -512,3 +512,9 @@ npx tsx scripts/db/bank-cleanup-review.ts --input <同じ読取JSON> --out-dir <
 - `courses?scenario=no-pricing&role=admin`、`spot-jobs?scenario=no-pricing&role=admin`、`sales?scenario=sales-only&role=admin`: 金額の権限別表示と編集。
 
 日報・承認・シフトは専用のlocalStorageだけで架空状態を共有し、上部ボタンから移動できる。「午前3時の確定を試す」は時計の模擬操作。「初期化」は保存した架空状態と画面の入力状態を一緒に初期化する。SQL・実際のcron・本番認証・通知は動かさない。実装と隔離DB検証の詳細は [記録](sales-permissions-report-additions-2026-11-17.md) を参照。
+
+### 日報の代理入力・スマホの読み込み表示（2026/11/17）
+
+`npm run preview:admin -- admin --port 3197`。日報の `daily?scenario=unsubmitted&role=admin` は未提出と代理入力を再現し、承認列の不要な横線を出さずに代理入力・保存・承認を操作できる。参加承認は `users-pending?scenario=loading&role=admin` を追加（通常／申請なし／長い名前も切替可能）。
+
+日報・ペイメント・名簿の読み込み中の表は実ページと同じ列数・切替幅・スクロール枠を使う。共通Skeletonは親の幅を超えない。参加承認の狭い幅では名前と承認／却下を上下に分け、本表示と骨格を揃える。日報、支払、売上、車両、名簿、参加承認、コース、権限、シフト、シフトメモ、報告種別、原票様式、原票一覧、請求書一覧、ダッシュボード、マイページ、日報入力、本人シフト、会社設定を320／390／768／1280pxで確認。出力や実API・認証・DB・通知には接続しない。
