@@ -42,6 +42,8 @@ export type PreviewFixture<S> = {
   createState(context: FixtureContext): S;
   /** 明示的な「初期化」でだけ、fixture外のプレビュー専用保存先を消す。 */
   onReset?(context: FixtureContext): void;
+  /** 詳細・モーダルだけを読み込み中にする。実APIへの通信は行わない。 */
+  isPending?(state: S, request: FixtureRequest, context: FixtureContext): boolean;
   /** GET。undefined を返すと「プレビュー対象外」エラーになる */
   read(state: S, request: FixtureRequest, context: FixtureContext): unknown;
   /** POST/PUT/DELETE。undefined を返すと「プレビュー対象外」エラーになる。状態は直接書き換えてよい */
@@ -94,7 +96,7 @@ export function createFixtureStore<S>(fixture: PreviewFixture<S>, location: { sc
   };
 
   const resolve = (key: string): Resolution => {
-    if (scenario === "loading") return { status: "pending" };
+    if (scenario === "loading" || fixture.isPending?.(state, parseRequest(key), context)) return { status: "pending" };
     if (scenario === "error") return { status: "error", error: new Error(FETCH_ERROR_MESSAGE) };
     const cached = cache.get(key);
     if (cached) return cached;

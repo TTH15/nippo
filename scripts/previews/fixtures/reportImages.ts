@@ -140,6 +140,7 @@ export const reportImagesFixture: PreviewFixture<State> = {
   title: "画像の確認",
   pathname: "/admin/report-images",
   scenarios: {
+    "image-loading": { label: "原本の読み込み中" },
     normal: { label: "通常", description: "確定・確定待ち・手入力が混ざった一覧" },
     empty: { label: "提出なし", description: "この期間の提出が無い" },
     "long-name": { label: "長い名前", description: "氏名・コース・項目名の折り返し" },
@@ -162,6 +163,7 @@ export const reportImagesFixture: PreviewFixture<State> = {
               }))
             : rows(),
   }),
+  isPending: (_state, { path }, { scenario }) => scenario === "image-loading" && path === "/api/admin/report-source-images/file",
   read: (state, { path }) => {
     if (path.startsWith("/api/admin/report-source-images/file")) {
       if (state.fail) throw new Error("原本を確認できませんでした");

@@ -137,6 +137,7 @@ function readinessResponse(state: ShiftsFixtureState, scenario: string) {
 export const shiftsFixture: PreviewFixture<ShiftsFixtureState> = {
   id: "shifts", title: "シフト・シフトメモ", pathname: "/admin/shifts",
   scenarios: {
+    "settings-loading": { label: "設定だけ読み込み中", description: "シフト提出の設定を開く" },
     "course-add": { label: "日報の追加反映", description: "承認前後の本人シフト" },
     finalization: { label: "午前3時の確定", description: "確定したセルだけグレー" }, correction: { label: "確定と修正", description: "承認済みと過去のシフトの確定解除" }, "period-roster": { label: "過去の所属", description: "8月は終了者（担当解除済）を表示、9月開始の人は非表示" },  "memo-read": { label: "メモ画像の読み取り", description: "読み取り中・中止・未設定・休みとの重なりを確認" }, "plate-overlap": { label: "警告の重なり", description: "オイル/使用不可と日付・固定列の縦横スクロール" }, "memo-colors": { label: "メモの稼働日数・色", description: "同日の重複配置と曜日・日付の色、コンパクト出力" }, normal: { label: "通常", description: "個人・共有メモを切り替え" }, empty: { label: "未設定", description: "ドライバー・配置なし" }, "long-name": { label: "長い名前", description: "長い名前の配置" }, large: { label: "多数", description: "48人の名簿" }, transfer: { label: "メモ受け渡し", description: "自作枠・未登録の名前札・別コースへの反映" }, conflict: { label: "同時変更", description: "セル編集とメモ反映の両方で後勝ちを止める" }, "shared-live": { label: "2タブ共同", description: "別タブとの参加・更新を試す" }, "shared-missed": { label: "通知なしの2タブ", description: "通知を止めて定期取得で復旧" }, "shared-slow": { label: "遅い保存", description: "保存中の追加編集を保持" }, "shared-lost-response": { label: "保存応答の喪失", description: "保存済み正本を再取得して照合" }, "shared-peers": { label: "共同編集者", description: "共有メモの参加者表示" }, "shared-disjoint": { label: "別の箇所", description: "他の人の変更も残す" }, "shared-conflict": { label: "共有メモ競合", description: "同じ箇所の変更を検出" }, "shared-save-error": { label: "共有メモ保存失敗", description: "保存失敗から再試行" }, "save-error": { label: "反映失敗", description: "最初の反映で失敗し、再確認後に成功" }, unmapped: { label: "名前の対応", description: "未登録の名前札はメモだけに残し、任意で登録ドライバーへ合わせる" }, readiness: { label: "未解決あり", description: "不足・未確認・原本不一致・期限切れの一覧" }, "readiness-light": { label: "未解決（期限内）", description: "期限切れなし・基準未設定だけの状態" }, "readiness-many": { label: "未解決が多数", description: "40件・長いコース名で高さと折り返しを見る" } },
   createState: ({ scenario, driver }) => {
@@ -183,6 +184,7 @@ export const shiftsFixture: PreviewFixture<ShiftsFixtureState> = {
     sessionStorage.removeItem(`hakotora_shared_shift_memo_draft_v1:${driver.id}`);
     if (["shared-live", "shared-missed"].includes(scenario)) localStorage.removeItem(LIVE_BOARD_KEY);
   },
+  isPending: (_state, { path }, { scenario }) => scenario === "settings-loading" && ["/api/admin/shift-deadlines", "/api/admin/shift-slots", "/api/admin/shifts/readiness-settings", "/api/admin/shifts/requirements"].includes(path),
   read(state, request, { driver, scenario }) {
     const { path, params } = request;
     const flow = readReportFlow(request, scenario); if (flow !== undefined) return flow;

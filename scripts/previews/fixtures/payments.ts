@@ -87,11 +87,13 @@ export const paymentsFixture: PreviewFixture<State> = {
   title: "支払い",
   pathname: "/admin/payments",
   scenarios: {
+    "detail-loading": { label: "明細の読み込み中", description: "行の内訳と経費モーダル" },
     "period-roster": { label: "過去の所属", description: "8月は終了者を表示、新規者を除外。期間外の金額行は保持" },
     normal: { label: "通常", description: "2名。1人目は固定「リース代」とリース契約が二重になっている" },
     empty: { label: "対象なし", description: "その月に支払い対象がいない" },
   },
   createState: ({ scenario }) => seed(scenario),
+  isPending: (_state, { path }, { scenario }) => scenario === "detail-loading" && ["/api/admin/driver-expenses", "/api/admin/driver-ad-hoc-expenses", "/api/admin/driver-rewards"].includes(path),
 
   read: (state, { path, params }, { scenario }) => {
     if (path === "/api/admin/payments") {

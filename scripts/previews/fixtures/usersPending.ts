@@ -1,6 +1,6 @@
 import type { PreviewFixture } from "@/lib/preview/fixtureStore";
 
-type Driver = { id: string; name: string; nameKana: string; phone: null; status: string; created_at: null };
+type Driver = { id: string; name: string; nameKana: string; phone: null; status: string; created_at: null; hasLicensePhoto?: boolean; hasFacePhoto?: boolean };
 type Invite = { id: string; name: string; token: string; status: string; createdAt: string; expiresAt: string };
 type State = { drivers: Driver[]; invites: Invite[] };
 
@@ -8,16 +8,18 @@ type State = { drivers: Driver[]; invites: Invite[] };
 export const usersPendingFixture: PreviewFixture<State> = {
   id: "users-pending", title: "参加承認", pathname: "/admin/users/pending",
   scenarios: {
+    "kyc-loading": { label: "本人確認の読み込み中" },
     normal: { label: "通常", description: "架空の参加申請" },
     empty: { label: "申請なし", description: "申請・招待のない状態" },
     "long-name": { label: "長い名前", description: "長い名前の表示" },
   },
   createState: ({ scenario }) => ({ drivers: scenario === "empty" ? [] : ["申請サンプル 一郎", "申請サンプル 二郎"].map((name, i) => ({
     id: `pending-${i}`, name: scenario === "long-name" ? `${name}・長い表示名の確認用` : name,
-    nameKana: "シンセイサンプル", phone: null, status: "pending", created_at: null,
+    nameKana: "シンセイサンプル", phone: null, status: "pending", created_at: null, hasLicensePhoto: scenario === "kyc-loading", hasFacePhoto: scenario === "kyc-loading",
   })), invites: [] }),
-  read: (state, { path, params }) => {
-    if (path === "/api/admin/users") return { drivers: params.get("stage") === "kyc" ? [] : state.drivers, total: state.drivers.length };
+  isPending: (_state, { path }, { scenario }) => scenario === "kyc-loading" && /\/users\/[^/]+\/kyc$/.test(path),
+  read: (state, { path, params }, { scenario }) => {
+    if (path === "/api/admin/users") return { drivers: params.get("stage") === "kyc" && scenario !== "kyc-loading" ? [] : state.drivers, total: state.drivers.length };
     if (path === "/api/admin/courses") return { courses: [] };
     if (path === "/api/admin/invites") return { invites: state.invites };
     return undefined;
