@@ -4,6 +4,7 @@ import { resolveOrgId } from "@/server/db/tenant";
 import { isDateOnly, isUuid } from "@/server/db/adminResourceScope";
 import { supabase } from "@/server/db/client";
 import { validateReportFieldWrites } from "@/server/reports/validateFieldWrites";
+import { reportLifecycleError } from "@/server/reports/lifecycleError";
 import { loadReportVehicles } from "@/server/vehicles/reportScope";
 
 export const dynamic = "force-dynamic";
@@ -95,7 +96,7 @@ export async function POST(req: NextRequest) {
       p_payload: { identityId: body.identityId ?? null, vehicleId: item.vehicleId ?? null, meterValue: item.meterValue ?? null, entries },
     });
     if (error?.code === "P0002") return NextResponse.json({ error: "コース・便が見つかりません" }, { status: 404 });
-    if (error?.code === "23514" || error?.code === "40001") return NextResponse.json({ error: "シフトまたは日報を確認し、画面を開き直してください" }, { status: 409 });
+    if (error?.code === "23514" || error?.code === "40001") return reportLifecycleError(error, "日報を保存できませんでした");
     if (error) throw error;
     return NextResponse.json({ id: data });
   } catch {

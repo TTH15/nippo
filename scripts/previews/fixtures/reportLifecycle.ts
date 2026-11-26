@@ -77,6 +77,10 @@ export function writeReportFlow(request: FixtureRequest, scenario: string, role:
     if (body.expectedRevision !== String(flow.revision)) throw new Error("日報が変更されています。再読み込みしてください");
     if (flow.finalized && !flow.correction) throw new Error("確定済みの日報です。管理者に修正を依頼してください");
     const items = body.items as FlowItem[];
+    if (items.some(i => i.request && !flowCandidates.some(c => c.courseId === i.courseId && c.cycleNo === i.cycleNo) &&
+      !flow.requests.some(q => q.courseId === i.courseId && q.cycleNo === i.cycleNo && body.reportDate === flow.date))) {
+      throw new Error("担当コースの設定を確認してください。必要な場合は運営に連絡してください");
+    }
     flow.date = String(body.reportDate); flow.reports = items.filter(i => !i.request).map((i, n) => ({ ...i, id: `flow-report-${n + 1}` }));
     flow.requests = items.filter(i => i.request).map((i, n) => ({ ...i, id: `flow-request-${n + 1}` }));
     flow.approved = false; flow.rejected = false; save(flow);

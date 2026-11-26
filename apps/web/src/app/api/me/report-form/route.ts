@@ -7,6 +7,8 @@ import { isDateOnly } from "@/server/db/adminResourceScope";
 import { resolveReportCycleChoices } from "@repo/core/logic/dailyReport";
 import { loadCourseReportFields } from "@/server/reports/courseReportFields";
 
+import { POST_SUBMIT_PARKING_POLICY, requiresVehicleReturn } from "@/server/reports/postSubmitParking";
+
 export const dynamic = "force-dynamic";
 
 // ============================================================
@@ -41,11 +43,19 @@ export async function GET(req: NextRequest) {
 
   const rawShiftVehicleId: string | null =
     (shiftRows ?? []).map((s: any) => s.vehicle_id).find((v: string | null) => !!v) ?? null;
-  const { data: candidateCourses, error: candidateError } = includeCandidates
-    ? await supabase.from("courses").select("id").eq("org_id", orgId).is("archived_at", null)
+  const { data: memberships, error: candidateError } = includeCandidates
+    // tenant-scope-ok: 本人の勤務区分に限定し、下の courses 取得で組織を確認する。
+    ? await supabase.from("driver_courses").select("course_id,cycle_no,driver_identities!inner(driver_id)")
+        .eq("driver_identities.driver_id", user.driverId)
     : { data: [], error: null };
   if (candidateError) return NextResponse.json({ error: "コースを読み込めませんでした" }, { status: 500 });
-  const courseIds = Array.from(new Set([...(shiftRows ?? []).map((s: any) => s.course_id).filter(Boolean), ...(candidateCourses ?? []).map(c => c.id), ...pending.map(q => q.course_id)]));
+  const memberCyclesByCourse = new Map<string, Set<number>>();
+  for (const row of memberships ?? []) {
+    const cycles = memberCyclesByCourse.get(row.course_id) ?? new Set<number>();
+    cycles.add(row.cycle_no);
+    memberCyclesByCourse.set(row.course_id, cycles);
+  }
+  const courseIds = Array.from(new Set([...(shiftRows ?? []).map((s: any) => s.course_id).filter(Boolean), ...memberCyclesByCourse.keys(), ...pending.map(q => q.course_id)]));
   const rawShiftChoices = Array.from(
     new Map(
       (shiftRows ?? [])
@@ -55,7 +65,7 @@ export async function GET(req: NextRequest) {
   );
 
   // shifts 以外に依存しない取得は1波にまとめる（旧: 7段直列。日付変更のたび全往復していた）
-  const [{ data: shiftVehicle }, { data: courses }, { data: existingReports }] = await Promise.all([
+  const [{ data: shiftVehicle }, { data: courses }, { data: existingReports }, vehicleReturnRequired] = await Promise.all([
     // その日にシフトで割り当てられた車両（先頭の非null）。廃車・一時使用不可は既定から除外
     rawShiftVehicleId
       // tenant-scope-ok: 本人の当日シフトで割当済みの車両。貸与車も含め利用可否の2フラグだけを取得
@@ -74,6 +84,9 @@ export async function GET(req: NextRequest) {
           .eq("report_date", date)
           .in("course_id", courseIds)
       : Promise.resolve({ data: [] as any[] }),
+    req.nextUrl.searchParams.get("parkingPolicy") === POST_SUBMIT_PARKING_POLICY
+      ? requiresVehicleReturn(supabase, user.driverId, date)
+      : undefined,
   ]);
   const shiftVehicleId =
     rawShiftVehicleId && !shiftVehicle?.is_disposed && !shiftVehicle?.is_unavailable
@@ -81,7 +94,7 @@ export async function GET(req: NextRequest) {
       : null;
 
   if (courseIds.length === 0) {
-    return NextResponse.json({ shifts: [], candidates: [], shiftVehicleId, revision });
+    return NextResponse.json({ shifts: [], candidates: [], shiftVehicleId, vehicleReturnRequired, revision });
   }
 
   const carrierIds = Array.from(new Set((courses ?? []).map((c: any) => c.carrier_id).filter(Boolean)));
@@ -185,16 +198,14 @@ export async function GET(req: NextRequest) {
   const shiftKeys = new Set(rawShiftChoices.map((choice: any) => `${choice.courseId}:${choice.cycleNo}`));
   const legacyCourses = new Set((existingReports ?? []).filter((report: any) => !report.rejected_at && (Number(report.cycle_no) || 0) === 0).map((report: any) => report.course_id));
   const candidates = includeCandidates ? (courses ?? []).flatMap((c: any) => {
-    if (c.archived_at || (c.uses_cycles && legacyCourses.has(c.id))) return [];
+    const memberCycles = memberCyclesByCourse.get(c.id);
+    if (!memberCycles || c.archived_at || (c.uses_cycles && legacyCourses.has(c.id))) return [];
     const cycles: { cycle_no: number; label: string | null }[] = c.uses_cycles
       ? (c.course_cycles ?? []).filter((cycle: any) => cycle.active !== false)
       : [{ cycle_no: 0, label: null }];
-    return cycles.filter(cycle => !shiftKeys.has(`${c.id}:${cycle.cycle_no}`)).map(cycle => ({
-      courseId: c.id, cycleNo: Number(cycle.cycle_no), cycleLabel: cycle.label,
-      courseName: c.summary_title?.trim() || c.name || "", color: c.color ?? null,
-      carrierId: c.carrier_id ?? null, carrierName: c.carrier_id ? carrierName.get(c.carrier_id) ?? "" : "",
-      units: c.carrier_id ? unitsFor(c.carrier_id, c.id, Number(cycle.cycle_no)) : [], existing: null,
-    }));
+    return cycles.filter(cycle => (memberCycles.has(0) || memberCycles.has(cycle.cycle_no)) &&
+      !shiftKeys.has(`${c.id}:${cycle.cycle_no}`)).map(cycle =>
+      ({ ...makeShift({ courseId: c.id, cycleNo: cycle.cycle_no }), existing: null }));
   }) : [];
   const requestedShifts = pending.map(q => {
     const form = makeShift({ courseId: q.course_id, cycleNo: q.cycle_no });
@@ -208,7 +219,7 @@ export async function GET(req: NextRequest) {
   });
   const { data: currentRevision, error: currentError } = await supabase.rpc("report_day_revision", { p_org: orgId, p_driver: user.driverId, p_date: date });
   if (currentError || currentRevision !== revision) return NextResponse.json({ error: "日報が変更されています。再読み込みしてください" }, { status: 409 });
-  return NextResponse.json({ shifts: [...shifts, ...requestedShifts], shiftVehicleId, revision,
+  return NextResponse.json({ shifts: [...shifts, ...requestedShifts], shiftVehicleId, vehicleReturnRequired, revision,
     rejectedRequests: (requests ?? []).filter(q => q.status === "rejected").map(q => ({ id: q.id, courseName: courseById.get(q.course_id)?.name ?? "コース", cycleNo: q.cycle_no })),
     ...(includeCandidates ? { candidates } : {}) }, { headers: { "Cache-Control": "private, no-store" } });
 }

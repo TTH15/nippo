@@ -31,6 +31,13 @@ export type SubmitBlock =
   | PersonalCountBlock
   | PersonalRankingBlock;
 
+export type TodayRewardBreakdown = {
+  beforeLease: number;
+  dailyLease: number;
+  monthlyLease: boolean;
+  includedPendingCourseCount?: number;
+};
+
 // --- 解決後（ドライバー向け描画データ） ---
 export type ResolvedTeamRow = { rank: number; teamId: string; name: string; color: string; total: number };
 export type ResolvedIndivRow = { rank: number; name: string; total: number; isMe: boolean };
@@ -38,7 +45,7 @@ export type ResolvedRankRow = { rank: number; name: string; value: number; isMe:
 
 export type ResolvedBlock =
   | { id: string; type: "greeting"; title: string; message: string }
-  | { id: string; type: "today_reward"; todayReward: number }
+  | { id: string; type: "today_reward"; todayReward: number; breakdown?: TodayRewardBreakdown }
   | {
       id: string;
       type: "event_points";

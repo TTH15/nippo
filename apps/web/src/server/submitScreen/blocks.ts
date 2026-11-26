@@ -171,6 +171,7 @@ export type ResolveContext = {
   driverId: string;
   date: string;
   todayReward: number;
+  rewardBreakdown?: Extract<ResolvedBlock, { type: "today_reward" }>["breakdown"];
   /** 当日×本人分の集計データ（route が読み込み済み）。event ブロックの todayPoints で共有し、
    *  当日分の loadAggregationData を二重に実行しない。 */
   dayData: AggData;
@@ -211,7 +212,7 @@ export async function resolveBlocks(
         return { id: b.id, type: "greeting", title: b.title, message: b.message };
       }
       if (b.type === "today_reward") {
-        return { id: b.id, type: "today_reward", todayReward: ctx.todayReward };
+        return { id: b.id, type: "today_reward", todayReward: ctx.todayReward, breakdown: ctx.rewardBreakdown };
       }
       if (b.type === "event_points") {
         return resolveEventBlock(supabase, b, ctx);

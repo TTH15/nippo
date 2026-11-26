@@ -3,6 +3,7 @@
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheck, faTrophy, faChartColumn } from "@fortawesome/free-solid-svg-icons";
 import { CountUp, easeWave } from "@/lib/components/CountUp";
+import { useReducedMotion } from "motion/react";
 import type { ResolvedBlock } from "@/lib/submitScreenBlocks";
 
 // ============================================================
@@ -30,13 +31,18 @@ function Card({ children, className = "" }: { children: React.ReactNode; classNa
   return <div className={`rounded-xl border border-slate-200 bg-white ${className}`}>{children}</div>;
 }
 
-function GreetingBlockView({ title, message }: { title: string; message: string }) {
+function GreetingBlockView({ title, message, confirmed = false }: { title: string; message: string; confirmed?: boolean }) {
+  const customTitle = title.trim();
+  const showCustomTitle = confirmed && customTitle && !["日報を送信しました", "日報の送信が完了しました！"].includes(customTitle);
   return (
     <div className="text-center pt-1">
       <div className="mx-auto mb-3 inline-flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
         <FontAwesomeIcon icon={faCheck} className="h-5 w-5" />
       </div>
-      <h1 className="text-lg font-bold text-slate-900">{title.trim() || "日報を送信しました"}</h1>
+      <h1 className="text-lg font-bold text-slate-900">
+        {confirmed ? "日報の送信が完了しました！" : customTitle || "日報を送信しました"}
+      </h1>
+      {showCustomTitle && <p className="mt-2 text-sm font-medium text-slate-700">{customTitle}</p>}
       {message.trim() && (
         <p className="mx-auto mt-1.5 max-w-[18rem] text-sm leading-relaxed text-slate-500 whitespace-pre-wrap">{message}</p>
       )}
@@ -44,17 +50,37 @@ function GreetingBlockView({ title, message }: { title: string; message: string 
   );
 }
 
-function RewardBlockView({ todayReward }: { todayReward: number }) {
+function RewardBlockView({ block }: { block: Extract<ResolvedBlock, { type: "today_reward" }> }) {
+  const { todayReward, breakdown } = block;
+  const pending = breakdown?.includedPendingCourseCount;
+  const reduceMotion = useReducedMotion();
+  const amount = todayReward.toLocaleString("ja-JP");
+  const amountClass = "mt-1 block text-[2.5rem] leading-none font-bold tabular-nums text-slate-900";
   return (
     <Card className="px-5 py-5 text-center">
       <div className="text-xs font-medium text-slate-500">今日の報酬（見込み・目安）</div>
-      <CountUp
-        value={todayReward}
-        durationMs={900}
-        prefix="¥"
-        className="mt-1 block text-[2.5rem] leading-none font-bold tabular-nums text-slate-900"
-      />
-      <div className="mt-2 text-[11px] text-slate-400">承認済みの日報は翌朝3時に確定</div>
+      <span className="sr-only">{amount}円</span>
+      <div aria-hidden="true">
+        {reduceMotion ? <span className={amountClass}>¥{amount}</span> : (
+          <CountUp value={todayReward} durationMs={900} prefix="¥" className={amountClass} />
+        )}
+      </div>
+      {breakdown && (
+        <>
+          <dl className="mt-4 space-y-1.5 border-t border-slate-200 pt-3 text-sm text-slate-700">
+            <div className="flex items-baseline justify-between gap-2 text-left">
+              <dt>リース控除前（税込）</dt><dd className="shrink-0 tabular-nums">{breakdown.beforeLease.toLocaleString("ja-JP")}円</dd>
+            </div>
+            <div className="flex items-baseline justify-between gap-2 text-left">
+              <dt>{breakdown.dailyLease > 0 ? "日額リース（1日分）" : "日額リース"}</dt><dd className="shrink-0 tabular-nums">{breakdown.dailyLease > 0 ? "−" : ""}{breakdown.dailyLease.toLocaleString("ja-JP")}円</dd>
+            </div>
+          </dl>
+          {breakdown.monthlyLease && <p className="mt-2 text-xs text-slate-500">月額リースは月の報酬から差し引きます。</p>}
+          {pending != null && pending > 0 && (
+            <p className="mt-2 text-xs text-slate-600">承認待ちの追加コース{pending}件を含みます。</p>
+          )}
+        </>
+      )}
     </Card>
   );
 }
@@ -192,7 +218,7 @@ function BlockView({ block }: { block: ResolvedBlock }) {
     case "greeting":
       return <GreetingBlockView title={block.title} message={block.message} />;
     case "today_reward":
-      return <RewardBlockView todayReward={block.todayReward} />;
+      return <RewardBlockView block={block} />;
     case "event_points":
       return <EventPointsBlockView block={block} />;
     case "personal_count":
@@ -210,41 +236,61 @@ export type SubmitScreen = {
   blocks: ResolvedBlock[];
 };
 
-export function PostSubmitView({ data, onClose }: { data: SubmitScreen | null; onClose: () => void }) {
-  // data 未着（送信直後の後追い取得中）はスケルトンを見せる。送信完了は既に確定しているので
-  // 画面遷移をブロックしない（POST+GET の合計時間ブロックの解消・2026-08 監査）
-  if (!data) {
-    return (
-      <div className="mx-auto max-w-md px-4 py-6 space-y-4">
-        <div className="h-28 w-full animate-pulse rounded-xl bg-slate-100" />
-        <div className="h-44 w-full animate-pulse rounded-xl bg-slate-100" />
-        <button
-          type="button"
-          onClick={onClose}
-          className="w-full min-h-[3.25rem] rounded-xl bg-slate-900 py-3.5 text-[15px] font-semibold text-white transition-colors hover:bg-slate-800 active:bg-slate-950"
-        >
-          続けて入力する
-        </button>
-      </div>
-    );
-  }
+/** 同じ表示のまま、確認できた処理境界でのみバーを進める。 */
+export function ReportSubmitWaitView({ phase }: { phase: "submit" | "reward" }) {
+  // 見た目の位置であって、処理時間や実測パーセントではない。
+  const fillScale = phase === "submit" ? 0.25 : 0.75;
   return (
-    <div className="mx-auto max-w-md px-4 py-6 space-y-4">
-      {data.blocks.map((b, i) => (
-        <div key={b.id} className="psv-reveal" style={{ animationDelay: `${i * 80}ms` }}>
-          <BlockView block={b} />
+    <section data-report-stage="waiting" className="mx-auto flex min-h-[calc(100svh-10rem)] w-full max-w-md flex-col justify-center px-6 py-10">
+      <div className="rounded-2xl border border-slate-200 bg-white px-5 py-7 text-center shadow-sm sm:px-7">
+        <h1 role="status" className="text-xl font-bold text-slate-900">送信しています</h1>
+        <div role="progressbar" aria-label="日報の処理状況"
+          className="mx-auto mt-5 h-2 max-w-64 overflow-hidden rounded-full bg-slate-200">
+          <div aria-hidden="true" className="h-full origin-left rounded-full bg-amber-500 motion-safe:transition-transform motion-safe:duration-300 motion-safe:ease-out"
+            style={{ transform: `scaleX(${fillScale})` }} />
         </div>
-      ))}
-
-      <div className="psv-reveal pt-1" style={{ animationDelay: `${data.blocks.length * 80}ms` }}>
-        <button
-          type="button"
-          onClick={onClose}
-          className="w-full min-h-[3.25rem] rounded-xl bg-slate-900 py-3.5 text-[15px] font-semibold text-white transition-colors hover:bg-slate-800 active:bg-slate-950"
-        >
-          続けて入力する
-        </button>
       </div>
+    </section>
+  );
+}
+
+export function PostSubmitView({ data, confirmed = false, onRetry, onClose }: {
+  data: SubmitScreen | null;
+  confirmed?: boolean;
+  onRetry?: () => void;
+  onClose: () => void;
+}) {
+  const firstGreeting = confirmed ? (data?.blocks.findIndex((b) => b.type === "greeting") ?? -1) : -1;
+  return (
+    <div data-report-stage="complete" className="mx-auto max-w-md px-4 py-6 space-y-4">
+      {confirmed && data && firstGreeting === -1 && <GreetingBlockView title="" message="" confirmed />}
+      {data ? data.blocks.map((b, i) => {
+        if (b.type === "greeting" && i === firstGreeting) return <GreetingBlockView key={b.id} title={b.title} message={b.message} confirmed />;
+        return (
+          <div key={b.id} className="psv-reveal" style={{ animationDelay: `${i * 80}ms` }}>
+            <BlockView block={b} />
+          </div>
+        );
+      }) : (
+        <>
+          <GreetingBlockView title="" message="" confirmed />
+          <Card className="px-5 py-5 text-center">
+            <p role="alert" className="text-sm font-medium text-slate-700">日報は保存済みですが、報酬の見込みを読み込めませんでした。</p>
+            {onRetry && (
+              <button type="button" onClick={onRetry} className="mt-3 min-h-11 rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-800 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-slate-700">
+                報酬を読み込み直す
+              </button>
+            )}
+          </Card>
+        </>
+      )}
+      <button
+        type="button"
+        onClick={onClose}
+        className="w-full min-h-[3.25rem] rounded-xl bg-slate-900 py-3.5 text-[15px] font-semibold text-white transition-colors hover:bg-slate-800 active:bg-slate-950"
+      >
+        続けて入力する
+      </button>
     </div>
   );
 }

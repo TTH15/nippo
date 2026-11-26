@@ -105,7 +105,8 @@ const SHIFT = {
 
 /** /api/ 宛のリクエストに架空データを返す。それ以外は本来の fetch に委ねる。 */
 function mockResponse(url: string, method: string): unknown | undefined {
-  if (method === "POST" && url.includes("/api/reports/v2")) return { ok: true };
+  if (method === "POST" && url.includes("/api/reports/v2/parking")) return { parkingSaved: true };
+  if (method === "POST" && url.includes("/api/reports/v2")) return { ok: true, reportSaved: true, parkingStage: "not_required" };
   if (url.includes("/api/reports/profile")) {
     return { identities: [{ id: "identity-1", slot: 1, driverCode: "0123", officeCode: "45", label: "1つ目" }] };
   }

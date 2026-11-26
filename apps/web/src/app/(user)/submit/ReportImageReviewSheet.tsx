@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faTriangleExclamation, faCircleCheck } from "@fortawesome/free-solid-svg-icons";
 import { EditorModal } from "@/lib/components/EditorModal";
@@ -14,9 +14,7 @@ import type { Box, FieldRead, ReadTrust } from "@repo/core/logic/reportImageTemp
 // 画像から読み取った件数を、原本と見比べて直してから日報へ入れる。
 // 設計: docs/design/report-image-evidence-2026-09.md（RIMG-3）
 //
-// **毎回画像と見比べさせない。** 表の中の合計（配完+持戻=計B+持戻C、合計=各行の和…）が
-// 全部閉じていれば、欄を取り違えていないことは機械が示せる。そのときは数字だけを出して1タップで終える。
-// 機械が確信を持てなかったときだけ、原本の枠とその欄を切り出した画像を開いて確かめてもらう。
+// 選択した原画像を表示し、要確認のときは読み取り位置と切り抜きも示す。
 // 読めなかった欄は空のままにする（0で埋めない）。
 // ============================================================
 
@@ -48,8 +46,7 @@ export function ReportImageReviewSheet({
   onTargetChange,
   onIncludeChange,
   imageUrl,
-  imageWidth,
-  imageHeight,
+  prepared,
   rows,
   warnings,
   trust,
@@ -63,8 +60,7 @@ export function ReportImageReviewSheet({
   onTargetChange: (fieldId: string, key: string) => void;
   onIncludeChange: (fieldId: string, included: boolean) => void;
   imageUrl: string;
-  imageWidth: number;
-  imageHeight: number;
+  prepared: { width: number; height: number; angle: number };
   rows: ReviewRow[];
   warnings: string[];
   trust: ReadTrust;
@@ -74,13 +70,9 @@ export function ReportImageReviewSheet({
   onConfirm: () => void;
 }) {
   const verified = trust.level === "verified";
-  const [showEvidence, setShowEvidence] = useState(!verified);
+  const [originalSize, setOriginalSize] = useState<{ width: number; height: number } | null>(null);
   // 理由と重なる警告は出さない（同じ文が2回並ぶと読みにくい）
   const extraWarnings = warnings.filter((warning) => !trust.reasons.some((reason) => warning.startsWith(reason.slice(0, 12))));
-  const boxes = useMemo(
-    () => rows.filter((row) => row.box).map((row) => ({ id: row.fieldId, box: row.box as Box, read: row.status === "read" })),
-    [rows],
-  );
   const candidates = (row: ReviewRow) => targets.filter(target => target.fields.some(field => field.unitId === row.unitId && field.fieldKey === row.fieldKey));
   const included = rows.filter(row => row.included);
   const keys = included.map(row => JSON.stringify([row.targetFormKey,row.unitId,row.fieldKey]));
@@ -89,54 +81,43 @@ export function ReportImageReviewSheet({
 
   return (
     <EditorModal
-      title="画像から入力する内容"
+      title="読み取った件数を確認"
       onClose={() => { if (!saving) onCancel(); }}
       footer={
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <Button variant="ghost" size="touch" onClick={onCancel} disabled={saving}>
-            反映せず閉じる
-          </Button>
-          {verified && !showEvidence && (
-            <Button variant="outline" size="touch" onClick={() => setShowEvidence(true)}>
-              画像で確かめる
-            </Button>
-          )}
-          <Button size="touch" onClick={onConfirm} disabled={!canConfirm}>
-            {saving ? "反映中…" : "選んだ項目を反映"}
+        <div className="flex justify-end">
+          <Button size="touch" className="w-full sm:w-auto" onClick={onConfirm} disabled={!canConfirm}>
+            {saving ? "反映中…" : "日報に反映"}
           </Button>
         </div>
       }
     >
       <div className="space-y-4">
+        <div className="relative overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+          <img src={imageUrl} alt="選んだ配完表" className="block h-[clamp(8rem,28dvh,16rem)] w-full object-contain"
+            onLoad={({ currentTarget }) => setOriginalSize({ width: currentTarget.naturalWidth, height: currentTarget.naturalHeight })} />
+          {!verified && originalSize && (
+            <svg aria-hidden="true" className="pointer-events-none absolute inset-0 h-full w-full"
+              viewBox={`0 0 ${originalSize.width} ${originalSize.height}`}>
+              {/* 読み取り時の回転・傾き補正を戻して、元の画像上に枠を重ねる。 */}
+              <g transform={`translate(${originalSize.width / 2} ${originalSize.height / 2}) rotate(${-prepared.angle}) translate(${-prepared.width / 2} ${-prepared.height / 2})`}>
+                {rows.map(({ fieldId, box, status }) => box && (
+                  <rect key={fieldId} x={box.x} y={box.y} width={box.w} height={box.h}
+                    fill="none" vectorEffect="non-scaling-stroke" strokeWidth="2"
+                    className={status === "read" ? "stroke-emerald-500/80" : "stroke-amber-500/80"} />
+                ))}
+              </g>
+            </svg>
+          )}
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-xs font-medium text-slate-500">{templateName}</p>
           {verified && (
             <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
               <FontAwesomeIcon icon={faCircleCheck} className="h-3 w-3" />
-              表の合計{trust.checksRun}本と一致
+              合計と一致
             </span>
           )}
         </div>
-
-        {showEvidence && (
-        <div className="relative overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
-          {/* 原本（回転を直したもの）。読んだ欄を枠で示す */}
-          <img src={imageUrl} alt="提出した画像" className="block w-full" />
-          {boxes.map((item) => (
-            <span
-              key={item.id}
-              aria-hidden
-              className={`absolute rounded-sm border-2 ${item.read ? "border-emerald-500/80" : "border-amber-500/80"}`}
-              style={{
-                left: `${(item.box.x / imageWidth) * 100}%`,
-                top: `${(item.box.y / imageHeight) * 100}%`,
-                width: `${(item.box.w / imageWidth) * 100}%`,
-                height: `${(item.box.h / imageHeight) * 100}%`,
-              }}
-            />
-          ))}
-        </div>
-        )}
 
         {trust.reasons.length > 0 && (
           <ul className="space-y-1 rounded-lg bg-amber-50 p-3 text-xs text-amber-800">
@@ -149,7 +130,7 @@ export function ReportImageReviewSheet({
           </ul>
         )}
 
-        {showEvidence && extraWarnings.length > 0 && (
+        {extraWarnings.length > 0 && (
           <ul className="space-y-1 rounded-lg bg-amber-50 p-3 text-xs text-amber-800">
             {extraWarnings.map((warning) => (
               <li key={warning} className="flex gap-2">
@@ -172,12 +153,12 @@ export function ReportImageReviewSheet({
                   onCheckedChange={value => onIncludeChange(row.fieldId,value)} />
                   {STATUS_BADGE[row.status] && <span className="text-[11px] text-amber-700">{STATUS_BADGE[row.status]}</span>}
                 </div>
-                {showEvidence && row.cropUrl && <img src={row.cropUrl} alt="" aria-hidden className="h-8 w-20 rounded border border-slate-200 bg-white object-contain" />}
+                {!verified && row.cropUrl && <img src={row.cropUrl} alt="" aria-hidden className="h-8 w-20 rounded border border-slate-200 bg-white object-contain" />}
                 <DigitInput value={row.value} allowEmpty disabled={!row.included || saving} onValueChange={value => onChange(row.fieldId,value)} ariaLabel={row.label}
                   className="h-11 w-20 rounded-lg border border-slate-300 bg-white px-3 text-right text-base tabular-nums disabled:opacity-50" />
               </div>
               {choices.length > 1 ? <CustomSelect ariaLabel={`${row.label}の反映先`} value={row.targetFormKey ?? ""} clearable={false} disabled={!row.included || saving}
-                options={[{ value: "",label: "反映先を選ぶ" },...choices.map(choice => ({ value: choice.key,label: choice.label }))]}
+                options={[{ value: "",label: "コース・便を選ぶ" },...choices.map(choice => ({ value: choice.key,label: choice.label }))]}
                 onChange={key => onTargetChange(row.fieldId,key)} /> : <p className="text-xs text-slate-600">{target?.label ?? "この日の入力欄に対応しません"}</p>}
               {row.included && previous !== "" && <p className="text-xs font-medium text-amber-800">入力済み {previous} → {row.value ?? "—"}</p>}
             </li>;

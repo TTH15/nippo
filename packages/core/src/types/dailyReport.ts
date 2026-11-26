@@ -75,6 +75,8 @@ export type ParkingPlaceOption = {
   lat: number;
   lng: number;
   icon: string;
+  shape?: "point" | "circle" | "polygon";
+  radius_m?: number | null;
   /** 区画（「12番」）。vehicleId はその区画を定位置にしている車 */
   slots: { id: string; label: string; vehicleId: string | null }[];
 };

@@ -142,9 +142,7 @@ export function VehiclePlate({
   // plate の見た目は「外側の幅」に比例させる（デバイス依存を減らす）
   // cqw: コンテナ幅の 1% なので、100cqw がコンテナ幅になる
   const refW = compact ? 100 : 240;
-  // 単位を揃えて、スケール係数（無次元）にする
-  const scaleExpr = `(100cqw / ${refW}px)`;
-  const scaleLenPx = (v: number) => `calc(${v}px * ${scaleExpr})`;
+  const scaleLenPx = (v: number) => `${(v / refW) * 100}cqw`;
   // グリフ寸法は幅240pxのプレートを基準に決め、compact は同比率で縮める
   const k = refW / plateLayout.referenceWidth;
 

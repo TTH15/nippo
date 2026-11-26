@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import os from "node:os";
 import { mkdtemp, readFile, writeFile, access, mkdir, copyFile, readdir } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 
 // Standalone, loopback-only mock runner. Never load server code or application secrets.
@@ -22,6 +23,8 @@ if (!/^[a-z0-9-]+$/.test(feature)) throw new Error("Invalid preview name");
 const portIndex = args.indexOf("--port");
 const port = portIndex === -1 ? 3191 : Number(args[portIndex + 1]);
 if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error("Invalid port");
+const devicePreview = args.includes("--device");
+if (devicePreview && feature !== "admin") throw new Error("--device requires the admin preview");
 const strictCsp = args.includes("--strict-csp");
 const mapboxEnabled = args.includes("--mapbox");
 const mapboxFeatures = new Set(["driver-leases", "map-operations", "admin", "vehicles"]);
@@ -59,6 +62,8 @@ const adminReplacements = new Map([
   ["next/dynamic", "kernel/next-dynamic.tsx"],
   ["@/lib/components/AdminLayout", "kernel/AdminLayout.tsx"],
   ["@/lib/map/sharedView", "kernel/sharedView.tsx"],
+  ...(!mapboxEnabled ? [["@/lib/map/ReportParkingMap", "kernel/ReportParkingMap.tsx"]] : []),
+  ["@/lib/map/reportParkingLocation", "kernel/reportParkingLocation.ts"],
   ["@/lib/realtime/cellCursors", "kernel/shifts.ts"],
   ["@/server/shiftRequests/diff", "kernel/shifts.ts"],
   ["@/server/reportKinds/answers", "kernel/reportAnswers.ts"],
@@ -67,6 +72,7 @@ const adminReplacements = new Map([
 const entry = productionPageEntries.get(feature) ?? path.join(source, "app/preview", feature, "page.tsx");
 await access(entry);
 const output = await mkdtemp(path.join(os.tmpdir(), `hakotora-preview-${feature}-`));
+const publicRoot = path.join(root, "apps/web/public");
 const result = await build({
   stdin: {
     contents: `import React from 'react'; import {createRoot} from 'react-dom/client'; import Page from ${JSON.stringify(entry)}; import '@fortawesome/fontawesome-svg-core/styles.css'; createRoot(document.getElementById('root')).render(<React.StrictMode><Page /></React.StrictMode>);`,
@@ -79,6 +85,17 @@ const result = await build({
   // 未定義の process.env.* が残っても ReferenceError で真っ白にならないよう、空の process を置く
   banner: { js: "var process = globalThis.process ?? { env: {} };" },
   plugins: [{ name: "mock-only", setup(builder) {
+    if (devicePreview) {
+      // The phone relay serves a closed set of files. Keep the original SVG masks in the bundle.
+      builder.onLoad({ filter: /plateGlyphs\.generated\.ts$/ }, async ({ path: file }) => {
+        const metadata = await readFile(file, "utf8");
+        const contents = metadata.replace(/"(\/number_plate\/[a-z_]+\/[^"/]+\.svg)"/g, (_, url) => {
+          const svg = readFileSync(path.join(publicRoot, decodeURIComponent(url)));
+          return JSON.stringify(`data:image/svg+xml;base64,${svg.toString("base64")}`);
+        });
+        return { contents, loader: "ts" };
+      });
+    }
     if (feature === "shifts") {
       const replaced = new Set(["@/lib/api", "@/lib/useApi", "@/lib/capabilities", "@/lib/realtime/cellCursors", "@/lib/swr", "swr", "@/lib/components/AdminLayout", "@/server/shiftRequests/diff"]);
       builder.onResolve({ filter: /.*/ }, args => replaced.has(args.path) ? { path: path.join(root, "scripts/previews/shifts-services.tsx") } : undefined);
@@ -101,11 +118,11 @@ const config = loadConfig(path.join(root, "apps/web/tailwind.config.ts"));
 const css = await postcss([tailwind({ ...config, content: [path.join(source, "**/*.{ts,tsx}")] })])
   .process(await readFile(path.join(source, "app/globals.css"), "utf8"), { from: undefined });
 await writeFile(path.join(output, "style.css"), css.css);
-await writeFile(path.join(output, "index.html"), `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>ハコ虎｜管理プレビュー</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/app.css"></head><body><div id="root"></div><script type="module" src="/app.js"></script></body></html>`);
+const appMeta = devicePreview ? '<meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="ハコ虎プレビュー">' : "";
+await writeFile(path.join(output, "index.html"), `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">${appMeta}<title>ハコ虎｜管理プレビュー</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/app.css"></head><body><div id="root"></div><script type="module" src="/app.js"></script></body></html>`);
 // 実画面のロゴ・ナンバー描画に必要な公開アセットだけを固定リストで同梱する。
 // public全体やリポジトリを配信せず、シンボリックリンクも辿らない。
 await import("./prepare-vehicle-reader.mjs");
-const publicRoot = path.join(root, "apps/web/public");
 const readerAssets = JSON.parse(await readFile(path.join(publicRoot, "ocr/runtime/assets.json"), "utf8"));
 const assets = [...readerAssets, "ocr/lang/jpn.traineddata", "ocr/lang/eng.traineddata","logo/hakotora-logo_primary_logo.svg", "logo/hakotora-logo_secondary_logo.svg", "fonts/TrmFontJB.ttf"];
 if (isAdminRunner) assets.push("login/driver-keivan.webp", "login/operations-depot.webp", "login/hakotora-logo-cropped.svg");

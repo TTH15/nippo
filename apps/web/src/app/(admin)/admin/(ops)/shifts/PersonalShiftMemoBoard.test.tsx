@@ -109,7 +109,11 @@ it("名前を選択中でも人数ボタンのキー操作では配置せず、0
   expect(stored().dayOverrides).toEqual({});
 });
 
-it("増減を即時反映し、保存失敗でも値を保って再試行できる。Escapeでは戻さない", async () => {
+it.each([
+  ["QuotaExceededError", "ブラウザの保存容量が足りません"],
+  ["SecurityError", "このブラウザでは保存が許可されていません"],
+  ["UnknownError", "この端末に個人メモを保存できませんでした"],
+])("個人メモの保存失敗（%s）は原因を表示し、値を保って再試行できる", async (name, message) => {
   render(<PersonalShiftMemoBoard {...props} />);
   await waitFor(() => expect(screen.getByText("この端末に自動保存済み")).toBeVisible());
   fireEvent.click(trigger(2));
@@ -117,11 +121,11 @@ it("増減を即時反映し、保存失敗でも値を保って再試行でき�
   fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
   expect(trigger(3)).toBeVisible();
   await waitFor(() => expect(stored().requiredCountOverrides[key]).toBe(3));
-  const setter = vi.spyOn(localStorage, "setItem").mockImplementationOnce(() => { throw new DOMException("full", "QuotaExceededError"); });
+  const setter = vi.spyOn(localStorage, "setItem").mockImplementationOnce(() => { throw new DOMException("storage", name); });
   fireEvent.click(trigger(3));
   click("必要人数を増やす");
   click("閉じる");
-  expect(await screen.findByRole("alert")).toHaveTextContent("端末へ保存できませんでした");
+  expect(await screen.findByRole("alert")).toHaveTextContent(message);
   expect(trigger(4)).toHaveTextContent("あと2");
   expect(stored().requiredCountOverrides).toEqual({ [key]: 3 });
   setter.mockRestore();
@@ -186,6 +190,20 @@ describe("共有メモの保存と同期", () => {
     get=async()=>canonical;patch=async body=>({board:applyBoardChanges(canonical.board,body.changes) as ReturnType<typeof board>,revision:2});
     click("同期を再試行");await flush(1000);
     expect(JSON.parse(String(patches().at(-1)![1]?.body)).changes).toEqual([{field:"backgroundColors",key:"date:2026-09-01",expected:null,value:"rose"}]);
+    expect(screen.getByRole("status")).toHaveTextContent("同期済み");
+  });
+
+  it("保存権限がなくても読み込み成功で理由が消えず、権限が戻れば再試行できる", async () => {
+    await mount();
+    const original = patch;
+    patch = async () => { throw Error("Forbidden"); };
+    edit("配送メモ"); await flush(400);
+    expect(screen.getByRole("alert")).toHaveTextContent("共有メモを編集する権限がありません");
+    expect(input()).toHaveValue("配送メモ");
+    await flush(1000);
+    expect(patches()).toHaveLength(1);
+    patch = original;
+    click("同期を再試行"); await flush(400);
     expect(screen.getByRole("status")).toHaveTextContent("同期済み");
   });
 
@@ -347,9 +365,10 @@ describe("共有メモの保存と同期", () => {
   });
 
   it("保存と照合GETが両方失敗したら未同期のまま再送を止め、onlineで復旧する", async () => {
-    await mount(); patch = async () => { throw Error("offline"); }; get = async () => { throw Error("offline"); };
+    await mount(); patch = async () => { throw new TypeError("Failed to fetch"); }; get = async () => { throw new TypeError("Failed to fetch"); };
     edit("消えない入力"); await flush(1000);
     expect(patches()).toHaveLength(1); expect(pending).toHaveBeenLastCalledWith(true);
+    expect(screen.getByRole("alert")).toHaveTextContent("サーバーと通信できませんでした");
     expect(screen.getByRole("alert")).toHaveTextContent("入力は残っています");
     patch = async body => ({ board: applyBoardChanges(canonical.board, body.changes) as ReturnType<typeof board>, revision: 2 });
     get = async () => canonical; fireEvent(window, new Event("online")); await flush(400);

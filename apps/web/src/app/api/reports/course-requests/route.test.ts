@@ -37,3 +37,11 @@ it("便の設定変更と既にシフトにある申請を拒否する", async (
   mock.fieldError = null; mock.rpc.mockResolvedValue({ error: { code: "23514" } });
   expect((await POST(req(item()))).status).toBe(409);
 });
+
+it("一括送信と共通の担当コース制限を案内する", async () => {
+  const message = "担当コースの設定を確認してください。必要な場合は運営に連絡してください";
+  mock.rpc.mockResolvedValue({ error: { code: "23514", message } });
+  const response = await POST(req(item()));
+  expect(response.status).toBe(409);
+  expect(await response.json()).toEqual({ error: message });
+});

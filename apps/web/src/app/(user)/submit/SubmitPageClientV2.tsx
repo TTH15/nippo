@@ -8,6 +8,7 @@ import {
   faCircleExclamation,
   faOilCan,
   faPhone,
+  faXmark,
 } from "@fortawesome/free-solid-svg-icons";
 import { reportCycleTone, reportCycleTitle, orderCourseCycles } from "@/lib/reportCycles";
 import { ReportFieldInputs } from "@/lib/components/ReportFieldInputs";
@@ -15,14 +16,14 @@ import { Skeleton } from "@/lib/components/Skeleton";
 import { DatePicker } from "@/lib/components/DatePicker";
 import { CustomSelect } from "@/lib/components/CustomSelect";
 import { VehiclePlate } from "@/lib/components/VehiclePlate";
-import { PostSubmitView, type SubmitScreen } from "@/lib/components/PostSubmitView";
+import { PostSubmitView, ReportSubmitWaitView, type SubmitScreen } from "@/lib/components/PostSubmitView";
 import { LoginSetupPrompt } from "@/lib/components/LoginSetupPrompt";
 import { apiFetch } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
-import { reportDateDefaultJST, reportDateStrToDate, dateToReportDateStr } from "@/lib/date";
+import { todayJST, reportDateDefaultJST, reportDateStrToDate, dateToReportDateStr } from "@/lib/date";
 import { evaluateMeter } from "./submitFormUtils";
 import { applyImageEntries } from "@repo/core/logic/reportImageEntries";
-import { EMPTY_PARKING_CHOICE, ParkingReportField, parkingChoiceError, type ParkingChoice } from "./ParkingReportField";
+import { EMPTY_PARKING_CHOICE, ParkingLocationForm, type ParkingChoice } from "./ParkingReportField";
 import ReportSourceImageField from "./ReportSourceImageField";
 import type { DriverIdentity, SubmitVehicle as Vehicle, UnitDef, ShiftForm, ValueMap, ParkingPlaceOption, ParkingReport } from "@repo/core/types";
 import { formatMonthDayJP } from "@repo/core/logic/calendar";
@@ -47,6 +48,15 @@ import {
 //   ドメインロジックは @repo/core/logic/dailyReport に集約（純粋・テスト付き）。
 // 注: 旧 SubmitPageClient とは別ファイル。ルートは page.tsx で切替。
 // ============================================================
+
+const PARKING_RESUME_KEY = "hakotora-pwa-parking-receipt";
+const newReportKey = () => typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : String(Date.now());
+function rememberParkingReceipt(key: string | null) {
+  try { if (key) sessionStorage.setItem(PARKING_RESUME_KEY, key); else sessionStorage.removeItem(PARKING_RESUME_KEY); }
+  catch { /* sessionStorage unavailable: in-memory retry remains available */ }
+}
+type ParkingStep = { receiptKey: string; reportDate: string; vehicleId: string };
+type ParkingResume = { stage: "not_found" } | { stage: "required" | "not_required" | "complete"; reportDate: string; vehicleId: string | null };
 
 export default function SubmitPageClientV2() {
   const [reportDate, setReportDate] = useState<Date>(() => reportDateStrToDate(reportDateDefaultJST()));
@@ -77,28 +87,77 @@ export default function SubmitPageClientV2() {
   const [oilReminderModal, setOilReminderModal] = useState<OilReminder | null>(null);
   const [oilAcknowledged, setOilAcknowledged] = useState(false);
 
-  const [postSubmit, setPostSubmit] = useState<SubmitScreen | null>(null);
-  // 送信成功＝即・送信後画面へ（データは後追い。POST+GET の合計時間ブロックを解消）
-  const [showPostSubmit, setShowPostSubmit] = useState(false);
+  // 成功画面をすぐ表示。報酬の取得は日報本体の保存と分け、再試行でも日報を再送しない。
+  const [postSubmit, setPostSubmit] = useState<{
+    date: string;
+    state: { status: "loading" | "error" } | { status: "ready"; data: SubmitScreen };
+  } | null>(null);
+  const postSubmitRequest = useRef<AbortController | null>(null);
+  useEffect(() => () => postSubmitRequest.current?.abort(), []);
+
+  const loadPostSubmit = (date: string) => {
+    postSubmitRequest.current?.abort();
+    const request = new AbortController();
+    postSubmitRequest.current = request;
+    setPostSubmit({ date, state: { status: "loading" } });
+    const timeout = window.setTimeout(() => {
+      if (request.signal.aborted) return;
+      request.abort();
+      setPostSubmit({ date, state: { status: "error" } });
+    }, 20_000);
+    request.signal.addEventListener("abort", () => window.clearTimeout(timeout), { once: true });
+    void apiFetch<SubmitScreen>(`/api/me/submit-screen?date=${encodeURIComponent(date)}`, {
+      signal: request.signal, cache: "no-store",
+    }, { skipAuthRedirect: true }).then((data) => {
+      if (!request.signal.aborted) setPostSubmit({ date, state: { status: "ready", data } });
+    }).catch(() => {
+      if (!request.signal.aborted) setPostSubmit({ date, state: { status: "error" } });
+    }).finally(() => window.clearTimeout(timeout));
+  };
 
   const [shifts, setShifts] = useState<ShiftForm[]>([]);
-  const [additionalKey, setAdditionalKey] = useState("");
   const [formRevision, setFormRevision] = useState("");
   const [requestedKeys, setRequestedKeys] = useState<string[]>([]);
   const [values, setValues] = useState<ValueMap>({});
   const [submitting, setSubmitting] = useState(false);
+  const submitInFlight = useRef(false);
   const [message, setMessage] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
-  // 車の置き場所（駐車申告）。使用車両を選んだときだけ回答を求める。
-  // clientKey はフォーム1回分の識別子で、保存失敗→再送のときに同じ値を送って二重登録を防ぐ
-  const [parking, setParking] = useState<ParkingChoice>(EMPTY_PARKING_CHOICE);
-  const [parkingError, setParkingError] = useState<string | null>(null);
-  const parkingKeyRef = useRef<string>(typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : String(Date.now()));
-  const { data: parkingPlacesData, isInitialLoading: parkingPlacesLoading } = useApi<{ places: ParkingPlaceOption[] }>(
-    "/api/reports/parking-places",
+  const [parkingStep, setParkingStep] = useState<ParkingStep | null>(null);
+  const [parkingDraft, setParkingDraft] = useState<ParkingChoice>(EMPTY_PARKING_CHOICE);
+  const confirmedParking = useRef<{ choice: ParkingChoice; at: string } | null>(null);
+  const [parkingResumeError, setParkingResumeError] = useState(false);
+  const [resumingParking, setResumingParking] = useState(false);
+  const reportKeyRef = useRef<string>(newReportKey());
+  const { data: parkingPlacesData, error: parkingPlacesError, isInitialLoading: parkingPlacesLoading } = useApi<{ places: ParkingPlaceOption[] }>(
+    parkingStep ? "/api/reports/parking-places" : null,
     { revalidateOnFocus: false },
   );
-  const parkingPlaces = parkingPlacesData?.places ?? [];
+
+  function restoreParking() {
+    let key: string | null = null;
+    try { key = sessionStorage.getItem(PARKING_RESUME_KEY); } catch { /* storage unavailable */ }
+    if (!key) return;
+    const receiptKey = key;
+    setResumingParking(true);
+    setParkingResumeError(false);
+    void apiFetch<ParkingResume>(`/api/reports/v2/parking?key=${encodeURIComponent(receiptKey)}`, { cache: "no-store" })
+      .then(result => {
+        if (result.stage === "required" && result.vehicleId) {
+          setParkingStep({ receiptKey, reportDate: result.reportDate, vehicleId: result.vehicleId });
+        } else if (result.stage === "complete" || result.stage === "not_required") {
+          rememberParkingReceipt(null);
+          loadPostSubmit(result.reportDate);
+        } else {
+          rememberParkingReceipt(null);
+        }
+      })
+      .catch(() => setParkingResumeError(true))
+      .finally(() => setResumingParking(false));
+  }
+
+  // 保存後にアプリがリロードされても、同じタブで駐車から再開。本人・日付・車両はサーバーから読む。
+  useEffect(() => { restoreParking(); }, []);
 
   // プロフィール（勤務区分）・車両（紐付け＋その他）
   // プロフィール/車両を SWR キャッシュ（遷移をまたいで保持＝再訪時の点滅をなくす）。
@@ -140,8 +199,8 @@ export default function SubmitPageClientV2() {
     error: formError,
     isInitialLoading: formLoading,
     mutate: mutateForm,
-  } = useApi<{ shifts: ShiftForm[]; candidates?: ShiftForm[]; revision: string; rejectedRequests?: { id: string; courseName: string; cycleNo: number }[]; shiftVehicleId?: string | null }>(
-    `/api/me/report-form?date=${encodeURIComponent(reportFormDateStr)}&candidates=1`,
+  } = useApi<{ shifts: ShiftForm[]; candidates?: ShiftForm[]; revision: string; rejectedRequests?: { id: string; courseName: string; cycleNo: number }[]; shiftVehicleId?: string | null; vehicleReturnRequired?: boolean }>(
+    `/api/me/report-form?date=${encodeURIComponent(reportFormDateStr)}&candidates=1&parkingPolicy=post_submit_map`,
     { revalidateOnFocus: false },
   );
 
@@ -152,7 +211,6 @@ export default function SubmitPageClientV2() {
     if (initializedDateRef.current === reportFormDateStr) return;
     initializedDateRef.current = reportFormDateStr;
     setFormRevision(formData.revision);
-    setAdditionalKey("");
     setRequestedKeys((formData.shifts ?? []).filter(s => s.requestId).map(s => reportFormKey(s.courseId, s.cycleNo)));
     const list = formData.shifts ?? [];
     setShifts(orderCourseCycles(list, s => s.courseId, s => s.cycleNo ?? 0));
@@ -240,6 +298,7 @@ export default function SubmitPageClientV2() {
   }
 
   async function submit() {
+    if (submitInFlight.current) return;
     if (shifts.some(s => s.existing?.requiresReview)) {
       setMessage({ kind: "err", text: "提出済みの内容に便の設定と異なる項目があります。運営に確認してください。" });
       return;
@@ -257,75 +316,103 @@ export default function SubmitPageClientV2() {
       return;
     }
 
-    // 車の置き場所（車両を選んだときだけ必須）
-    const parkingProblem = vehicleId ? parkingChoiceError(parking) : null;
-    if (parkingProblem) {
-      setParkingError(parkingProblem);
-      setMessage({ kind: "err", text: parkingProblem });
-      return;
-    }
-    setParkingError(null);
-    const parkingPayload: ParkingReport | null = vehicleId && parking.status
-      ? {
-          vehicleId,
-          status: parking.status,
-          placeId: parking.status === "parked" && !parking.other ? parking.placeId : null,
-          slotId: parking.status === "parked" && !parking.other ? parking.slotId : null,
-          placeName: parking.status === "parked" && parking.other ? parking.placeName.trim() : null,
-          note: parking.note.trim() || null,
-          clientKey: parkingKeyRef.current,
-        }
-      : null;
-
+    submitInFlight.current = true;
     setSubmitting(true);
     setMessage(null);
     try {
       const items = buildReportItems(shifts, values, vehicleId, meterNum).map(item => ({ ...item,
         request: requestedKeys.includes(reportFormKey(item.courseId, item.cycleNo)),
       }));
-
-      await apiFetch("/api/reports/v2", {
+      const receiptKey = reportKeyRef.current;
+      rememberParkingReceipt(receiptKey);
+      const result = await apiFetch<{ reportSaved?: boolean; parkingStage?: "required" | "not_required"; parkingVehicleId?: string | null }>("/api/reports/v2", {
         method: "POST",
-        body: JSON.stringify({
-          reportDate: dateToReportDateStr(reportDate),
-          driverIdentityId: selectedIdentityId,
-          items,
-          expectedRevision: formRevision,
-          clientKey: parkingKeyRef.current,
-          parking: parkingPayload,
-        }),
+        body: JSON.stringify({ reportDate: reportFormDateStr, driverIdentityId: selectedIdentityId, items,
+          expectedRevision: formRevision, clientKey: receiptKey, parkingPolicy: "post_submit_map" }),
       });
-      // 次の送信は別の申告として扱う（同じフォームでの再送だけ同じキー）
-      parkingKeyRef.current = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : String(Date.now());
+      if (result.reportSaved !== true || !result.parkingStage) throw new Error("日報の保存を確認できませんでした。もう一度送信してください");
+      reportKeyRef.current = newReportKey();
       setMessage({ kind: "ok", text: "日報を送信しました。" });
-      // 送信後画面（今日の報酬見込み＋ランキング）は即表示し、データは後追いで流し込む
-      setShowPostSubmit(true);
-      void apiFetch<SubmitScreen>(
-        `/api/me/submit-screen?date=${encodeURIComponent(dateToReportDateStr(reportDate))}`,
-      )
-        .then((ps) => setPostSubmit(ps))
-        .catch(() => {
-          /* 送信後画面の取得失敗は致命的でない（スケルトンのまま閉じられる） */
-        });
+      if (result.parkingStage === "required") {
+        if (!result.parkingVehicleId) throw new Error("駐車する車両を確認できませんでした");
+        setParkingStep({ receiptKey, reportDate: reportFormDateStr, vehicleId: result.parkingVehicleId });
+      } else {
+        rememberParkingReceipt(null);
+        loadPostSubmit(reportFormDateStr);
+      }
     } catch (e) {
       setMessage({ kind: "err", text: e instanceof Error ? e.message : "送信に失敗しました" });
     } finally {
+      submitInFlight.current = false;
       setSubmitting(false);
     }
   }
 
-  if (showPostSubmit) {
+  async function saveParking(step: ParkingStep, draft: ParkingChoice) {
+    if (submitInFlight.current) return;
+    const date = step.reportDate === todayJST() ? null : new Date(step.reportDate + "T00:00:00Z");
+    if (date && draft.nextDay) date.setUTCDate(date.getUTCDate() + 1);
+    const at = !date && confirmedParking.current?.choice === draft
+      ? confirmedParking.current.at
+      : date ? date.toISOString().slice(0, 10) + "T" + draft.time + ":00+09:00" : new Date().toISOString();
+    confirmedParking.current = { choice: draft, at };
+    setParkingDraft(draft);
+    setMessage(null);
+    submitInFlight.current = true;
+    setSubmitting(true);
+    try {
+      const parking: Omit<ParkingReport, "clientKey"> = { vehicleId: step.vehicleId, status: "parked",
+        placeId: draft.placeId, slotId: draft.slotId, coords: draft.pin, at, note: draft.note.trim() || null };
+      const result = await apiFetch<{ parkingSaved?: boolean }>("/api/reports/v2/parking", {
+        method: "POST", body: JSON.stringify({ receiptKey: step.receiptKey, parking }),
+      });
+      if (result.parkingSaved !== true) throw new Error("駐車場所の記録を確認できませんでした");
+      rememberParkingReceipt(null);
+      setParkingStep(null);
+      setParkingDraft(EMPTY_PARKING_CHOICE);
+      confirmedParking.current = null;
+      loadPostSubmit(step.reportDate);
+    } catch (e) {
+      setMessage({ kind: "err", text: e instanceof Error ? e.message : "駐車場所を記録できませんでした。もう一度お試しください" });
+    } finally {
+      submitInFlight.current = false;
+      setSubmitting(false);
+    }
+  }
+
+  if (resumingParking || submitting || postSubmit?.state.status === "loading") {
+    return <ReportSubmitWaitView phase={postSubmit?.state.status === "loading" ? "reward" : "submit"} />;
+  }
+
+  if (parkingResumeError) return <div className="mx-auto max-w-md space-y-4 p-4">
+    <h1 className="text-lg font-semibold">駐車場所の記録を確認できませんでした</h1>
+    <button type="button" className="min-h-12 w-full rounded-lg bg-slate-900 text-white" onClick={restoreParking}>もう一度確認</button>
+  </div>;
+
+  if (postSubmit) {
     return (
       <PostSubmitView
-        data={postSubmit}
+        confirmed
+        data={postSubmit.state.status === "ready" ? postSubmit.state.data : null}
+        onRetry={() => loadPostSubmit(postSubmit.date)}
         onClose={() => {
-          setShowPostSubmit(false);
+          postSubmitRequest.current?.abort();
+          postSubmitRequest.current = null;
           setPostSubmit(null);
           initializedDateRef.current = null;
           void mutateForm();
         }}
       />
     );
+  }
+
+  if (parkingStep) {
+    return <section className="parking-page flex min-h-0 flex-1 flex-col bg-white" aria-labelledby="parking-title">
+      <h1 id="parking-title" className="flex min-h-12 shrink-0 items-center border-b border-slate-200 px-4 text-lg font-semibold text-slate-900">駐車場所</h1>
+      <ParkingLocationForm key={parkingStep.receiptKey} places={parkingPlacesData?.places} loading={parkingPlacesLoading} lookupError={!!parkingPlacesError}
+        locatingAllowed={parkingStep.reportDate === todayJST()} value={parkingDraft}
+        error={message?.kind === "err" ? message.text : null} onConfirm={choice => saveParking(parkingStep, choice)} />
+    </section>;
   }
 
   if (loading) {
@@ -527,9 +614,11 @@ export default function SubmitPageClientV2() {
         <div className="space-y-4">
           {shifts.map((s) => {
             const formKey = reportFormKey(s.courseId, s.cycleNo);
+            const isRequested = requestedKeys.includes(formKey);
+            const courseLabel = [s.courseName, s.cycleLabel || (s.cycleNo ? `C${s.cycleNo}` : "")].filter(Boolean).join(" ");
             return (
             <div key={formKey} className={`rounded-lg border ${reportCycleTone(s.cycleNo ?? 0).border} ${reportCycleTone(s.cycleNo ?? 0).surface}`}>
-              <div className={`flex flex-wrap items-center gap-2 px-4 py-2.5 border-b ${reportCycleTone(s.cycleNo ?? 0).border}`}>
+              <div className={`relative flex flex-wrap items-center gap-2 px-4 py-2.5 border-b ${isRequested ? "min-h-11 pr-14" : ""} ${reportCycleTone(s.cycleNo ?? 0).border}`}>
                 <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: s.color ?? "#94a3b8" }} />
                 <span className={(s.cycleNo ?? 0) > 0 ? "text-xs text-slate-600" : "font-medium text-slate-800"}>{s.courseName}</span>
                 {(s.cycleNo ?? 0) > 0 && (
@@ -538,8 +627,7 @@ export default function SubmitPageClientV2() {
                   </span>
                 )}
                 {s.carrierName && <span className="text-[11px] text-slate-400">{s.carrierName}</span>}
-                {requestedKeys.includes(formKey) && <span className="text-xs font-semibold text-amber-700">承認待ちの追加</span>}
-                {requestedKeys.includes(formKey) && <button type="button" disabled={submitting} onClick={async () => {
+                {isRequested && <button type="button" aria-label={`${courseLabel}の追加を取り消す`} disabled={submitting} onClick={async () => {
                   setMessage(null);
                   if (s.requestId) {
                     setSubmitting(true);
@@ -551,7 +639,9 @@ export default function SubmitPageClientV2() {
                   }
                   setShifts(current => s.requestAssigned ? current.map(item => item === s ? { ...item, requestId: undefined, requestAssigned: undefined } : item) : current.filter(item => reportFormKey(item.courseId, item.cycleNo) !== formKey));
                   setRequestedKeys(current => current.filter(key => key !== formKey));
-                }} className="ml-auto min-h-11 px-2 text-xs font-semibold text-slate-600 disabled:opacity-50">追加を取り消す</button>}
+                }} className="absolute right-1 top-1/2 grid h-11 w-11 -translate-y-1/2 place-items-center rounded-full text-slate-600 hover:bg-black/5 focus-visible:outline-2 focus-visible:outline-slate-700 disabled:opacity-50">
+                  <FontAwesomeIcon icon={faXmark} aria-hidden="true" />
+                </button>}
               </div>
               <div className="px-4 py-3 space-y-4">
                 {s.units.length === 0 && <p className="text-xs text-slate-400">報告項目が設定されていません。</p>}
@@ -565,21 +655,28 @@ export default function SubmitPageClientV2() {
         </div>
       )}
 
-      {(formData?.candidates?.length ?? 0) > 0 && !formLoading && !formError && (() => {
-        const choices = (formData?.candidates ?? []).filter(candidate => !shifts.some(shift => reportFormKey(shift.courseId, shift.cycleNo) === reportFormKey(candidate.courseId, candidate.cycleNo)));
-        return <div className="space-y-2">
-          <CustomSelect ariaLabel="追加するコース・便" size="md" value={additionalKey} placeholder="コース・便を選択" clearable={false} options={choices.map(candidate => ({ value: reportFormKey(candidate.courseId, candidate.cycleNo), label: `${candidate.courseName}${candidate.cycleLabel ? ` ${candidate.cycleLabel}` : ""}` }))} onChange={setAdditionalKey} />
-          <button type="button" disabled={!choices.some(candidate => reportFormKey(candidate.courseId, candidate.cycleNo) === additionalKey)} className="min-h-11 rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 disabled:opacity-40" onClick={() => {
-            const candidate = choices.find(item => reportFormKey(item.courseId, item.cycleNo) === additionalKey);
+      {!formLoading && !formError && (() => {
+        const activeKeys = new Set(shifts.map(shift => reportFormKey(shift.courseId, shift.cycleNo)));
+        const choices = (formData?.candidates ?? []).filter(candidate => !activeKeys.has(reportFormKey(candidate.courseId, candidate.cycleNo)));
+        if (!choices.length) return null;
+        return <CustomSelect
+          ariaLabel="コースを追加"
+          size="md"
+          placeholder="＋ コースを追加"
+          clearable={false}
+          disabled={submitting}
+          triggerClassName="!border [&_div.text-slate-400]:text-slate-600"
+          options={choices.map(candidate => ({ value: reportFormKey(candidate.courseId, candidate.cycleNo), label: `${candidate.courseName}${candidate.cycleLabel ? ` ${candidate.cycleLabel}` : ""}` }))}
+          onChange={key => {
+            const candidate = choices.find(item => reportFormKey(item.courseId, item.cycleNo) === key);
             if (!candidate) return;
-            setShifts(current => orderCourseCycles([...current, candidate], item => item.courseId, item => item.cycleNo ?? 0));
-            setRequestedKeys(current => [...current, additionalKey]);
-            setAdditionalKey("");
-          }}>コース・便を追加</button>
-        </div>;
+            setShifts(current => current.some(item => reportFormKey(item.courseId, item.cycleNo) === key) ? current : orderCourseCycles([...current, candidate], item => item.courseId, item => item.cycleNo ?? 0));
+            setRequestedKeys(current => current.includes(key) ? current : [...current, key]);
+          }}
+        />;
       })()}
 
-      {(formData?.rejectedRequests?.length ?? 0) > 0 && <p className="text-sm text-amber-800">追加申請が却下されました。必要なコース・便を選び直して送信してください。</p>}
+      {(formData?.rejectedRequests?.length ?? 0) > 0 && <p className="text-sm text-amber-800">追加申請が却下されました。必要なコースを選び直して送信してください。</p>}
 
       {/* 配完表などの原本画像。読み取れた件数は本人の確認後にフォームへ入る（RIMG-2 / RIMG-3） */}
       {shifts.length > 0 && (
@@ -590,21 +687,6 @@ export default function SubmitPageClientV2() {
           onApply={(entries) => {
             setValues((prev) => applyImageEntries(prev, shifts, entries).values);
           }}
-        />
-      )}
-
-      {/* 車の置き場所（使用車両を選んだときだけ）。送信ボタンの手前に置く */}
-      {vehicleId && shifts.length > 0 && (
-        <ParkingReportField
-          places={parkingPlaces}
-          loading={parkingPlacesLoading}
-          vehicleId={vehicleId}
-          choice={parking}
-          onChange={(next) => {
-            setParking(next);
-            if (parkingError) setParkingError(null);
-          }}
-          error={parkingError}
         />
       )}
 
@@ -619,7 +701,7 @@ export default function SubmitPageClientV2() {
         onClick={submit}
         className="w-full py-3 rounded-lg bg-slate-900 text-white font-medium disabled:opacity-50"
       >
-        {submitting ? "送信中…" : "送信"}
+        {vehicleId && formData?.vehicleReturnRequired ? "返却場所を選択" : "送信"}
       </button>
 
       {/* オイル交換リマインドモーダル */}
