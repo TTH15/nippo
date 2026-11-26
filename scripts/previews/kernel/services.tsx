@@ -19,6 +19,11 @@ export async function apiFetch<T = unknown>(path: string, init?: RequestInit, op
   const { store, navigate } = getPreviewRuntime();
   try {
     if (["driver-setup", "driver-setup-designs", "me", "bank-change"].includes(store.fixture.id) && store.scenario.startsWith("status-slow-") && !init?.method && ["/api/reports/profile", "/api/me/registration"].includes(path)) await new Promise<void>(resolve => setTimeout(resolve, 3000));
+    if (store.fixture.id === "submit" && store.scenario === "post-slow" &&
+      (path.startsWith("/api/me/submit-screen?") || (path === "/api/reports/v2" && init?.method === "POST"))) {
+      await new Promise<void>(resolve => setTimeout(resolve, 3500));
+      if (init?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+    }
     if (path === "/api/admin/shifts/memo/board" && !init?.method) store.invalidate();
     if (store.fixture.id === "recover" && (path === "/api/me/registration" || path === "/api/auth/recovery-request")) store.invalidate();
     return (await store.fetch(path, { method: init?.method, body: init?.body, fresh: init?.cache === "no-store", headers: init?.headers })) as T;

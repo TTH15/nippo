@@ -39,6 +39,6 @@ it("読取中に日付が変わった結果を、新しい日の日報へ反映�
  const apply=vi.fn();const {container,rerender}=render(<ReportSourceImageField reportDate="2026-10-17" shifts={[shift]} courseId="course" onApply={apply}/>);
  upload(container);await waitFor(()=>expect(mocks.read).toHaveBeenCalled());
  rerender(<ReportSourceImageField reportDate="2026-10-18" shifts={[shift]} courseId="course" onApply={apply}/>);
- finish(outcome());await waitFor(()=>expect(screen.getByRole("button",{name:"画像から入力"}).hasAttribute("disabled")).toBe(false));
+ finish(outcome());await waitFor(()=>expect(screen.getByRole("button",{name:"スクリーンショットから件数を読み取る"}).hasAttribute("disabled")).toBe(false));
  expect(apply).not.toHaveBeenCalled();expect(screen.queryByText("反映先の確認")).toBeNull();
 });

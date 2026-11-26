@@ -37,7 +37,7 @@ try:
         raise AssertionError('Expected rejection: '+source)
     sql((ROOT/'scripts/tests/fixtures/report-lifecycle-schema.sql').read_text())
     sql('ALTER TABLE daily_reports_v2 DROP COLUMN rejection_reason;')
-    migrations=['172_assign_shift_driver.sql','20261017081019_sync_reports_with_shift_changes.sql','20261017081031_bind_course_report_fields.sql','20261104092726_restore_approved_reports_on_shift_reassignment.sql','20261116153958_member_capability_grants.sql','20261116154418_report_course_requests.sql','20261116155246_shift_correction_sessions.sql','20261116174310_report_submission_approval_finalization.sql']
+    migrations=['172_assign_shift_driver.sql','20261017081019_sync_reports_with_shift_changes.sql','20261017081031_bind_course_report_fields.sql','20261104092726_restore_approved_reports_on_shift_reassignment.sql','20261116153958_member_capability_grants.sql','20261116154418_report_course_requests.sql','20261116155246_shift_correction_sessions.sql','20261116174310_report_submission_approval_finalization.sql','20261124110312_restrict_driver_report_course_requests.sql']
     for migration in migrations:
         if migration == '20261116174310_report_submission_approval_finalization.sql':
             # 適用済みの承認時単価を持つ架空履歴。新しい確定ジョブで再計算しない。
@@ -65,6 +65,12 @@ try:
     INSERT INTO unit_fields(unit_id,field_key,label,input_type,is_billable) VALUES('{unit}','completed','完了','INT',true);
     INSERT INTO vehicles(id,owner_org_id,current_mileage) VALUES('{vehicle}','{org}',100);
     INSERT INTO driver_identities(id,driver_id,slot,driver_code) VALUES('{identity}','{driver}',1,'fictional-1');
+    """)
+    extra_course, second_identity, peer_identity, wildcard_course = [uid(n) for n in range(30,34)]
+    sql(f"""INSERT INTO driver_identities(id,driver_id,slot,driver_code) VALUES('{second_identity}','{driver}',2,'fictional-2'),('{peer_identity}','{peer}',1,'fictional-peer');
+    INSERT INTO courses(id,org_id,name,uses_cycles,carrier_id) VALUES('{extra_course}','{org}','別担当コース',false,'{uid(20)}'),('{wildcard_course}','{org}','全便担当コース',true,'{uid(20)}');
+    INSERT INTO course_cycles(course_id,cycle_no,label,active) VALUES('{wildcard_course}',1,'C1',true),('{wildcard_course}',2,'C2',true),('{wildcard_course}',3,'停止',false);
+    INSERT INTO driver_courses(driver_id,driver_identity_id,course_id,cycle_no) VALUES('{driver}','{second_identity}','{course}',2),('{driver}','{identity}','{wildcard_course}',0),('{peer}','{peer_identity}','{extra_course}',0);
     """)
     print('PASS: synthetic seed')
     today=sql("SELECT (clock_timestamp() AT TIME ZONE 'Asia/Tokyo')::date")
@@ -96,6 +102,17 @@ try:
     sql(f"INSERT INTO course_unit_rates(course_id,cycle_no,unit_id,revenue_per_unit,payout_per_unit) VALUES('{course}',0,'{unit}',150,100)")
     expect("SELECT report_finalization_cutoff('2026-11-17 02:59:59+09'),report_finalization_cutoff('2026-11-17 03:00:00+09')",'2026-11-16|2026-11-17')
     items=[item(1,10),item(2,20,True)]
+    # 候補取得後の担当解除・別人のみの紐付け・別便による偽装を保存入口で拒否。
+    denied(f"SET ROLE service_role; SELECT save_report_course_request('{org}','{driver}','{date}','{course}',1,'{{}}')",'担当コース')
+    denied(f"SET ROLE service_role; SELECT save_report_course_request('{org}','{driver}','{date}','{extra_course}',0,'{{}}')",'担当コース')
+    denied(f"SET ROLE service_role; SELECT save_report_course_request('{org}','{driver}','{date}','{wildcard_course}',3,'{{}}')")
+    wildcard_request=sql(f"SET ROLE service_role; SELECT save_report_course_request('{org}','{driver}','{date}','{wildcard_course}',2,'{{}}')")
+    expect(f"SELECT cycle_no FROM report_course_requests WHERE id='{wildcard_request}'",'2')
+    sql(f"DELETE FROM report_course_requests WHERE id='{wildcard_request}'")
+    denied(f"SET ROLE service_role; SELECT submit_report_day('{org}','{driver}','{date}',NULL,{js([item(1,10),item(0,21,True,extra_course)])},{quote(revision())},'unauthorized-mixed')",'担当コース')
+    expect("SELECT count(*) FROM daily_reports_v2",'0')
+    expect("SELECT count(*) FROM report_submission_receipts",'0')
+    print('PASS: unassigned course/cycle denied in both save paths; wildcard applies to active cycles only; ad-hoc assigned report remains valid')
     rev=revision(); result=json.loads(submit(items,rev=rev)); q=result['requestIds'][0]; rid=result['reportIds'][0]
     expect(f"SELECT count(*) FROM shifts WHERE driver_id='{driver}' AND shift_date='{date}'",'1')
     expect(f"SELECT count(*) FROM daily_reports_v2 WHERE approved_at IS NOT NULL",'0')
@@ -192,12 +209,18 @@ try:
     request_day=sql("SELECT (clock_timestamp() AT TIME ZONE 'Asia/Tokyo')::date-3")
     q_payload=dict(vehicleId=vehicle,meterValue=300,identityId=None,entries=[dict(unitId=unit,fieldKey='completed',valueNum=9,valueText=None)])
     q_only=sql(f"SET ROLE service_role; SELECT save_report_course_request('{org}','{driver}','{request_day}','{course}',2,{js(q_payload)})")
+    sql(f"DELETE FROM driver_courses WHERE driver_identity_id='{second_identity}' AND course_id='{course}'")
+    same_q=sql(f"SET ROLE service_role; SELECT save_report_course_request('{org}','{driver}','{request_day}','{course}',2,{js(q_payload)})")
+    assert same_q==q_only
+    assert json.loads(submit([item(2,12,True)],key='existing-request',day=request_day))['requestIds']==[q_only]
     expect(f"SELECT admin_daily_unread_count('{org}','{request_day}','{request_day}')",'1')
     expect(f"SELECT admin_daily_pending_dates('{org}','{request_day}','{request_day}')",request_day)
     expect(f"SELECT count(*) FROM daily_reports_v2 WHERE report_date='{request_day}'",'0')
     sql(decision(False,revision(day=request_day),[q_only],request_day))
     expect(f"SELECT status FROM report_course_requests WHERE id='{q_only}'",'rejected')
     expect(f"SELECT count(*) FROM shifts WHERE driver_id='{driver}' AND shift_date='{request_day}'",'0')
+    denied(f"SET ROLE service_role; SELECT save_report_course_request('{org}','{driver}','{request_day}','{course}',2,{js(q_payload)})",'担当コース')
+    sql(f"INSERT INTO driver_courses(driver_id,driver_identity_id,course_id,cycle_no) VALUES('{driver}','{second_identity}','{course}',2)")
     q_again=sql(f"SET ROLE service_role; SELECT save_report_course_request('{org}','{driver}','{request_day}','{course}',2,{js(q_payload)})")
     assert q_again!=q_only
     sql(f"SET ROLE service_role; SELECT cancel_report_course_request('{org}','{driver}','{q_again}')")

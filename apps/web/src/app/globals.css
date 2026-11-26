@@ -90,6 +90,32 @@ body {
   padding-bottom: var(--bottom-nav-total-height);
 }
 
+/* Fit the map to the space left by the actual header, team badge and bottom tabs. */
+.driver-shell:has(.parking-page) {
+  height: 100dvh;
+  min-height: 0;
+}
+
+.user-main-with-bottom-nav:has(> .parking-page) {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.user-main-with-bottom-nav:has(> .parking-page) > [data-mode-switch="driver"]:not([data-positioned]) {
+  position: absolute;
+  top: 2px;
+  bottom: auto;
+}
+
+[data-mode-switch="driver"][data-positioned] {
+  right: auto;
+  bottom: auto;
+  left: clamp(max(8px, env(safe-area-inset-left)), var(--fab-x), calc(100% - 2.75rem - max(8px, env(safe-area-inset-right))));
+  top: clamp(max(8px, env(safe-area-inset-top)), var(--fab-y), calc(100dvh - var(--bottom-nav-total-height) - 2.75rem - 8px));
+}
+
 .user-bottom-nav-safe {
   padding-bottom: var(--bottom-nav-safe-space);
 }

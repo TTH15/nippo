@@ -47,16 +47,7 @@ const EMPTY_TRUST: ReadTrust = {
 };
 const MAX_BYTES = 20 * 1024 * 1024;
 
-type SourceImage = {
-  id: string;
-  report_date: string;
-  status: string;
-  received_at: string;
-  original_filename: string | null;
-  byte_size: number;
-};
-
-type ListResponse = { images: SourceImage[]; unavailable?: boolean };
+type ListResponse = { images: { status: string }[]; unavailable?: boolean };
 type TemplatesResponse = { templates: ImageTemplate[]; autoFillCourseIds?: string[]; unavailable?: boolean };
 type UploadResponse = {
   id: string;
@@ -132,6 +123,7 @@ export default function ReportSourceImageField({
     return { ...row,targetFormKey: choices.length === 1 ? choices[0].key : undefined,included: choices.length > 0 && row.value != null };
   };
   const images = data?.images ?? [];
+  const confirmedCount = images.filter(image => image.status === "confirmed").length;
   const templates = useMemo(() => templateData?.templates ?? [], [templateData]);
   const canRead = templates.length > 0;
   // 件数が報酬に効かないコースは、確認を省く設定にできる（migration 182）
@@ -280,15 +272,11 @@ export default function ReportSourceImageField({
           cropUrl: outcome.crops[field.fieldId] ?? null,
         }));
 
-      const blob = await new Promise<Blob | null>((resolve) =>
-        outcome.prepared.canvas.toBlob((value) => resolve(value), "image/jpeg", 0.85),
-      );
-      if (contextRef.current !== requestContext) return;
       setReview({
         context: requestContext,
         outcome,
         sourceImageId: uploaded.id,
-        imageUrl: blob ? URL.createObjectURL(blob) : URL.createObjectURL(file),
+        imageUrl: URL.createObjectURL(file),
         rows: rows.map(routeRow),
         warnings: [...judged.reasons, ...outcome.result.warnings],
       });
@@ -373,7 +361,7 @@ export default function ReportSourceImageField({
   return (
     <section
       className={`rounded-lg border bg-white p-4 transition-colors ${dragging ? "border-amber-500 bg-amber-50" : "border-slate-200"}`}
-      aria-label="配完表の画像"
+      aria-label="配完表"
       onDragEnter={(event) => {
         if (event.dataTransfer.types.includes("Files")) {
           event.preventDefault();
@@ -395,23 +383,13 @@ export default function ReportSourceImageField({
     >
       <div className="mb-2 flex items-center gap-2">
         <FontAwesomeIcon icon={faImage} className="h-3.5 w-3.5 text-slate-400" />
-        <h3 className="text-sm font-medium text-slate-800">配完表の画像</h3>
+        <h3 className="text-sm font-medium text-slate-800">配完表</h3>
+        {images.length > 0 && (
+          <span className="ml-auto text-xs text-slate-600">
+            添付{images.length}枚{confirmedCount > 0 && ` · 確認済み${confirmedCount}枚`}
+          </span>
+        )}
       </div>
-
-      {images.length > 0 && (
-        <ul className="mb-3 divide-y divide-slate-100">
-          {images.map((image) => (
-            <li key={image.id} className="flex items-center gap-2 py-1.5 text-xs">
-              <FontAwesomeIcon
-                icon={image.status === "confirmed" ? faCircleCheck : faImage}
-                className={`h-3 w-3 ${image.status === "confirmed" ? "text-emerald-600" : "text-slate-400"}`}
-              />
-              <span className="min-w-0 flex-1 truncate text-slate-700">{image.original_filename || "画像"}</span>
-              {image.status === "confirmed" && <span className="text-emerald-700">読み取り確認済み</span>}
-            </li>
-          ))}
-        </ul>
-      )}
 
       <input
         ref={inputRef}
@@ -430,14 +408,13 @@ export default function ReportSourceImageField({
         disabled={busy != null || saving || review != null}
         onClick={() => inputRef.current?.click()}
       >
-        {busy ?? (canRead ? "画像から入力" : images.length > 0 ? "画像を追加" : "画像を選ぶ")}
+        {busy ?? (canRead ? "スクリーンショットから件数を読み取る" : "配完表の画像を添付する")}
       </Button>
-      <p className="mt-2 text-center text-xs text-slate-500">スクリーンショットをここにドロップ</p>
 
       {filled.length > 0 && (
         <p className="mt-2 text-xs text-emerald-700">
           <FontAwesomeIcon icon={faCircleCheck} className="mr-1 h-3 w-3" />
-          画像から入力しました（{filled.join("・")}）
+          日報に反映しました（{filled.join("・")}）
         </p>
       )}
 
@@ -455,8 +432,7 @@ export default function ReportSourceImageField({
           onIncludeChange={(fieldId,included) => setReview(prev => prev ? { ...prev,rows: prev.rows.map(row => row.fieldId === fieldId ? { ...row,included } : row) } : prev)}
           templateName={review.outcome.template?.name ?? ""}
           imageUrl={review.imageUrl}
-          imageWidth={review.outcome.prepared.width}
-          imageHeight={review.outcome.prepared.height}
+          prepared={review.outcome.prepared}
           rows={review.rows}
           warnings={review.warnings}
           trust={review.outcome.result?.trust ?? EMPTY_TRUST}

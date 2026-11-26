@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { sharedMemoError } from "./memoSaveErrors";
 import { apiFetch } from "@/lib/api";
 import { boardChanges, SharedBoardSession, type Board, type BoardChange } from "./sharedBoardSync";
 
@@ -33,6 +34,7 @@ export function useSharedBoard(opts: {
     let refreshing: Promise<void> | null = null;
     let refreshAgain = false;
     let error: string | null = null;
+    let saveError: string | null = null;
     let slow = false;
     let slowTimer: ReturnType<typeof setTimeout> | undefined;
     let ready = false;
@@ -46,7 +48,7 @@ export function useSharedBoard(opts: {
     const publish = (syncing = !!refreshing) => {
       if (!active) return;
       const pending = session.pending;
-      setView({ ready, pending, saving: !!session.flight, slow, syncing, error: session.conflicts.length ? CONFLICT : error, conflict: !!session.conflicts.length });
+      setView({ ready, pending, saving: !!session.flight, slow, syncing, error: session.conflicts.length ? CONFLICT : error && pending ? error + "入力は残っています。" : error, conflict: !!session.conflicts.length });
       optsRef.current.onPendingChange?.(pending);
       try {
         if (pending) sessionStorage.setItem(draftKey, JSON.stringify({ base: session.canonical, local: session.local,
@@ -83,11 +85,12 @@ export function useSharedBoard(opts: {
           }
           accept(reply);
           session.uncertain = false;
-          error = null;
+          if (!session.changes.length) saveError = null;
+          error = saveError;
           ready = true;
-        } catch {
+        } catch (cause) {
           if (!active) return;
-          error = session.ready ? "同期を確認できませんでした。入力は残っています" : "共有メモを読み込めませんでした";
+          error = saveError ?? sharedMemoError(cause, "read");
           ready = true; // エラーと再試行を表示する。未取得なら保存は開始しない。
         } finally {
           if (active) {
@@ -117,12 +120,15 @@ export function useSharedBoard(opts: {
         if (!reply.board) throw new Error("保存を確認できませんでした");
         // 先に受理したGETの正本は巻き戻さず、送信後の追加編集だけを重ねる。
         accept(reply, flight.snapshot);
+        saveError = null;
         error = null;
         optsRef.current.announceRevision(session.revision);
-      } catch {
+      } catch (cause) {
         if (!active) return;
         session.uncertain = true;
-        error = "保存を確認できませんでした。入力は残っています";
+        saveError = sharedMemoError(cause, "save");
+        error = saveError;
+        publish();
         // RPCの409に含まれる途中のboardも、通信エラーも正本とは扱わない。
         // 進行中GETがPATCH前に読んだ可能性があるので、必ず送信後に新しく読む。
         if (refreshing) await refreshing;
@@ -133,7 +139,8 @@ export function useSharedBoard(opts: {
           clearTimeout(slowTimer); slow = false;
           session.flight = null;
           publish();
-          schedule();
+          // 照合後も未保存なら、次の更新・編集・手動再試行で保存する。
+          if (!saveError) schedule();
         }
       }
     };

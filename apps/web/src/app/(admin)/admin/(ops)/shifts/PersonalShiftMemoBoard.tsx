@@ -48,6 +48,7 @@ import { SmoothCollapse } from "@/lib/components/SmoothCollapse";
 import { ConfirmDialog } from "@/lib/components/ConfirmDialog";
 import { useCellCursors } from "@/lib/realtime/cellCursors";
 import { useSelectedColumnAnchor } from "@/lib/shiftMemo/useSelectedColumnAnchor";
+import { personalMemoSaveError } from "@/lib/shiftMemo/memoSaveErrors";
 import { useSharedBoard } from "@/lib/shiftMemo/useSharedBoard";
 import { readHiddenPeople, type Board } from "@/lib/shiftMemo/sharedBoardSync";
 import { exportShiftMemo, exportShiftMemoCsv, parseShiftMemoTransfer, type ShiftMemoBoardData, type TransferLane, type TransferPerson } from "@/lib/shiftMemo/transfer";
@@ -719,7 +720,7 @@ export default function PersonalShiftMemoBoard({
       try {
         localStorage.setItem(storageKey, serialized);
         setSaveError(null); setSavedAt(Date.now());
-      } catch { setSaveError("端末へ保存できませんでした。ブラウザの保存容量を確認してください"); }
+      } catch (cause) { setSaveError(personalMemoSaveError(cause) + "入力はこのタブに残っています。"); }
     }, 250);
     return () => window.clearTimeout(timer);
   }, [saveRevision, backgroundColors, assignments, requiredCountOverrides, dayOverrides, dayWidth, detailWidth, extraPeople, hiddenPeople, hiddenLaneIds, hiddenRouteIds, hydrated, laneOrder, laneWidth, lanes, notes, routeOrder, storageKey, mode]);

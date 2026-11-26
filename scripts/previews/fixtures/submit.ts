@@ -1,4 +1,4 @@
-import { isReportFlow, readReportFlow, writeReportFlow, resetReportFlow, flowShiftRows, FLOW_DRIVER } from "./reportLifecycle";
+import { flowCandidates, readReportFlow, writeReportFlow, resetReportFlow } from "./reportLifecycle";
 // 日報送信（本番 /submit の SubmitPageClientV2）用の架空データ。認証も外部へ送信しない。
 // 送信内容は console.info("preview submit", …) に出す（アプリ内ブラウザから確認する）。
 import type { PreviewFixture } from "@/lib/preview/fixtureStore";
@@ -16,6 +16,11 @@ const SHIFT = {
   ] }],
   existing: null,
 };
+// 追加コースの「完了」も北ルートと同じ配完表の読み取り項目に対応させる。
+const additionalCourses = flowCandidates.map(course => ({
+  ...course,
+  units: [{ ...SHIFT.units[0], fields: SHIFT.units[0].fields.filter(field => field.fieldKey === "delivered") }],
+}));
 const CYCLE_SHIFTS = [1, 2].map(cycleNo => ({ ...SHIFT, cycleNo, cycleLabel: `C${cycleNo}`, courseName: "日中サンプル",
   units: [{ ...SHIFT.units[0], fields: ["持出", "完了"].map((label, i) => ({ fieldKey: `${cycleNo === 1 ? "am" : "pm"}_${i ? "completed" : "mochidashi"}`,
     label, inputType: "INT", groupLabel: cycleNo === 1 ? "午前" : "午後", required: true })) }],
@@ -36,19 +41,53 @@ type SourceImage = { id: string; report_date: string; status: string; received_a
 
 type State = { places: typeof PLACES; submissions: unknown[]; phoneVerified: boolean; hasPasskey: boolean;
   recent: boolean; smsSent: boolean; challenge: string | null; attempts: number; statusFailures: number;
-  sourceImages: SourceImage[]; readings: unknown[]; imageTemplates: boolean };
+  sourceImages: SourceImage[]; readings: unknown[]; imageTemplates: boolean; rewardFetchFailures: number };
+
+type FixtureReceipt = { receiptKey: string; vehicleId: string | null; reportDate: string; stage: "required" | "not_required" | "complete"; attempts: number; pendingCourseCount?: number };
+const PARKING_FIXTURE_PREFIX = "hakotora-preview-pwa-parking:";
+function readParkingFixture(scenario: string): FixtureReceipt | null {
+  try { return JSON.parse(sessionStorage.getItem(PARKING_FIXTURE_PREFIX + scenario) ?? "null") as FixtureReceipt | null; } catch { return null; }
+}
+function writeParkingFixture(scenario: string, value: FixtureReceipt | null) {
+  if (value) sessionStorage.setItem(PARKING_FIXTURE_PREFIX + scenario, JSON.stringify(value));
+  else sessionStorage.removeItem(PARKING_FIXTURE_PREFIX + scenario);
+}
+const vehicleReturnRequired = (scenario: string) =>
+  scenario !== "parking-monthly" && !scenario.startsWith("post-") && scenario !== "reward-breakdown";
+
+const fixtureParkingStage = (scenario: string, body: Record<string, unknown>) => {
+  const items = (body.items ?? []) as { vehicleId?: string | null; request?: boolean }[];
+  const vehicleId = items.find(item => item.vehicleId)?.vehicleId ?? null;
+  const pendingCourseCount = items.filter(item => item.request).length;
+  const stage = vehicleId && vehicleReturnRequired(scenario) ? "required" : "not_required";
+  writeParkingFixture(scenario, { vehicleId, stage, reportDate: String(body.reportDate), receiptKey: String(body.clientKey), attempts: 0, pendingCourseCount });
+  return { reportSaved: true, parkingStage: stage, parkingVehicleId: vehicleId };
+};
 
 export const submitFixture: PreviewFixture<State> = {
   id: "submit",
   title: "日報入力・ログイン設定",
   pathname: "/submit",
   scenarios: {
-    "post-loading": { label: "送信後の読み込み中" },
+    "post-loading": { label: "送信後・報酬の計算中" },
+    "post-slow": { label: "日報送信の連続バー", description: "架空の日報で、同じ「送信しています」画面のバーが進行し、完了へ切り替わる" },
+    "post-error": { label: "報酬の読み込み失敗→再試行", description: "初回は失敗し、日報を再送せず金額を読み直す" },
+    "post-zero": { label: "報酬が0円", description: "取得済みの0円は金額として表示" },
+    "reward-breakdown": { label: "日報送信後・報酬内訳", description: "税込報酬・日額リースと承認待ちのコース追加を確認" },
     "image-multi": { label: "画像・同じ項目の複数コース",description: "反映先を選ぶまで数量を変更しない" },
     "image-reupload": { label: "画像・入力済み",description: "既存値と読み取り値を見比べて選んだ項目だけ変更する" },
     cycles: { label: "C1午前・C2午後", description: "実際の入力欄と便の色を確認し、別々の値を送信する" },
-    "course-add": { label: "コース・便の追加", description: "架空のC2と別コースを追加" },
+    "course-add": { label: "担当コースを追加", description: "担当しているC2と別コースだけ選択できる" },
+    "no-course-options": { label: "追加候補なし", description: "当日シフトは残り、追加ボタンは出ない" },
     normal: { label: "通常", description: "車庫3件（豊中は区画あり・veh-1 は A-1 がいつもの）" },
+    "parking-monthly": { label: "月額リース・駐車画面なし", description: "日報保存後は待機バーから完了へ" },
+    "parking-device": { label: "駐車・端末の現在地", description: "端末の位置情報を許可すると、その周辺の地図をMapboxから取得。日報と返却はプレビュー内に保存" },
+    "parking-permission": { label: "駐車・位置情報の許可", description: "駐車画面を開いた時にブラウザの許可を確認。地図・候補は架空地点" },
+    "parking-near": { label: "駐車・近くに登録場所", description: "架空の測位から登録車庫を提案" },
+    "parking-far": { label: "駐車・近くに登録場所なし", description: "架空の地図からピンを選ぶ" },
+    "parking-denied": { label: "駐車・位置を取得できない", description: "許可なしでも候補またはピンを選ぶ" },
+    "parking-map-error": { label: "駐車・地図エラー", description: "地図なしで登録場所から選ぶ" },
+    "parking-retry": { label: "駐車だけ再試行", description: "初回のみ駐車保存エラー" },
     "no-places": { label: "車庫なし", description: "登録車庫が無い会社。別の場所と状況だけ選べる" },
     "sms-only": { label: "かんたんログイン未設定", description: "SMS確認済み。本人確認後にかんたんログインを設定する" },
     complete: { label: "設定済み", description: "SMS・かんたんログインともに完了し、案内は表示しない" },
@@ -59,14 +98,27 @@ export const submitFixture: PreviewFixture<State> = {
     "no-image-template": { label: "様式なし", description: "画像の様式が未登録。画像は残せるが件数は手入力" },
   },
   createState: ({ scenario }) => ({ places: scenario === "no-places" ? [] : PLACES, submissions: [],
-    phoneVerified: ["sms-only", "complete", "cycles", "course-add", "image-multi", "image-reupload"].includes(scenario), hasPasskey: ["complete", "cycles", "course-add", "image-multi", "image-reupload"].includes(scenario),
+    phoneVerified: scenario.startsWith("parking-") || ["sms-only", "complete", "cycles", "course-add", "no-course-options", "image-multi", "image-reupload", "reward-breakdown", "post-loading", "post-slow", "post-error", "post-zero"].includes(scenario), hasPasskey: scenario.startsWith("parking-") || ["complete", "cycles", "course-add", "no-course-options", "image-multi", "image-reupload", "reward-breakdown", "post-loading", "post-slow", "post-error", "post-zero"].includes(scenario),
     recent: false, smsSent: false, challenge: null, attempts: 0, statusFailures: scenario === "setup-error" ? 1 : 0,
-    sourceImages: [], readings: [], imageTemplates: scenario !== "no-image-template" }),
-  onReset: () => resetReportFlow(),
+    sourceImages: scenario === "image-reupload" ? ["confirmed", "received"].map((status, index) => ({
+      id: `preview-image-${index + 1}`, status, original_filename: `sample-${index + 1}.png`,
+      report_date: new Date().toISOString().slice(0, 10), received_at: new Date().toISOString(), byte_size: 120000,
+    })) : [], readings: [], imageTemplates: scenario !== "no-image-template", rewardFetchFailures: scenario === "post-error" ? 1 : 0 }),
+  onReset: ({ scenario }) => {
+    resetReportFlow();
+    writeParkingFixture(scenario, null);
+    sessionStorage.removeItem("hakotora-pwa-parking-receipt");
+  },
   isPending: (_state, { path }, { scenario }) => scenario === "post-loading" && path === "/api/me/submit-screen",
   read: (state, request, { scenario }) => {
     const { path } = request;
-    const flow = readReportFlow(request, scenario); if (flow !== undefined) return flow;
+    if (path === "/api/reports/v2/parking") {
+      const saved = readParkingFixture(scenario);
+      if (!saved || saved.receiptKey !== request.params.get("key")) return { stage: "not_found" };
+      return { stage: saved.stage, reportDate: saved.reportDate, vehicleId: saved.vehicleId };
+    }
+    const flow = readReportFlow(request, scenario);
+    if (flow !== undefined) return path === "/api/me/report-form" ? { ...flow as object, vehicleReturnRequired: vehicleReturnRequired(scenario) } : flow;
     if (path === "/api/me/login-setup") {
       if (state.statusFailures-- > 0) throw new Error("設定を読み込めませんでした");
       return { phoneVerified: state.phoneVerified, phoneMasked: scenario === "no-phone" ? null : "下4桁 0000", hasPasskey: state.hasPasskey };
@@ -76,20 +128,58 @@ export const submitFixture: PreviewFixture<State> = {
     if (path === "/api/reports/vehicles-unlinked") return { vehicles: [] };
     if (path === "/api/reports/vehicles") return { vehicles: VEHICLES };
     if (path === "/api/reports/parking-places") return { places: state.places };
-    if (path === "/api/me/report-form") return { shifts: scenario === "no-shifts" ? [] : scenario === "course-add" ? [CYCLE_SHIFTS[0]] : scenario === "image-multi" ? [SHIFT,{ ...SHIFT,courseId: "course-2",courseName: "南ルート" }] : scenario === "image-reupload" ? CYCLE_SHIFTS.map(shift => ({ ...shift,existing: { vehicleId: "veh-1",meterValue: 50063,values: { "unit-1": Object.fromEntries(shift.units[0].fields.map((field,i) => [field.fieldKey,shift.cycleNo === 1 ? [71,63][i] : [52,47][i]])) } } })).reverse() : scenario === "cycles" ? [...CYCLE_SHIFTS].reverse() : [SHIFT], shiftVehicleId: "veh-1" };
+    if (path === "/api/me/report-form" && (scenario.startsWith("parking-") || scenario === "normal" || scenario === "no-places" || scenario === "image-multi" || scenario === "reward-breakdown")) {
+      const shifts = scenario === "image-multi" ? [SHIFT, { ...SHIFT, courseId: "course-2", courseName: "南ルート" }] : [SHIFT];
+      return { shifts, vehicleReturnRequired: vehicleReturnRequired(scenario), candidates: additionalCourses, shiftVehicleId: "veh-1" };
+    }
+    if (path === "/api/me/report-form") return { vehicleReturnRequired: vehicleReturnRequired(scenario), shifts: scenario === "no-shifts" ? [] : scenario === "course-add" ? [CYCLE_SHIFTS[0]] : scenario === "image-reupload" ? CYCLE_SHIFTS.map(shift => ({ ...shift,existing: { vehicleId: "veh-1",meterValue: 50063,values: { "unit-1": Object.fromEntries(shift.units[0].fields.map((field,i) => [field.fieldKey,shift.cycleNo === 1 ? [71,63][i] : [52,47][i]])) } } })).reverse() : scenario === "cycles" ? [...CYCLE_SHIFTS].reverse() : [SHIFT], shiftVehicleId: "veh-1" };
     if (path === "/api/me/report-image-templates") {
       return { templates: state.imageTemplates ? [scenario === "cycles" || scenario === "image-reupload" ? CYCLE_IMAGE_TEMPLATE : (() => { const template=previewImageTemplate({ unitId: "unit-1", doneKey: "delivered", backKey: "undelivered" }); return scenario === "image-multi" ? { ...template,definition:{ ...template.definition,fields:template.definition.fields.filter(field => ["takkyubin-done","takkyubin-back"].includes(field.id)) } } : template; })()] : [] };
     }
     if (path === "/api/reports/source-images") return { images: state.sourceImages, unavailable: false };
     if (path === "/api/me/form-notice") return { notice: null };
     if (path === "/api/me/shift-deadline-reminder") return { reminder: null };
-    if (path === "/api/me/submit-screen") return { todayReward: 12000, blocks: [{ id: "greeting", type: "greeting", title: "お疲れさまでした", message: "" }, { id: "reward", type: "today_reward", todayReward: 12000 }] };
+    if (path === "/api/me/submit-screen") {
+      if (state.rewardFetchFailures > 0) {
+        state.rewardFetchFailures -= 1;
+        throw new Error("報酬の取得に失敗しました");
+      }
+      const zero = scenario === "post-zero";
+      const receipt = readParkingFixture(scenario);
+      const includedPendingCourseCount = receipt?.pendingCourseCount ?? (scenario === "reward-breakdown" ? 1 : 0);
+      // 見本の日当は基本12,000円、追加の1コース・便につき税込3,000円。
+      const todayReward = zero ? 0 : 12000 + 3000 * includedPendingCourseCount;
+      return { todayReward, blocks: [
+        { id: "greeting", type: "greeting", title: "お疲れさまでした", message: "" },
+        { id: "reward", type: "today_reward", todayReward, breakdown: { beforeLease: zero ? 0 : todayReward + 2000, dailyLease: zero ? 0 : 2000, monthlyLease: false, includedPendingCourseCount } },
+      ] };
+    }
     if (path.startsWith("/api/")) return {};
     return undefined;
   },
   write: (state, request, { scenario, role }) => {
     const { path, method, body } = request;
-    const flow = writeReportFlow(request, scenario, role); if (flow !== undefined) return flow;
+    const flow = writeReportFlow(request, scenario, role); if (flow !== undefined) {
+      return path === "/api/reports/v2" && body.parkingPolicy === "post_submit_map"
+        ? { ...flow as object, ...fixtureParkingStage(scenario, body) } : flow;
+    }
+    if (path === "/api/reports/v2/parking" && method === "POST") {
+      const receipt = readParkingFixture(scenario);
+      if (!receipt || receipt.receiptKey !== body.receiptKey) throw new Error("保存済みの日報が見つかりません");
+      if (receipt.stage === "complete") return { parkingSaved: true };
+      const parking = body.parking as { vehicleId?: string; placeId?: string; coords?: { lat: number; lng: number } } | undefined;
+      if (receipt.stage !== "required" || !parking || parking.vehicleId !== receipt.vehicleId || (!parking.placeId && !parking.coords)) {
+        throw new Error("車を停めた場所を地図で確認してください");
+      }
+      ++receipt.attempts;
+      if (scenario === "parking-retry" && receipt.attempts === 1) {
+        writeParkingFixture(scenario, receipt);
+        throw new Error("駐車場所を記録できませんでした");
+      }
+      receipt.stage = "complete";
+      writeParkingFixture(scenario, receipt);
+      return { parkingSaved: true };
+    }
     if (path === "/api/me/phone/send" || path === "/api/auth/reauth/options") {
       if (scenario === "no-phone") throw new Error("電話番号を運営にご確認ください");
       state.smsSent = true; return { ok: true };
@@ -134,6 +224,7 @@ export const submitFixture: PreviewFixture<State> = {
     }
     if (path === "/api/reports/v2" && method === "POST") {
       state.submissions.push(body);
+      if (body.parkingPolicy === "post_submit_map") return { ok: true, ...fixtureParkingStage(scenario, body) };
       console.info("preview submit", JSON.stringify(body));
       return { ok: true, reportIds: ["report-1"], parkingSaved: (body.parking as { status?: string } | null)?.status === "parked" };
     }

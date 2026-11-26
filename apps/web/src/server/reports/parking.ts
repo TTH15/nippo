@@ -7,6 +7,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ParkingDetectionSource, ParkingReport, ParkingReportStatus } from "@repo/core/types";
 import type { SnapPlace } from "@/lib/map/dropSnap";
+import { loadReportVehicles } from "@/server/vehicles/reportScope";
+import { validParkingPoint } from "@/lib/map/reportParkingLocation";
 import { snapParkingCoords, type ParkingSnapResult } from "./parkingSnap";
 
 const STATUSES: ParkingReportStatus[] = ["parked", "in_use", "handed_over", "later"];
@@ -160,21 +162,33 @@ async function loadParkingPlaces(db: SupabaseClient, orgId: string): Promise<Sna
  * 駐車申告を保存する。parked 以外は履歴に行を作らない（提出時の回答として扱う）。
  * 会社一致（車両・車庫・区画）はここで確認する。失敗は例外にして呼び出し側で扱う。
  */
-export async function saveParkingReport(
+type ParkingContext = { orgId: string; driverId: string; reportDate: string };
+type ParkingInsert = { row: Record<string, unknown>; snap: ParkingSnapResult | null; fromDevice: boolean };
+
+export async function prepareParkingReport(
   db: SupabaseClient,
   input: ParsedParkingReport,
-  ctx: { orgId: string; driverId: string; reportDate: string },
-): Promise<ParkingSaveResult> {
-  if (input.status !== "parked") return { saved: false, positionId: null, snap: null };
+  ctx: ParkingContext,
+  { requireMap = false }: { requireMap?: boolean } = {},
+): Promise<ParkingInsert | null> {
+  if (input.status !== "parked") return null;
 
-  const { data: vehicle, error: vehicleError } = await db
-    .from("vehicles")
-    .select("id")
-    .eq("id", input.vehicleId)
-    .eq("owner_org_id", ctx.orgId)
-    .maybeSingle();
-  if (vehicleError) throw new Error("車両の確認に失敗しました");
-  if (!vehicle) throw new Error("この車両には駐車場所を記録できません");
+  if (requireMap) {
+    // The same date-scoped loan used by reports. The position stays under the submitting org;
+    // never update the foreign owner's vehicles row or publish location to its org.
+    if (!(await loadReportVehicles(db, ctx.orgId, [input.vehicleId], ctx.reportDate)).length) {
+      throw new Error("この車両には駐車場所を記録できません");
+    }
+  } else {
+    const { data: vehicle, error: vehicleError } = await db
+      .from("vehicles")
+      .select("id")
+      .eq("id", input.vehicleId)
+      .eq("owner_org_id", ctx.orgId)
+      .maybeSingle();
+    if (vehicleError) throw new Error("車両の確認に失敗しました");
+    if (!vehicle) throw new Error("この車両には駐車場所を記録できません");
+  }
 
   let lat: number | null = null;
   let lng: number | null = null;
@@ -186,8 +200,8 @@ export async function saveParkingReport(
   if (!placeId && input.coords) {
     lat = input.coords.lat;
     lng = input.coords.lng;
-    snap = snapParkingCoords(input.coords, await loadParkingPlaces(db, ctx.orgId));
-    if (snap.placeId) {
+    if (!requireMap) snap = snapParkingCoords(input.coords, await loadParkingPlaces(db, ctx.orgId));
+    if (snap?.placeId) {
       placeId = snap.placeId;
       placeName = snap.placeName;
     }
@@ -214,14 +228,19 @@ export async function saveParkingReport(
         .maybeSingle();
       if (slotError) throw new Error("区画の確認に失敗しました");
       if (!slot) throw new Error("その区画は選べません");
-      lat = slot.lat;
-      lng = slot.lng;
+      if (!requireMap || (typeof slot.lat === "number" && typeof slot.lng === "number" && validParkingPoint(slot))) {
+        lat = slot.lat;
+        lng = slot.lng;
+      }
       placeName = `${place.name} ${slot.label}`;
     }
   }
 
   // 端末の測位から来た申告かどうか。lat/lng がその測位そのものなら精度も意味を持つ
-  const fromDevice = !input.placeId && input.coords != null;
+  if (requireMap && (typeof lat !== "number" || typeof lng !== "number" || !validParkingPoint({ lat, lng }))) {
+    throw new Error("登録場所に地図の位置がありません。地図で直接ピンを置いてください");
+  }
+  const fromDevice = !requireMap && !input.placeId && input.coords != null;
   // migration 170 の列は、値があるときだけ送る。未適用の本番で従来の申告（Web・手動）が
   // 「存在しない列」で落ちないようにする（座標だけの申告は 170 の適用が前提）
   const deviceColumns: Record<string, unknown> = fromDevice
@@ -250,13 +269,23 @@ export async function saveParkingReport(
     client_key: input.clientKey,
     ...deviceColumns,
   };
+  return { row, snap, fromDevice };
+}
+
+export async function writeParkingReport(db: SupabaseClient, prepared: ParkingInsert | null, { once = false } = {}): Promise<ParkingSaveResult> {
+  if (!prepared) return { saved: false, positionId: null, snap: null };
+  const { row, snap, fromDevice } = prepared;
   // 同じ client_key の再送は上書き（二重登録しない）
-  const { data, error } = await db
+  const query = db
     // tenant-scope-ok: row.org_idはctx.orgId。保存前に駐車対象車両の利用権限を検証
     .from("vehicle_positions")
-    .upsert(row, { onConflict: "org_id,vehicle_id,client_key" })
-    .select("id")
-    .single();
+    .upsert(row, { onConflict: "org_id,vehicle_id,client_key", ignoreDuplicates: once })
+    .select("id");
+  const { data, error } = await (once ? query.maybeSingle() : query.single());
+  if (once && !error && !data) {
+    // 同じ本人/報告キーの2タブ同時送信でも、最初の位置を後から上書きしない。
+    return { saved: true, positionId: null, snap };
+  }
   if (error || !data) {
     console.error("[parking] upsert error", error);
     // 端末の測位だけの申告は migration 170 が要る。未適用の環境で日報の完了を止めず、
@@ -265,4 +294,9 @@ export async function saveParkingReport(
     throw new Error("駐車場所の保存に失敗しました");
   }
   return { saved: true, positionId: data.id as string, snap };
+}
+
+
+export async function saveParkingReport(db: SupabaseClient, input: ParsedParkingReport, ctx: ParkingContext): Promise<ParkingSaveResult> {
+  return writeParkingReport(db, await prepareParkingReport(db, input, ctx));
 }

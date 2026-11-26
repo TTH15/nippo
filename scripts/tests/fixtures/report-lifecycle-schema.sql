@@ -385,6 +385,13 @@ CREATE UNIQUE INDEX idx_daily_reports_v2_legacy ON public.daily_reports_v2 USING
 CREATE INDEX idx_daily_reports_v2_org_id ON public.daily_reports_v2 USING btree (org_id);
 CREATE UNIQUE INDEX daily_reports_v2_driver_date_course_cycle_identity_key ON public.daily_reports_v2 USING btree (driver_id, report_date, course_id, cycle_no, identity_id) WHERE ((identity_id IS NOT NULL) AND (rejected_at IS NULL));
 CREATE UNIQUE INDEX daily_reports_v2_driver_date_course_cycle_key ON public.daily_reports_v2 USING btree (driver_id, report_date, course_id, cycle_no) WHERE ((identity_id IS NULL) AND (rejected_at IS NULL));
+CREATE TABLE public.driver_courses (
+  driver_id uuid NOT NULL REFERENCES public.drivers(id),
+  driver_identity_id uuid NOT NULL REFERENCES public.driver_identities(id),
+  course_id uuid NOT NULL REFERENCES public.courses(id),
+  cycle_no int NOT NULL DEFAULT 0,
+  UNIQUE (driver_identity_id, course_id, cycle_no)
+);
 GRANT USAGE ON SCHEMA public TO service_role;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role;

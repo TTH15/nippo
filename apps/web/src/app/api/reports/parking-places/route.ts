@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
   const orgId = await resolveOrgId(user.driverId);
 
   const [placesRes, slotsRes] = await Promise.all([
-    supabase.from("map_places").select("id, name, lat, lng, icon, allow_parking").eq("org_id", orgId).order("name"),
+    supabase.from("map_places").select("id, name, lat, lng, icon, allow_parking, shape, radius_m").eq("org_id", orgId).order("name"),
     supabase.from("parking_slots").select("id, place_id, label, vehicle_id").eq("org_id", orgId).order("label"),
   ]);
   if (placesRes.error) {
@@ -29,13 +29,15 @@ export async function GET(req: NextRequest) {
     slotsByPlace.set(slot.place_id, list);
   }
   const places: ParkingPlaceOption[] = (placesRes.data ?? [])
-    .filter((place) => place.allow_parking !== false)
+    .filter((place) => place.allow_parking !== false && Number.isFinite(place.lat) && Number.isFinite(place.lng))
     .map((place) => ({
       id: place.id,
       name: place.name,
       lat: place.lat,
       lng: place.lng,
       icon: place.icon,
+      shape: place.shape,
+      radius_m: place.radius_m,
       slots: slotsByPlace.get(place.id) ?? [],
     }));
   return NextResponse.json({ places });
