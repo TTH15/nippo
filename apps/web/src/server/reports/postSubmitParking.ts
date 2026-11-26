@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isDateOnly, isUuid } from "@/server/db/adminResourceScope";
-import { loadDriverLease } from "@/server/billing/driverLease";
 import { parseParkingReport } from "./parking";
 
 export const POST_SUBMIT_PARKING_POLICY = "post_submit_map";
@@ -24,19 +23,19 @@ export async function readParkingReceipt(db: SupabaseClient, ctx: Owner, key: st
   return { reportDate: payload.date, vehicleId: vehicles[0] ?? null, stage };
 }
 
-export async function chooseParkingStage(db: SupabaseClient, ctx: Owner, key: string, reportDate: string, vehicleId: string | null) {
+export async function chooseParkingStage(db: SupabaseClient, ctx: Owner, key: string, vehicleId: string | null) {
   // A receipt gets the original server decision even when billing changes between network retries.
   const recorded = await readParkingReceipt(db, ctx, key);
   if (recorded) return recorded.stage;
   if (!vehicleId) return "not_required";
-  return await requiresVehicleReturn(db, ctx.driverId, reportDate) ? "required" : "not_required";
+  return await requiresVehicleReturn(db, ctx) ? "required" : "not_required";
 }
 
-export async function requiresVehicleReturn(db: SupabaseClient, driverId: string, reportDate: string) {
-  // courses.daily_lease is a rate for a DAILY contract, not a mode override for a monthly driver.
-  // Unknown/read failure is not an exemption.
-  const lease = await loadDriverLease(db, driverId, reportDate, reportDate);
-  return lease?.mode !== "MONTHLY";
+export async function requiresVehicleReturn(db: SupabaseClient, ctx: Owner) {
+  const { data, error } = await db.from("driver_report_requirements").select("parking_required,drivers!inner(org_id)")
+    .eq("driver_id", ctx.driverId).eq("drivers.org_id", ctx.orgId).maybeSingle();
+  if (error) throw error;
+  return data?.parking_required ?? true;
 }
 
 export function reportParkingPositionKey(ctx: Owner, receiptKey: string) {

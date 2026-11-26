@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
   });
   if (postSubmitParking) {
     try {
-      parkingStage = await chooseParkingStage(supabase, context, body.clientKey, reportDate, (vehicles[0] as string | undefined) ?? null);
+      parkingStage = await chooseParkingStage(supabase, context, body.clientKey, (vehicles[0] as string | undefined) ?? null);
       submittedItems[0][PARKING_STAGE_FIELD] = parkingStage;
     } catch {
       return NextResponse.json({ error: "日報を送信できませんでした。もう一度お試しください" }, { status: 503 });

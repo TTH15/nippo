@@ -428,6 +428,7 @@ export function VehiclePlate({
     <button
       type="button"
       onClick={onClick}
+      aria-label={[vehicle.number_prefix, vehicle.number_class, vehicle.number_hiragana, vehicle.number_numeric].filter(Boolean).join(" ") || vehicle.brand || "ナンバー未設定"}
       aria-pressed={!!selected}
       className={wrapperClass}
       style={wrapperStyle}

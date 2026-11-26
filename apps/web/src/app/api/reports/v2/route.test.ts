@@ -97,7 +97,7 @@ it("駐車要否をサーバーで決め日報を先に保存し、駐車の照�
   m.stage.mockResolvedValue("required");
   const response = await POST(request(b));
   expect(await response.json()).toMatchObject({ reportSaved: true, parkingStage: "required", parkingVehicleId: vehicle });
-  expect(m.stage).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ driverId: "self", orgId: "own-org" }), b.clientKey, b.reportDate, vehicle);
+  expect(m.stage).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ driverId: "self", orgId: "own-org" }), b.clientKey, vehicle);
   expect(m.rpc).toHaveBeenCalledWith("submit_report_day", expect.objectContaining({ p_items: [{ ...b.items[0], _pwaParkingStage: "required" }] }));
   expect(m.parking).not.toHaveBeenCalled();
   expect(m.writeParking).not.toHaveBeenCalled();

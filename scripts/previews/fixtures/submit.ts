@@ -43,7 +43,7 @@ type State = { places: typeof PLACES; submissions: unknown[]; phoneVerified: boo
   recent: boolean; smsSent: boolean; challenge: string | null; attempts: number; statusFailures: number;
   sourceImages: SourceImage[]; readings: unknown[]; imageTemplates: boolean; rewardFetchFailures: number };
 
-type FixtureReceipt = { receiptKey: string; vehicleId: string | null; reportDate: string; stage: "required" | "not_required" | "complete"; attempts: number; pendingCourseCount?: number };
+type FixtureReceipt = { receiptKey: string; vehicleId: string | null; reportDate: string; stage: "required" | "not_required" | "complete"; attempts: number; resumeFailed?: boolean; pendingCourseCount?: number };
 const PARKING_FIXTURE_PREFIX = "hakotora-preview-pwa-parking:";
 function readParkingFixture(scenario: string): FixtureReceipt | null {
   try { return JSON.parse(sessionStorage.getItem(PARKING_FIXTURE_PREFIX + scenario) ?? "null") as FixtureReceipt | null; } catch { return null; }
@@ -87,6 +87,8 @@ export const submitFixture: PreviewFixture<State> = {
     "parking-far": { label: "駐車・近くに登録場所なし", description: "架空の地図からピンを選ぶ" },
     "parking-denied": { label: "駐車・位置を取得できない", description: "許可なしでも候補またはピンを選ぶ" },
     "parking-map-error": { label: "駐車・地図エラー", description: "地図なしで登録場所から選ぶ" },
+    "parking-resume-offline": { label: "再開時の通信切れ", description: "地図で再読み込みすると最初の照会だけ失敗。「もう一度確認」で駐車登録を再開" },
+    "parking-response-lost": { label: "返却を保存した直後に通信切れ", description: "返却は記録済み。再読み込みか再試行で完了へ" },
     "parking-retry": { label: "駐車だけ再試行", description: "初回のみ駐車保存エラー" },
     "no-places": { label: "車庫なし", description: "登録車庫が無い会社。別の場所と状況だけ選べる" },
     "sms-only": { label: "かんたんログイン未設定", description: "SMS確認済み。本人確認後にかんたんログインを設定する" },
@@ -115,6 +117,10 @@ export const submitFixture: PreviewFixture<State> = {
     if (path === "/api/reports/v2/parking") {
       const saved = readParkingFixture(scenario);
       if (!saved || saved.receiptKey !== request.params.get("key")) return { stage: "not_found" };
+      if (scenario === "parking-resume-offline" && saved.stage === "required" && !saved.resumeFailed) {
+        writeParkingFixture(scenario, { ...saved, resumeFailed: true });
+        throw new Error("駐車場所の記録を確認できませんでした");
+      }
       return { stage: saved.stage, reportDate: saved.reportDate, vehicleId: saved.vehicleId };
     }
     const flow = readReportFlow(request, scenario);
@@ -178,6 +184,7 @@ export const submitFixture: PreviewFixture<State> = {
       }
       receipt.stage = "complete";
       writeParkingFixture(scenario, receipt);
+      if (scenario === "parking-response-lost") throw new Error("返却の保存結果を受信できませんでした");
       return { parkingSaved: true };
     }
     if (path === "/api/me/phone/send" || path === "/api/auth/reauth/options") {

@@ -85,7 +85,7 @@ export async function GET(req: NextRequest) {
           .in("course_id", courseIds)
       : Promise.resolve({ data: [] as any[] }),
     req.nextUrl.searchParams.get("parkingPolicy") === POST_SUBMIT_PARKING_POLICY
-      ? requiresVehicleReturn(supabase, user.driverId, date)
+      ? requiresVehicleReturn(supabase, { driverId: user.driverId, orgId })
       : undefined,
   ]);
   const shiftVehicleId =

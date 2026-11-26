@@ -40,7 +40,7 @@ beforeEach(() => { sessionStorage.clear(); mapMock.status = "ready"; });
 // 1台の紐付け車両 + 1シフトを返す標準モック。mileage/isEv を差し替え可能。
 const course = { courseId: "c1", cycleNo: 1, cycleLabel: "C1", courseName: "コースA", color: null, carrierId: null, carrierName: "", units: [], existing: null };
 function mockEndpoints({ mileage = 50000, isEv = false, candidates = [], parkingFails = false, monthly = false, resume, postScreen, postReport }: {
-  mileage?: number; isEv?: boolean; candidates?: typeof course[]; parkingFails?: boolean; monthly?: boolean; resume?: object;
+  mileage?: number; isEv?: boolean; candidates?: typeof course[]; parkingFails?: boolean; monthly?: boolean; resume?: object | (() => Promise<object>);
   postScreen?: () => Promise<unknown>; postReport?: () => Promise<unknown>;
 } = {}) {
   let tries = 0;
@@ -51,7 +51,7 @@ function mockEndpoints({ mileage = 50000, isEv = false, candidates = [], parking
       if (parkingFails && ++tries === 1) return Promise.reject(new Error("駐車場所を記録できませんでした"));
       return Promise.resolve({ parkingSaved: true });
     }
-    if (u.startsWith("/api/reports/v2/parking?")) return Promise.resolve(resume ?? { stage: "not_found" });
+    if (u.startsWith("/api/reports/v2/parking?")) return typeof resume === "function" ? resume() : Promise.resolve(resume ?? { stage: "not_found" });
     if (opts?.method === "POST" && u === "/api/reports/v2") {
       const vehicleId = JSON.parse(String((opts as RequestInit).body)).items[0]?.vehicleId;
       return postReport?.() ?? Promise.resolve({ reportSaved: true, parkingStage: monthly || !vehicleId ? "not_required" : "required", parkingVehicleId: vehicleId });
@@ -281,6 +281,66 @@ describe("SubmitPageClientV2 — 車の置き場所", () => {
     await userEvent.click(screen.getByRole("button", { name: "ここに返却" }));
     await waitFor(() => expect(parkBodies()).toHaveLength(1));
     expect(parkBodies()[0].parking.at).toBe("2026-11-23T20:41:00+09:00");
+  });
+
+  const mountForm = () => render(<SWRConfig value={{ provider: () => new Map() }}><SubmitPageClientV2 /></SWRConfig>);
+
+  it("送信前に離れると控え・日報・駐車記録は作られない", async () => {
+    mockEndpoints();
+    const form = mountForm();
+    await selectVehicleAndType("50001");
+    form.unmount();
+    expect(wasPosted()).toBe(false);
+    expect(sessionStorage.getItem("hakotora-pwa-parking-receipt")).toBeNull();
+    expect(parkBodies()).toHaveLength(0);
+  });
+
+  it("選択だけして離れ、同じタブに戻ると未確定のピンは再選択、日報は1回のまま", async () => {
+    const resume = vi.fn().mockResolvedValue({ stage: "required", reportDate: "2026-11-24", vehicleId: "v1" });
+    mockEndpoints({ resume });
+    const first = mountForm();
+    await submitVehicle();
+    await userEvent.click(await screen.findByRole("button", { name: "地図にピンを置く" }));
+    expect(screen.getByRole("button", { name: "ここに返却" })).toBeEnabled();
+    first.unmount();
+    mountForm();
+    expect(await screen.findByRole("heading", { name: "駐車場所" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "ここに返却" })).toBeDisabled();
+    expect(parkBodies()).toHaveLength(0);
+    expect(mockApiFetch.mock.calls.filter(([u]) => u === "/api/reports/v2")).toHaveLength(1);
+    expect(resume).toHaveBeenCalledTimes(1);
+  });
+
+  it("復帰時の通信切れは送信を再開せず、控えを残して照会だけ再試行する", async () => {
+    const resume = vi.fn().mockRejectedValueOnce(new Error("offline")).mockResolvedValue({ stage: "required", reportDate: "2026-11-24", vehicleId: "v1" });
+    mockEndpoints({ resume });
+    sessionStorage.setItem("hakotora-pwa-parking-receipt", "pending");
+    mountForm();
+    await userEvent.click(await screen.findByRole("button", { name: "もう一度確認" }));
+    expect(await screen.findByRole("heading", { name: "駐車場所" })).toBeVisible();
+    expect(resume).toHaveBeenCalledTimes(2);
+    expect(sessionStorage.getItem("hakotora-pwa-parking-receipt")).toBe("pending");
+    expect(wasPosted()).toBe(false);
+    expect(parkBodies()).toHaveLength(0);
+  });
+
+  it("駐車保存後に応答を失っても復帰時に完了を読み、日報・駐車を再送しない", async () => {
+    mockEndpoints({ resume: { stage: "complete", reportDate: "2026-11-24", vehicleId: "v1" } });
+    sessionStorage.setItem("hakotora-pwa-parking-receipt", "saved");
+    mountForm();
+    expect(await screen.findByRole("heading", { name: "日報の送信が完了しました！" })).toBeVisible();
+    expect(sessionStorage.getItem("hakotora-pwa-parking-receipt")).toBeNull();
+    expect(wasPosted()).toBe(false);
+    expect(parkBodies()).toHaveLength(0);
+  });
+
+  it("控えのない新しいタブでは自動照会せず日報入力を開く", async () => {
+    const resume = vi.fn().mockResolvedValue({ stage: "required", reportDate: "2026-11-24", vehicleId: "v1" });
+    mockEndpoints({ resume });
+    mountForm();
+    expect(await screen.findByRole("button", { name: "送信" })).toBeVisible();
+    expect(resume).not.toHaveBeenCalled();
+    expect(wasPosted()).toBe(false);
   });
 
   it("同じタブを再読み込みしたら保存済みの日報を再送せずに駐車記録へ戻る", async () => {

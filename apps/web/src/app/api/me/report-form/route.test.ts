@@ -20,6 +20,7 @@ vi.mock("@/server/db/client", () => ({ supabase: {
       select: () => q,
       eq: (col: string, value: unknown) => { mock.filter(table, col, value); rows = rows.filter(row => row[col] === value); return q; },
       in: (col: string, values: unknown[]) => { rows = rows.filter(row => values.includes(row[col])); return q; },
+      maybeSingle: async () => ({ data: rows[0] ?? null, error: null }),
       lte: () => q,
       or: () => q,
       order: () => q,
@@ -82,8 +83,8 @@ it("担当登録が読み取れない場合に全コースを返さない", asyn
 });
 
 
-it.each([["MONTHLY", false], ["DAILY", true]])("日報フォームは%s契約の車両返却要否を返す", async (mode, required) => {
-  mock.rows.driver_leases = [{ driver_id: "self", mode, amount: 10000, valid_from: date }];
+it.each([true, false])("日報フォームに本人の返却設定 %s を反映する", async (required) => {
+  mock.rows.driver_report_requirements = [{ driver_id: "self", "drivers.org_id": "org", parking_required: required }];
   const response = await GET(request("&candidates=1&parkingPolicy=post_submit_map"));
   expect(await response.json()).toHaveProperty("vehicleReturnRequired", required);
 });

@@ -331,6 +331,18 @@
   },
   {
     "method": "GET",
+    "endpoint": "/api/admin/driver-settings",
+    "description": "ドライバー設定の取得",
+    "guard": "can_view_members"
+  },
+  {
+    "method": "PATCH",
+    "endpoint": "/api/admin/driver-settings",
+    "description": "ドライバー設定の一部更新",
+    "guard": "can_view_members＋変更項目に応じてcan_manage_membersまたはcan_manage_vehicles"
+  },
+  {
+    "method": "GET",
     "endpoint": "/api/admin/events",
     "description": "イベント一覧",
     "guard": "can_view_org_settings"
