@@ -21,6 +21,8 @@ import DashboardPage from "@/app/(admin)/admin/page";
 import VehiclesPage from "@/app/(admin)/admin/(resource)/vehicles/page";
 import BankCleanupPage from "../bank-cleanup";
 import { bankCleanupFixture } from "./bankCleanup";
+import DriverSettingsPage from "@/app/(admin)/admin/(resource)/driver-settings/page";
+import { driverSettingsFixture } from "./driverSettings";
 import UsersPage from "@/app/(admin)/admin/(resource)/users/page";
 import UsersPendingPage from "@/app/(admin)/admin/(resource)/users/pending/page";
 import { usersPendingFixture } from "./usersPending";
@@ -126,6 +128,7 @@ export const PREVIEW_PAGES: PreviewPageEntry[] = [
   entry("invoice-new", invoiceNewFixture, InvoiceNewPage),
   entry("dashboard", dashboardFixture, DashboardPage),
   entry("vehicles", vehiclesFixture, VehiclesPage),
+  entry("driver-settings", driverSettingsFixture, DriverSettingsPage),
   entry("users", usersFixture, UsersPage),
   entry("users-pending", usersPendingFixture, UsersPendingPage),
   entry("bank-cleanup", bankCleanupFixture, BankCleanupPage),

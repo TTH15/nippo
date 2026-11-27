@@ -42,6 +42,7 @@ export const adminNavItems: NavItem[] = [
   {
     label: "ドライバー", icon: faUsers, children: [
       { href: "/admin/users", label: "ドライバー一覧", icon: faUsers, cap: "can_view_members" },
+      { href: "/admin/driver-settings", label: "ドライバー設定", icon: faGear, cap: "can_view_members" },
       { href: "/admin/users/pending", label: "参加・承認", icon: faUserPlus, cap: "can_approve_members" },
       { href: "/admin/attendance", label: "勤怠", icon: faClock, cap: "can_view_vehicles", beta: true },
     ],

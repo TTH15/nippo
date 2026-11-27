@@ -77,15 +77,17 @@ describe("保存済み日報の駐車", () => {
     expect(m.prepare).not.toHaveBeenCalled();
   });
 
-  it("月リースは報告日で判定し、車両なし・日額・不明を区別する。保存後の再送は当初の判定を使う", async () => {
-    expect(await chooseParkingStage(supabase, owner, "no-vehicle", date, null)).toBe("not_required");
+  it("車両なし・個人設定・未設定を区別し、再送は保存済みの判定を使う", async () => {
+    expect(await chooseParkingStage(supabase, owner, "no-vehicle", null)).toBe("not_required");
     expect(m.lease).not.toHaveBeenCalled();
-    m.lease.mockResolvedValueOnce({ mode: "MONTHLY", amount: 43000 }).mockResolvedValueOnce({ mode: "DAILY", amount: 0 }).mockResolvedValueOnce(null);
-    expect(await chooseParkingStage(supabase, owner, "first", date, vehicle)).toBe("not_required");
-    expect(await chooseParkingStage(supabase, owner, "second", date, vehicle)).toBe("required");
-    expect(await chooseParkingStage(supabase, owner, "unknown", date, vehicle)).toBe("required");
-    expect(m.lease).toHaveBeenLastCalledWith(expect.anything(), "self", date, date);
-    expect(await chooseParkingStage(supabase, owner, "monthly", date, vehicle)).toBe("not_required");
-    expect(m.lease).toHaveBeenCalledTimes(3);
+    m.rows.driver_report_requirements = [{ driver_id: "self", "drivers.org_id": "org", parking_required: false }];
+    expect(await chooseParkingStage(supabase, owner, "first", vehicle)).toBe("not_required");
+    m.rows.driver_report_requirements[0].parking_required = true;
+    expect(await chooseParkingStage(supabase, owner, "second", vehicle)).toBe("required");
+    m.rows.driver_report_requirements = [];
+    expect(await chooseParkingStage(supabase, owner, "unknown", vehicle)).toBe("required");
+
+    expect(await chooseParkingStage(supabase, owner, "monthly", vehicle)).toBe("not_required");
+    expect(m.lease).not.toHaveBeenCalled();
   });
 });

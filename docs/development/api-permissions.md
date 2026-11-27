@@ -1,6 +1,6 @@
 # API・権限一覧
 
-この表は `node scripts/generate-api-permissions.mjs` でAPIルートの実装から生成する。対象は 340 操作（238 ルート）。
+この表は `node scripts/generate-api-permissions.mjs` でAPIルートの実装から生成する。対象は 342 操作（239 ルート）。
 
 - 「入口の権限・条件」はルート先頭のガードを示す。会社・所有者・対象状態・追加権限などの処理内条件も適用されるため、この列だけで実行可否は確定しない。
 - `requireAuth(req, "DRIVER")` はDRIVERロール限定ではない。認証済み本人の操作を表し、所属状態も検証する。
@@ -45,7 +45,7 @@
 
 「ドライバーとして扱う」が有効なメンバーには、ロールを問わず本人の日報提出、希望休管理、シフト・報酬閲覧、プロフィール管理の本人権限が付く。本人権限は全社の `can_*` と別に判定される。
 
-## 管理（234件）
+## 管理（236件）
 
 | Method | エンドポイント | APIの概要 | 入口の権限・条件 |
 | --- | --- | --- | --- |
@@ -106,6 +106,8 @@
 | GET | `/api/admin/driver-lease` | ドライバーリースの取得 | いずれか [can_view_rewards, can_manage_rewards] |
 | PUT | `/api/admin/driver-lease` | ドライバーリースの更新 | can_manage_rewards |
 | GET | `/api/admin/driver-rewards` | ドライバー報酬の取得 | can_view_rewards |
+| GET | `/api/admin/driver-settings` | ドライバー設定の取得 | can_view_members |
+| PATCH | `/api/admin/driver-settings` | ドライバー設定の一部更新 | can_view_members＋変更項目に応じてcan_manage_membersまたはcan_manage_vehicles |
 | GET | `/api/admin/events` | イベント一覧 | can_view_org_settings |
 | POST | `/api/admin/events` | イベント作成 | can_manage_org_settings |
 | DELETE | `/api/admin/events/[id]` | イベント削除（FK CASCADE で teams/members/points も削除） | can_manage_org_settings |

@@ -535,3 +535,19 @@ npx tsx scripts/db/bank-cleanup-review.ts --input <同じ読取JSON> --out-dir <
 `npm run preview:admin -- admin --port 3197` の `/preview/admin/driver-setup` は本番の `DriverSetupGate`・`MePageContent`・`Nav`・`UserBottomNav` を再利用する。`status-slow-complete` は登録確認を3秒遅延し、待機中も完了後も確認文・モーダルを出さない。`status-slow-incomplete` は結果の取得後に必要な登録だけを案内する。`status-read-error` は初回取得が失敗し、「再読み込み」で登録済みとして入場する。`loading` は待機継続、`normal` は登録済み、`both-missing` は未登録。
 
 確認待ちの業務操作制限と毎回の最新状態取得を維持し、端末に完了判定を永続保存しない。マイページ内の初期確認文も非表示。明示的に開く口座変更ページは読み込み表示を維持する。SMS・パスキー・保存は架空処理で、再読み込み／シナリオ変更では架空状態を初期化する。PCでのドライバー本文は監査用表示で、実機の認証・SMS到達・本番データ更新は検証しない。
+
+### ドライバー設定
+
+`npm run preview:admin -- admin --port 3296` で `/preview/admin/driver-settings?scenario=normal` を開く。運営のドライバー設定ページ本体、共通のチェック項目、車両プレート、リース編集 API の形を再利用。月額・日割り・リースなし、複数台・車両なしの架空ドライバーがいる。設定変更はこのプレビュー内で確認できる。`save-error` は最初の保存だけ失敗し、`role=viewer` は閲覧のみ。
+
+### 日報保存後の駐車登録を中断する
+
+同じサーバーの `/preview/admin/submit?scenario=parking-near` をドライバー設定から同じタブで開き、走行距離に `50001` を入れて「返却場所を選択」。地図でブラウザの戻る・進むを試すと、日報を送り直さず駐車登録へ戻れる。場所を選んでから再読み込みすると、未確定の場所・メモは選び直す。
+
+シナリオごとに独立したタブで開く。プレビューの模擬サーバー記録はケースとタブ単位で分離している。実運用の再開用の控えもタブ単位で、別ブラウザや端末をまたぐ未完了一覧はない。
+
+| シナリオ | 操作 | 結果 |
+| --- | --- | --- |
+| `parking-resume-offline` | 地図で再読み込みして「もう一度確認」 | 日報は保存済み。照会だけ再試行し、駐車登録へ戻る |
+| `parking-retry` | 京都車庫を選び「ここに返却」を2回、初回のエラー後に押し直す | 初回は駐車未保存、選択を保って駐車だけ再送 |
+| `parking-response-lost` | 京都車庫で返却し、エラー後に再読み込み | 駐車は保存済み。照会で完了に進む |

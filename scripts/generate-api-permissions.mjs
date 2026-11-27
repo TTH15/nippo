@@ -17,7 +17,7 @@ const segmentLabels = {
   account: "アカウント", attendance: "出勤", badges: "件数バッジ", counterparties: "取引先", daily: "日報", all: "全件",
   approve: "承認", reject: "差戻し", proxy: "代理入力", summary: "集計", "day-summary": "日別集計", "day-summary-range": "期間集計",
   "report-form": "日報フォーム", "unread-count": "未読件数", "driver-ad-hoc-expenses": "ドライバー臨時経費",
-  "driver-expenses": "ドライバー経費", "driver-lease": "ドライバーリース", "driver-rewards": "ドライバー報酬",
+  "driver-settings": "ドライバー設定", "driver-expenses": "ドライバー経費", "driver-lease": "ドライバーリース", "driver-rewards": "ドライバー報酬",
   "course-billing": "コース請求", "course-rates": "コース単価", "course-report-fields": "コース報告項目", cycles: "便",
   drivers: "ドライバー", events: "イベント", members: "メンバー", points: "ポイント", "billing-detail": "請求明細",
   "custom-lines": "調整行", "line-label": "行名", "merge-lines": "行統合", "merged-lines": "統合行", "month-lines": "月別明細",
@@ -48,6 +48,7 @@ const special = new Map([
   ["POST /api/work/location", "認証＋会社所属＋本人の稼働セッション"],
 ]);
 const delegated = new Map([
+  ["PATCH /api/admin/driver-settings", "can_view_members＋変更項目に応じてcan_manage_membersまたはcan_manage_vehicles"],
   ["GET /api/record-forms", "認証＋フォームごとの閲覧範囲。管理はcan_manage_record_forms"],
   ["POST /api/record-forms", "can_manage_record_forms"],
   ["PUT /api/record-forms/[formId]", "can_manage_record_forms"],
